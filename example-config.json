@@ -1,0 +1,54 @@
+{
+  "rules": [
+    {
+      "name": "Blocked Issues",
+      "jql": "project = MYPROJECT AND status = Blocked AND assignee IS NOT EMPTY",
+      "max_time_in_status_minutes": 120,
+      "description": "Escalate issues that have been blocked for more than 2 hours",
+      "escalation_paths": [
+        {
+          "type": "jira_comment",
+          "recipient": "manager_username"
+        },
+        {
+          "type": "slack_dm",
+          "recipient": "U12345678"
+        }
+      ]
+    },
+    {
+      "name": "P1 Issues",
+      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
+      "max_time_in_status_minutes": 30,
+      "description": "Escalate P1 issues that haven't moved status in 30 minutes",
+      "escalation_paths": [
+        {
+          "type": "pagerduty",
+          "recipient": "on-call@example.com"
+        },
+        {
+          "type": "email",
+          "recipient": "team-lead@example.com",
+          "message_template": "URGENT: P1 issue {issue_key} ({issue_summary}) has been in {status} for {time_in_status_minutes} minutes!"
+        }
+      ]
+    },
+    {
+      "name": "Unassigned Issues",
+      "jql": "project = MYPROJECT AND assignee IS EMPTY AND status = 'To Do'",
+      "max_time_in_status_minutes": 240,
+      "description": "Escalate unassigned issues that have been in To Do for more than 4 hours",
+      "escalation_paths": [
+        {
+          "type": "jira_comment",
+          "recipient": "project_manager"
+        },
+        {
+          "type": "slack_dm",
+          "recipient": "U87654321",
+          "message_template": "Issue {issue_key} has been unassigned in To Do status for {time_in_status_minutes} minutes. Please assign this issue to someone."
+        }
+      ]
+    }
+  ]
+}
