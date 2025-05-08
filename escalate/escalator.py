@@ -1,10 +1,12 @@
 """Main escalation logic."""
 import logging
-from typing import Dict, List, Any
+import os
+from typing import Dict, List, Any, Set, Optional
+from datetime import datetime, timedelta
 
 from escalate.config import Config
 from escalate.jira_client import JiraClient
-from escalate.models import Rule, EscalationEvent, EscalationPathConfig, EscalationPathType
+from escalate.models import Rule, EscalationEvent, EscalationPathConfig, EscalationPathType, EscalationHistory
 from escalate.escalation_paths import (
     JiraCommentEscalationPath,
     SlackDMEscalationPath,
@@ -43,6 +45,10 @@ class Escalator:
         
         # Initialize Sumo Logic logger
         self.sumo_logger = SumoLogicHandler(config.sumo_endpoint_url) if config.sumo_endpoint_url else None
+        
+        # Initialize escalation history tracker
+        history_path = config.get_history_file_path()
+        self.history = EscalationHistory(history_path)
     
     def load_rules(self) -> List[Rule]:
         """Load rules from configuration."""
@@ -54,28 +60,98 @@ class Escalator:
         
         Returns the number of issues escalated.
         """
-        rules = self.load_rules()
+        # Group rules by level for later use
+        rules_by_level = {}
+        for rule in self.load_rules():
+            if rule.level not in rules_by_level:
+                rules_by_level[rule.level] = []
+            rules_by_level[rule.level].append(rule)
+        
         total_escalated = 0
         
-        for rule in rules:
-            logger.info(f"Processing rule: {rule.name or rule.jql}")
-            
-            # Find issues matching the rule
-            issues = self.jira_client.find_issues_for_rule(rule)
-            
-            if not issues:
-                logger.info(f"No issues found matching rule: {rule.name or rule.jql}")
-                continue
-            
-            logger.info(f"Found {len(issues)} issues to escalate for rule: {rule.name or rule.jql}")
-            
-            # Escalate each issue
-            for issue in issues:
-                escalated = self.escalate_issue(issue, rule)
-                if escalated:
-                    total_escalated += 1
+        # Process each level of rules
+        for level in sorted(rules_by_level.keys()):
+            rules = rules_by_level[level]
+            for rule in rules:
+                logger.info(f"Processing rule: {rule.name or rule.jql} (Level {rule.level})")
+                
+                # Find issues matching the rule
+                issues = self.jira_client.find_issues_for_rule(rule)
+                
+                if not issues:
+                    logger.info(f"No issues found matching rule: {rule.name or rule.jql}")
+                    continue
+                
+                logger.info(f"Found {len(issues)} potential issues for rule: {rule.name or rule.jql}")
+                
+                # Filter issues based on days_to_activate and escalation history
+                eligible_issues = self.filter_eligible_issues(issues, rule)
+                
+                if not eligible_issues:
+                    logger.info(f"No eligible issues to escalate for rule: {rule.name or rule.jql}")
+                    continue
+                
+                logger.info(f"Found {len(eligible_issues)} eligible issues to escalate for rule: {rule.name or rule.jql}")
+                
+                # Escalate each eligible issue
+                for issue in eligible_issues:
+                    escalated = self.escalate_issue(issue, rule)
+                    if escalated:
+                        total_escalated += 1
+                        # Record this escalation in history to prevent duplicates
+                        self.history.record_escalation(issue["key"], rule.level)
         
         return total_escalated
+    
+    def filter_eligible_issues(self, issues: List[Dict[str, Any]], rule: Rule) -> List[Dict[str, Any]]:
+        """
+        Filter issues based on escalation history and days_to_activate rules.
+        
+        Args:
+            issues: List of issues from JIRA
+            rule: The rule being processed
+            
+        Returns:
+            List of issues eligible for escalation
+        """
+        eligible_issues = []
+        cooldown_hours = self.config.escalation_cooldown_hours
+        
+        for issue in issues:
+            issue_key = issue["key"]
+            
+            # Check if this issue was recently escalated at this level
+            if self.history.was_recently_escalated(issue_key, rule.level, cooldown_hours):
+                logger.info(f"Issue {issue_key} recently escalated at level {rule.level}, skipping")
+                continue
+            
+            # If this is not the first level, check previous levels have been escalated
+            if rule.level > 1:
+                # Check if previous level was escalated
+                prev_level_escalated = False
+                for prev_level in range(1, rule.level):
+                    if not self.history.was_recently_escalated(issue_key, prev_level, 24*365):  # Check if ever escalated at prev level
+                        break
+                else:
+                    prev_level_escalated = True
+                
+                if not prev_level_escalated:
+                    logger.info(f"Issue {issue_key} has not been escalated at all previous levels, skipping")
+                    continue
+            
+            # Check days_to_activate rule
+            if rule.days_to_activate > 0:
+                days_since_first = self.history.get_days_since_first_escalation(issue_key)
+                
+                # If never escalated before or not enough days have passed
+                if days_since_first is None or days_since_first < rule.days_to_activate:
+                    logger.info(f"Issue {issue_key} not ready for level {rule.level} (needs {rule.days_to_activate} days, has {days_since_first or 0})")
+                    continue
+            
+            # If we got here, the issue is eligible
+            eligible_issues.append(issue)
+        
+        return eligible_issues
     
     def escalate_issue(self, issue: Dict[str, Any], rule: Rule) -> bool:
         """
@@ -99,7 +175,8 @@ class Escalator:
                 status=issue["status"],
                 time_in_status_minutes=issue["time_in_status_minutes"],
                 rule=rule,
-                escalation_path=path_config
+                escalation_path=path_config,
+                level=rule.level  # Set the escalation level
             )
             
             # Execute the escalation
@@ -110,7 +187,7 @@ class Escalator:
                 
                 if success:
                     any_successful = True
-                    logger.info(f"Successfully escalated {issue['key']} via {path_config.type.value}")
+                    logger.info(f"Successfully escalated {issue['key']} via {path_config.type.value} at level {rule.level}")
                 else:
                     logger.error(f"Failed to escalate {issue['key']} via {path_config.type.value}")
                 

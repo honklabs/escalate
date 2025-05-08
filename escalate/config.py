@@ -1,7 +1,7 @@
 """Configuration management for the escalate tool."""
 import os
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -27,6 +27,12 @@ class Config:
         self.email_smtp_port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
         
         self.sumo_endpoint_url = os.getenv("SUMO_ENDPOINT_URL")
+        
+        # Escalation history storage
+        self.history_file = os.getenv("ESCALATION_HISTORY_FILE", "escalation_history.json")
+        
+        # Hours between same level escalations (default: 24 hours)
+        self.escalation_cooldown_hours = int(os.getenv("ESCALATION_COOLDOWN_HOURS", "24"))
         
         # Rules configuration
         self.rules: List[Dict[str, Any]] = []
@@ -58,3 +64,25 @@ class Config:
             return False
             
         return True
+    
+    def get_rules_by_level(self) -> Dict[int, List[Dict[str, Any]]]:
+        """Group rules by their escalation level."""
+        rules_by_level = {}
+        
+        for rule in self.rules:
+            level = rule.get("level", 1)
+            if level not in rules_by_level:
+                rules_by_level[level] = []
+            rules_by_level[level].append(rule)
+            
+        return rules_by_level
+        
+    def get_history_file_path(self) -> str:
+        """Get the full path to the escalation history file."""
+        # If it's an absolute path, use it as is
+        if os.path.isabs(self.history_file):
+            return self.history_file
+            
+        # Otherwise, use a path relative to the config directory
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(config_dir, self.history_file)

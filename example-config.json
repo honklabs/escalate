@@ -1,14 +1,98 @@
 {
+  "escalation_cooldown_hours": 24,
+  "history_file": "escalation_history.json",
   "rules": [
     {
-      "name": "Blocked Issues",
-      "jql": "project = MYPROJECT AND status = Blocked AND assignee IS NOT EMPTY",
-      "max_time_in_status_minutes": 120,
-      "description": "Escalate issues that have been blocked for more than 2 hours",
+      "name": "P1 Issues - Initial Alert",
+      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
+      "max_time_in_status_minutes": 30,
+      "level": 1,
+      "days_to_activate": 0,
+      "description": "First escalation for P1 issues that haven't moved status in 30 minutes",
       "escalation_paths": [
         {
           "type": "jira_comment",
-          "recipient": "manager_username"
+          "recipient": "assignee",
+          "message_template": "⚠️ This P1 issue has been in {status} status for more than {time_in_status_minutes:.0f} minutes. Please update the status or add a comment."
+        },
+        {
+          "type": "slack_dm",
+          "recipient": "U12345678",
+          "message_template": "⚠️ *Initial Alert*: P1 issue {issue_key} ({issue_summary}) has been in {status} for {time_in_status_minutes:.0f} minutes!"
+        }
+      ]
+    },
+    {
+      "name": "P1 Issues - Day 1 Escalation",
+      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
+      "max_time_in_status_minutes": 30,
+      "level": 2,
+      "days_to_activate": 1,
+      "description": "Second escalation for P1 issues, active after 1 day",
+      "escalation_paths": [
+        {
+          "type": "jira_comment",
+          "recipient": "manager_username",
+          "message_template": "🔔 **Manager Alert**: This P1 issue has been in {status} status for more than 1 day. Please ensure this is being worked on."
+        },
+        {
+          "type": "email",
+          "recipient": "team-lead@example.com",
+          "message_template": "🔔 ALERT: P1 issue {issue_key} ({issue_summary}) has been in {status} for more than 1 day!"
+        }
+      ]
+    },
+    {
+      "name": "P1 Issues - Day 2 Escalation",
+      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
+      "max_time_in_status_minutes": 30,
+      "level": 3,
+      "days_to_activate": 2,
+      "description": "Third escalation for P1 issues, active after 2 days",
+      "escalation_paths": [
+        {
+          "type": "slack_dm",
+          "recipient": "U87654321",
+          "message_template": "🚨 **Director Alert**: P1 issue {issue_key} has been stuck for 2+ days. This requires immediate attention."
+        },
+        {
+          "type": "email",
+          "recipient": "director@example.com",
+          "message_template": "🚨 URGENT: P1 issue {issue_key} ({issue_summary}) has been in {status} for more than 2 days without resolution."
+        }
+      ]
+    },
+    {
+      "name": "P1 Issues - Day 3 Escalation",
+      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
+      "max_time_in_status_minutes": 30,
+      "level": 4,
+      "days_to_activate": 3,
+      "description": "Final escalation for P1 issues, active after 3 days",
+      "escalation_paths": [
+        {
+          "type": "pagerduty",
+          "recipient": "on-call@example.com"
+        },
+        {
+          "type": "email",
+          "recipient": "vp@example.com",
+          "message_template": "🔥 CRITICAL ALERT: P1 issue {issue_key} ({issue_summary}) has been in {status} for MORE THAN 3 DAYS without resolution. This requires IMMEDIATE executive attention."
+        }
+      ]
+    },
+    {
+      "name": "Blocked Issues - Initial Alert",
+      "jql": "project = MYPROJECT AND status = Blocked AND assignee IS NOT EMPTY",
+      "max_time_in_status_minutes": 120,
+      "level": 1,
+      "days_to_activate": 0,
+      "description": "First escalation for issues blocked for more than 2 hours",
+      "escalation_paths": [
+        {
+          "type": "jira_comment",
+          "recipient": "assignee",
+          "message_template": "This issue has been blocked for more than 2 hours. Please update the status or add information about the blocker."
         },
         {
           "type": "slack_dm",
@@ -17,36 +101,51 @@
       ]
     },
     {
-      "name": "P1 Issues",
-      "jql": "project = MYPROJECT AND priority = P1 AND status != Done",
-      "max_time_in_status_minutes": 30,
-      "description": "Escalate P1 issues that haven't moved status in 30 minutes",
+      "name": "Blocked Issues - Day 1 Escalation",
+      "jql": "project = MYPROJECT AND status = Blocked AND assignee IS NOT EMPTY",
+      "max_time_in_status_minutes": 120,
+      "level": 2,
+      "days_to_activate": 1,
+      "description": "Second escalation for issues blocked for more than 1 day",
       "escalation_paths": [
         {
-          "type": "pagerduty",
-          "recipient": "on-call@example.com"
+          "type": "jira_comment",
+          "recipient": "manager_username",
+          "message_template": "This issue has been blocked for more than 24 hours. Management attention is required."
         },
         {
           "type": "email",
-          "recipient": "team-lead@example.com",
-          "message_template": "URGENT: P1 issue {issue_key} ({issue_summary}) has been in {status} for {time_in_status_minutes} minutes!"
+          "recipient": "team-lead@example.com"
         }
       ]
     },
     {
-      "name": "Unassigned Issues",
+      "name": "Unassigned Issues - Initial Alert",
       "jql": "project = MYPROJECT AND assignee IS EMPTY AND status = 'To Do'",
       "max_time_in_status_minutes": 240,
-      "description": "Escalate unassigned issues that have been in To Do for more than 4 hours",
+      "level": 1,
+      "days_to_activate": 0,
+      "description": "First escalation for unassigned issues that have been in To Do for more than 4 hours",
       "escalation_paths": [
         {
           "type": "jira_comment",
-          "recipient": "project_manager"
-        },
+          "recipient": "project_manager",
+          "message_template": "This issue has been unassigned in To Do status for more than 4 hours. Please assign it to someone."
+        }
+      ]
+    },
+    {
+      "name": "Unassigned Issues - Day 1 Escalation",
+      "jql": "project = MYPROJECT AND assignee IS EMPTY AND status = 'To Do'",
+      "max_time_in_status_minutes": 240,
+      "level": 2,
+      "days_to_activate": 1,
+      "description": "Second escalation for unassigned issues after 1 day",
+      "escalation_paths": [
         {
           "type": "slack_dm",
           "recipient": "U87654321",
-          "message_template": "Issue {issue_key} has been unassigned in To Do status for {time_in_status_minutes} minutes. Please assign this issue to someone."
+          "message_template": "Issue {issue_key} has been unassigned in To Do status for more than 24 hours. Please prioritize assignment."
         }
       ]
     }
