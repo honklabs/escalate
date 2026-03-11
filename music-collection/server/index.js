@@ -204,6 +204,6 @@ app.post('/api/albums/import', (req, res) => {
 });
 
 const PORT = 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Music collection API running on http://localhost:${PORT}`);
 });
