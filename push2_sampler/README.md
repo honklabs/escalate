@@ -23,6 +23,7 @@ All 64 pads are sample slots.
 | **green** | filled slot |
 | dim green | filled, but muted (you won't hear it) |
 | amber | that sample is sounding right now |
+| yellow | filled, but the take no longer fits its bars — see below |
 
 * Press a **blank** pad → **Record mode** for that slot.
 * **Tap** a **filled** pad → that sample's own **Sample page**.
@@ -79,6 +80,21 @@ simply play over itself, and other samples layer on top.
 Then **Session** (or the left arrow) takes you back to the library, where you
 repeat the whole process with the next sample.
 
+### Takes that fall off the grid
+
+A take is recorded as an exact number of bars at the tempo of the moment, and it
+remembers that tempo. Change the song's tempo and the audio no longer fills
+those bars — a two-bar loop cut at 240 BPM is 1.83 bars at 220. Rather than
+drift silently, the slot turns **yellow** in the library, and its page says so:
+
+```
+OFF GRID: 1.83 bars at 220 BPM (recorded at 240) - button 1 below to fit
+```
+
+The first button under the display pads or trims the take to fit exactly (and
+it is undoable). Nothing is done behind your back: the audio is left alone
+until you ask. Pitch-preserving stretching is a later item.
+
 ### Undo
 
 `Undo` takes back the last 64 edits and `Shift`+`Undo` puts them back: a
@@ -100,7 +116,9 @@ safety net for your hands, not project history.
 | `Mute` | Sample page: hear / don't hear this sample |
 | `Delete` | arm delete (then press a pad) · `Shift`+`Delete` on a sample page deletes it |
 | `Undo` | take back the last edit · `Shift`+`Undo` redoes it |
-| `Metronome` | click on/off |
+| `Metronome` | click on/off · `Shift`+`Metronome` cycles input monitoring |
+| button 1 below the display | Sample page: fit an off-grid take to its bars |
+| the 8 buttons above the display | input level meter |
 | `Repeat` | loop the 64-bar song on/off |
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
 | Tempo encoder | BPM (hold `Shift` for ±10) |
@@ -119,6 +137,14 @@ Every voice gets a 3 ms fade at each end, and anything cut short — `Stop`, a
 new take, or the 97th simultaneous voice — fades out over 10 ms instead of
 stopping dead, so loop boundaries and stops do not click.
 
+### Hearing the input
+
+`Shift`+`Metronome` cycles monitoring: **off**, **auto** (only while a take
+runs, which is when you need to hear yourself), **on**. It ships **off**,
+because on speakers rather than headphones it feeds back; `--monitor auto`
+starts there instead. The eight buttons above the display are an input meter,
+and a clipped input says `CLIP` and turns the `Record` button bright red.
+
 Only the audio callback writes transport state. The UI thread allocates up
 front, publishes what it is asking for, and posts a command the callback
 applies at the top of the next block — it never takes a lock, so a slow UI pass
@@ -135,7 +161,8 @@ A project is a directory, written whenever something changes and on exit:
 
 ```
 my-song/
-  project.json        tempo, and per slot: length in bars, trigger bars, mute, gain
+  project.json        tempo, and per slot: length in bars, trigger bars, mute,
+                      gain, and the tempo/rate the take was recorded at
   samples/slot_00.wav one file per filled slot
 ```
 
@@ -181,10 +208,11 @@ the transport run, `q` quits.
 python -m pytest tests -q
 ```
 
-118 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+141 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
-take lengths, command deferral, dropout reporting), undo/redo, project
-save/load, and the full pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+take lengths, command deferral, metering, monitoring, dropout reporting),
+undo/redo, off-grid detection and repair, project save/load, and the full
+pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 

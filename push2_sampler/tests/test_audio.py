@@ -404,3 +404,66 @@ def test_the_portaudio_callback_renders_and_reports():
     assert outdata[FADE + 10, 0] == pytest.approx(0.5)  # it rendered
     assert engine.stats.xruns == 1  # and noticed the dropout
     assert ("xrun", 1) in engine.poll_events()
+
+
+# ------------------------------------- input metering and monitoring (F-07)
+def test_the_input_meter_follows_the_signal():
+    engine = make_engine()
+    loud = np.full((64, 1), 0.5, dtype=np.float32)
+    engine.process_offline(64, loud)
+    assert engine.stats.input_peak == pytest.approx(0.5)
+    assert engine.stats.input_rms == pytest.approx(0.5, abs=0.01)
+
+
+def test_the_peak_meter_falls_back_slowly():
+    engine = make_engine()
+    engine.process_offline(64, np.full((64, 1), 0.8, dtype=np.float32))
+    first = engine.stats.input_peak
+    engine.process_offline(64)  # silence
+    second = engine.stats.input_peak
+    assert 0.0 < second < first  # decaying, not snapping to zero
+    for _ in range(40):
+        engine.process_offline(64)
+    assert engine.stats.input_peak < 0.01
+
+
+def test_clipping_latches_until_it_is_read():
+    engine = make_engine()
+    engine.process_offline(64, np.full((64, 1), 1.2, dtype=np.float32))
+    assert engine.input_clipped is True
+    engine.process_offline(64)  # a quiet block does not clear it
+    assert engine.take_clipped() is True
+    assert engine.take_clipped() is False  # reading clears the latch
+
+
+def test_monitoring_off_keeps_the_input_out_of_the_output():
+    engine = make_engine(monitor="off", monitor_gain=1.0)
+    out = engine.process_offline(64, np.full((64, 1), 0.5, dtype=np.float32))
+    assert np.all(out == 0.0)
+
+
+def test_monitoring_on_passes_the_input_through_at_its_gain():
+    engine = make_engine(monitor="on", monitor_gain=0.5)
+    out = engine.process_offline(64, np.full((64, 1), 0.5, dtype=np.float32))
+    assert out[0, 0] == pytest.approx(0.25)
+    assert out[0, 1] == pytest.approx(0.25)
+
+
+def test_auto_monitoring_only_while_a_take_runs():
+    engine = make_engine(monitor="auto", monitor_gain=1.0)
+    signal = np.full((64, 1), 0.5, dtype=np.float32)
+    assert np.all(engine.process_offline(64, signal) == 0.0)  # idle: silent
+
+    engine.arm_record(bars=1, count_in_beats=4)
+    out = engine.process_offline(64, signal)
+    assert out[0, 0] == pytest.approx(0.5)  # counting in: audible
+
+    engine.stop()
+    for _ in range(4):  # let the count-in click finish its release fade
+        engine.process_offline(64, signal)
+    assert np.all(engine.process_offline(64, signal) == 0.0)  # idle again
+
+
+def test_a_zero_monitor_gain_still_means_silence():
+    engine = make_engine(monitor="on", monitor_gain=0.0)
+    assert np.all(engine.process_offline(64, np.full((64, 1), 0.5, np.float32)) == 0.0)

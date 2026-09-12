@@ -57,6 +57,13 @@ MAX_RELEASING = 16
 FADE_MS = 3.0
 #: Longer fade used when a voice is cut short: Stop, a new take, voice stealing.
 RELEASE_MS = 10.0
+#: How fast the input peak meter falls back, per block.
+METER_DECAY = 0.85
+
+MONITOR_OFF = "off"
+MONITOR_ON = "on"
+#: Monitor only while a take is running, which is when a player needs to hear it.
+MONITOR_AUTO = "auto"
 
 IDLE = "idle"
 COUNT_IN = "count_in"
@@ -111,6 +118,10 @@ class Stats:
     callback_ms: float = 0.0
     #: Worst block so far; compare against the block's own duration as a budget.
     callback_ms_max: float = 0.0
+    #: Input peak, with a slow fall-back so a meter is readable.
+    input_peak: float = 0.0
+    #: Input RMS over the last block.
+    input_rms: float = 0.0
 
 
 @dataclass
@@ -174,7 +185,8 @@ class Engine:
         song_bars: int = 64,
         rec_latency_ms: float = 0.0,
         play_while_recording: bool = True,
-        monitor_gain: float = 0.0,
+        monitor_gain: float = 1.0,
+        monitor: str = MONITOR_OFF,
         null_input: str = "tone",
     ) -> None:
         self.transport = Transport(samplerate, bpm, beats_per_bar, song_bars)
@@ -187,6 +199,11 @@ class Engine:
         self.rec_latency_frames = max(0, int(samplerate * rec_latency_ms / 1000.0))
         self.play_while_recording = play_while_recording
         self.monitor_gain = float(monitor_gain)
+        #: off / on / auto -- see MONITOR_*.  Plain attribute: a stale read of it
+        #: for one block is harmless.
+        self.monitor = monitor
+        #: Latches when the input clips; the UI clears it with take_clipped().
+        self.input_clipped = False
         self.null_input = null_input
 
         self.events: queue.SimpleQueue = queue.SimpleQueue()
@@ -199,6 +216,8 @@ class Engine:
         self.stats = Stats()
         self._xruns = 0
         self._cb_ms_max = 0.0
+        self._in_peak = 0.0
+        self._in_rms = 0.0
 
         self._pos = 0.0
         self._running = False
@@ -541,7 +560,7 @@ class Engine:
             seg = out[i : i + n]
             self._mix(seg, n)
             if inp is not None:
-                if self.monitor_gain > 0.0:
+                if self._monitoring():
                     self._monitor(seg, inp[i : i + n])
                 if self._rec_state == RECORDING:
                     self._capture(inp[i : i + n], n)
@@ -550,6 +569,8 @@ class Engine:
                 self._wrap_song()
             i += n
         np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
+        if inp is not None and frames:
+            self._meter_input(inp[:frames])
         # Only drop the intent if the UI has not published a newer one since we
         # read it, which would otherwise lose that newer view for a block.
         if self._intent is satisfying:
@@ -711,9 +732,30 @@ class Engine:
             env *= self._release_win[releasing : releasing + k]
         return env
 
+    def _monitoring(self) -> bool:
+        if self.monitor_gain <= 0.0:
+            return False
+        if self.monitor == MONITOR_ON:
+            return True
+        return self.monitor == MONITOR_AUTO and self._rec_state != IDLE
+
     def _monitor(self, seg: np.ndarray, inp: np.ndarray) -> None:
         chunk = inp[:, : self.out_channels]
         seg += chunk * self.monitor_gain
+
+    def _meter_input(self, inp: np.ndarray) -> None:
+        peak = float(np.abs(inp).max())
+        if peak >= 1.0:
+            self.input_clipped = True
+        # Rise instantly, fall slowly, so a transient stays visible.
+        self._in_peak = max(peak, self._in_peak * METER_DECAY)
+        self._in_rms = float(np.sqrt(np.mean(np.square(inp, dtype=np.float64))))
+
+    def take_clipped(self) -> bool:
+        """Read and clear the clip latch."""
+        clipped = self.input_clipped
+        self.input_clipped = False
+        return clipped
 
     def _capture(self, inp: np.ndarray, n: int) -> None:
         buf = self._rec_buf
@@ -753,6 +795,8 @@ class Engine:
             voices=len(self._voices),
             callback_ms=elapsed_ms,
             callback_ms_max=self._cb_ms_max,
+            input_peak=self._in_peak,
+            input_rms=self._in_rms,
         )
 
     # ------------------------------------------------------------------

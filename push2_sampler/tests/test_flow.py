@@ -1,14 +1,21 @@
 """End-to-end workflow tests driven through the simulated control surface."""
 
 import json
+import time
 
 import numpy as np
 import pytest
 
 from push2sampler import colors
-from push2sampler.app import App
+from push2sampler.app import CLIP_WARNING_S, App
 from push2sampler.audio import FADE_MS, Engine
-from push2sampler.constants import Btn, ENCODER_TEMPO, ENCODER_TRACK
+from push2sampler.constants import (
+    DISPLAY_ROW_BOTTOM,
+    DISPLAY_ROW_TOP,
+    ENCODER_TEMPO,
+    ENCODER_TRACK,
+    Btn,
+)
 from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
 from push2sampler.push2 import SimPush
@@ -41,8 +48,20 @@ def pump(app):
         app.handle(event)
     for event in app.engine.poll_events():
         app.on_engine_event(event)
+    if app.engine.take_clipped():
+        app._clip_until = time.monotonic() + CLIP_WARNING_S
+        app.notify("input clipping")
     app.mode.on_tick()
     app.render()
+
+
+def take(engine, bars=1, value=0.5):
+    """Audio of exactly ``bars`` bars, the way a real take comes out.
+
+    Fabricating a "1 bar" sample out of 10 frames is the very thing the
+    off-grid flag catches, so fixtures that stand in for takes use this.
+    """
+    return np.full((int(bars * engine.frames_per_bar), 1), value, dtype=np.float32)
 
 
 def record_take(app, engine, bars):
@@ -62,8 +81,8 @@ def test_library_starts_all_white(rig):
 
 
 def test_filled_slots_are_green_blank_stay_white(rig):
-    app, push, _, project = rig
-    project.put(5, np.zeros((100, 1), dtype=np.float32), bars=1)
+    app, push, engine, project = rig
+    project.put(5, take(engine), bars=1)
     app.rebuild_schedule()
     pump(app)
     assert push.pad_leds[5] == colors.GREEN.index
@@ -71,8 +90,8 @@ def test_filled_slots_are_green_blank_stay_white(rig):
 
 
 def test_muted_sample_is_dim_green(rig):
-    app, push, _, project = rig
-    sample = project.put(0, np.zeros((10, 1), dtype=np.float32), bars=1)
+    app, push, engine, project = rig
+    sample = project.put(0, take(engine), bars=1)
     sample.enabled = False
     pump(app)
     assert push.pad_leds[0] == colors.GREEN_DIM.index
@@ -386,8 +405,8 @@ def test_delete_from_the_library(rig):
 
 
 def test_mute_shortcut_in_the_library(rig):
-    app, push, _, project = rig
-    project.put(0, np.zeros((10, 1), dtype=np.float32), bars=1, triggers={0})
+    app, push, engine, project = rig
+    project.put(0, take(engine), bars=1, triggers={0})
     app.rebuild_schedule()
     pump(app)
     push.press_button(Btn.MUTE)
@@ -452,8 +471,8 @@ def test_autosave_round_trip(rig, tmp_path):
 
 # --------------------------------------------------- hold to audition (CC-01)
 def test_a_tap_on_a_filled_pad_opens_its_page(rig):
-    app, push, _, project = rig
-    project.put(0, np.full((500, 1), 0.5, dtype=np.float32), bars=1)
+    app, push, engine, project = rig
+    project.put(0, take(engine), bars=1)
     pump(app)
     push.press_pad(0)  # press and release in one pass: a tap
     pump(app)
@@ -463,7 +482,7 @@ def test_a_tap_on_a_filled_pad_opens_its_page(rig):
 
 def test_holding_a_filled_pad_auditions_it_instead(rig, monkeypatch):
     app, push, engine, project = rig
-    project.put(3, np.full((5000, 1), 0.5, dtype=np.float32), bars=1)
+    project.put(3, take(engine), bars=1)
     pump(app)
     monkeypatch.setattr(library_mode, "HOLD_PREVIEW_S", 0.0)
 
@@ -653,3 +672,105 @@ def test_an_audio_dropout_is_surfaced_to_the_player(rig):
     engine.events.put(("xrun", 3))
     pump(app)
     assert "dropout" in app.message
+
+
+# ------------------------------------------------- off-grid takes (F-09)
+def test_an_off_grid_take_is_flagged_in_the_library_and_can_be_fixed(rig):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=2), bars=2, triggers={0})
+    app.rebuild_schedule()
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+
+    # The same song at a new tempo: the take no longer fills two bars.
+    push.hold_button(Btn.SHIFT, True)
+    push.turn(ENCODER_TEMPO, 2)  # +20 BPM
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert engine.bpm == pytest.approx(140.0)
+    assert project.mismatched(project[0]) is True
+    assert push.pad_leds[0] == colors.YELLOW.index
+    assert any("off the grid" in line for line in app.status_lines())
+
+    # Open the slot: its page explains the problem and offers the fix.
+    push.press_pad(0)
+    pump(app)
+    assert app.mode.name == "sample"
+    assert any("OFF GRID" in line for line in app.status_lines())
+    assert push.button_leds[DISPLAY_ROW_BOTTOM[0]] > 0
+
+    push.press_button(DISPLAY_ROW_BOTTOM[0])
+    pump(app)
+    assert project.mismatched(project[0]) is False
+    assert project[0].frames == project.expected_frames(2)
+    assert app.message == "repaired length"
+
+
+def test_repairing_a_length_is_undoable(rig):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1)
+    project.bpm = 140.0  # the take no longer fits a bar
+    original = project[0].audio
+    app.goto_sample(0)
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[0])
+    pump(app)
+    assert project[0].audio is not original
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].audio is original
+    assert project[0].audio_saved is False  # the repaired WAV must be replaced
+
+
+def test_the_repair_button_says_nothing_to_do_when_the_take_fits(rig):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1)
+    app.goto_sample(0)
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[0])
+    pump(app)
+    assert app.message == "this take already fits its bars"
+
+
+# ------------------------------------- metering and monitoring (F-07)
+def test_shift_metronome_cycles_monitoring(rig):
+    app, push, engine, _ = rig
+    assert engine.monitor == "off"
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.METRONOME)
+    pump(app)
+    assert engine.monitor == "auto"
+    push.press_button(Btn.METRONOME)
+    pump(app)
+    assert engine.monitor == "on"
+    push.press_button(Btn.METRONOME)
+    pump(app)
+    assert engine.monitor == "off"
+    push.hold_button(Btn.SHIFT, False)
+    # Unshifted, it is still the click.
+    push.press_button(Btn.METRONOME)
+    pump(app)
+    assert engine.metronome is True
+    assert engine.monitor == "off"
+
+
+def test_the_input_meter_lights_the_row_above_the_display(rig):
+    app, push, engine, _ = rig
+    pump(app)
+    assert all(push.button_leds[cc] == 0 for cc in DISPLAY_ROW_TOP)
+    engine.process_offline(64, np.full((64, 1), 0.5, dtype=np.float32))
+    pump(app)
+    lit = [cc for cc in DISPLAY_ROW_TOP if push.button_leds[cc] > 0]
+    assert len(lit) == 4  # half scale
+    assert any("in [####" in line for line in app.status_lines())
+
+
+def test_clipping_is_shown_on_the_surface(rig):
+    app, push, engine, _ = rig
+    engine.process_offline(64, np.full((64, 1), 1.5, dtype=np.float32))
+    pump(app)
+    assert app.message == "input clipping"
+    assert app.input_clipping is True
+    assert push.button_leds[Btn.RECORD] == colors.RED.index
+    assert any("CLIP" in line for line in app.status_lines())

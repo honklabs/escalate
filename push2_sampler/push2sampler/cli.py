@@ -33,8 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="trim this much from the start of each take to compensate input latency",
     )
     parser.add_argument(
-        "--monitor-gain", type=float, default=0.0,
-        help="pass the input through to the output at this gain (feedback risk)",
+        "--monitor", choices=("off", "auto", "on"), default="off",
+        help="hear the input: never, only while recording, or always. "
+             "Default off -- on speakers rather than headphones it feeds back. "
+             "Shift+Metronome cycles it on the device.",
+    )
+    parser.add_argument(
+        "--monitor-gain", type=float, default=1.0,
+        help="level the monitored input is mixed in at (default 1.0)",
     )
     parser.add_argument(
         "--count-in", type=int, default=COUNT_IN_BEATS,
@@ -90,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         song_bars=project.song_bars,
         rec_latency_ms=args.rec_latency_ms,
         play_while_recording=not args.no_play_while_recording,
+        monitor=args.monitor,
         monitor_gain=args.monitor_gain,
     )
 

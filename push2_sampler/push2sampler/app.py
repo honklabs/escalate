@@ -5,11 +5,13 @@ from __future__ import annotations
 import time
 
 from . import colors
+from .audio import MONITOR_AUTO, MONITOR_OFF, MONITOR_ON
 from .constants import (
     BTN_BRIGHT,
     BTN_DIM,
     BTN_OFF,
     BTN_ON,
+    DISPLAY_ROW_TOP,
     ENCODER_TEMPO,
     PAD_COUNT,
     Btn,
@@ -23,6 +25,10 @@ from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
 FRAME_INTERVAL = 1.0 / 30.0
 #: Quiet period after a change before the project is written to disk.
 AUTOSAVE_DELAY = 2.0
+#: How long a clipped input stays flagged on the surface.
+CLIP_WARNING_S = 1.5
+#: Monitoring cycles through these in order.
+MONITOR_CYCLE = (MONITOR_OFF, MONITOR_AUTO, MONITOR_ON)
 
 
 class App:
@@ -52,6 +58,7 @@ class App:
         self.message = ""
         self._message_at = 0.0
         self._save_at: float | None = None
+        self._clip_until = 0.0
         self._last_frame = 0.0
         self._last_display = 0.0
         self._rendered_buttons: set[int] = set()
@@ -177,8 +184,11 @@ class App:
             self.engine.stop()
             self.notify("stopped")
         elif cc == Btn.METRONOME:
-            self.engine.metronome = not self.engine.metronome
-            self.notify(f"metronome {'on' if self.engine.metronome else 'off'}")
+            if self.shift:
+                self.cycle_monitor()
+            else:
+                self.engine.metronome = not self.engine.metronome
+                self.notify(f"metronome {'on' if self.engine.metronome else 'off'}")
         elif cc == Btn.REPEAT:
             self.engine.loop = not self.engine.loop
             self.notify(f"loop {'on' if self.engine.loop else 'off'}")
@@ -201,6 +211,16 @@ class App:
             self.engine.set_bpm(previous + delta * step)
             if self.engine.bpm != previous:
                 self.do(SetBpm(self.engine.bpm, previous))
+
+    def cycle_monitor(self) -> None:
+        current = self.engine.monitor
+        index = MONITOR_CYCLE.index(current) if current in MONITOR_CYCLE else 0
+        self.engine.monitor = MONITOR_CYCLE[(index + 1) % len(MONITOR_CYCLE)]
+        self.notify(f"monitor {self.engine.monitor}")
+
+    @property
+    def input_clipping(self) -> bool:
+        return time.monotonic() < self._clip_until
 
     def on_engine_event(self, event: tuple) -> None:
         if event[0] == "xrun":
@@ -233,14 +253,29 @@ class App:
     def _global_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.PLAY] = BTN_BRIGHT if self.engine.is_playing else BTN_DIM
         buttons[Btn.STOP] = BTN_DIM
-        buttons[Btn.RECORD] = colors.RED_DIM.index
+        buttons[Btn.RECORD] = (
+            colors.RED.index if self.input_clipping else colors.RED_DIM.index
+        )
         buttons[Btn.METRONOME] = BTN_BRIGHT if self.engine.metronome else BTN_DIM
+        self._render_input_meter(buttons)
         buttons[Btn.REPEAT] = BTN_ON if self.engine.loop else BTN_DIM
         buttons[Btn.DELETE] = BTN_BRIGHT if self.delete_armed else BTN_DIM
         buttons[Btn.UNDO] = BTN_ON if self.history.can_undo else BTN_OFF
         buttons[Btn.SHIFT] = BTN_DIM
         buttons[Btn.SESSION] = BTN_DIM
         buttons[Btn.MUTE] = BTN_OFF
+
+    def _render_input_meter(self, buttons: dict[int, int]) -> None:
+        """Show the input level on the eight buttons above the display."""
+        peak = self.engine.stats.input_peak
+        lit = min(len(DISPLAY_ROW_TOP), int(peak * len(DISPLAY_ROW_TOP) + 0.5))
+        for i, cc in enumerate(DISPLAY_ROW_TOP):
+            if i >= lit:
+                buttons[cc] = BTN_OFF
+            elif i >= len(DISPLAY_ROW_TOP) - 2:
+                buttons[cc] = BTN_BRIGHT  # the hot end of the meter
+            else:
+                buttons[cc] = BTN_ON
 
     def status_lines(self) -> list[str]:
         lines = list(self.mode.status_lines())
@@ -254,9 +289,18 @@ class App:
             f"{bar + 1 if bar >= 0 else 0}/{self.project.song_bars}"
             f"  {'loop' if self.engine.loop else 'once'}"
         )
+        lines.append(self._input_line())
         if self.message and time.monotonic() - self._message_at < 3.0:
             lines.append(self.message)
         return lines
+
+    def _input_line(self) -> str:
+        peak = self.engine.stats.input_peak
+        filled = min(12, int(peak * 12 + 0.5))
+        meter = "#" * filled + "." * (12 - filled)
+        state = f"mon {self.engine.monitor}"
+        clip = "  CLIP" if self.input_clipping else ""
+        return f"in [{meter}] {state}{clip}"
 
     # ------------------------------------------------------------------
     # main loop
@@ -267,6 +311,9 @@ class App:
             self.handle(event)
         for event in self.engine.poll_events():
             self.on_engine_event(event)
+        if self.engine.take_clipped():
+            self._clip_until = time.monotonic() + CLIP_WARNING_S
+            self.notify("input clipping")
         self.mode.on_tick()
 
         now = time.monotonic()

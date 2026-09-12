@@ -62,13 +62,15 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-v1.0 plus the v1.1 foundations: **`F-01`, `F-02`, `F-04`, `F-05`, `CC-01` and
-`CC-06` are shipped** (each carries a status note in its own section below).
-~4,200 lines, 118 tests, `ruff` clean, no hardware needed to test.
+v1.0 plus the v1.1 foundations: **`F-01`, `F-02`, `F-04`, `F-05`, `F-07`,
+`F-09`, `CC-01` and `CC-06` are shipped** (each carries a status note in its own
+section below). ~4,600 lines, 141 tests, `ruff` clean, no hardware needed to
+test.
 
-Next up: `F-09` (length truth) and `F-07` (input metering), both independent;
+All of v1.1 is now done except `F-03` and the remaining creature comforts.
 `F-03` (mode stack) is deliberately held until the first mode that needs it
-(`F-06`'s settings page), rather than landing unused.
+(`F-06`'s settings page) rather than landing unused, which makes **`F-06`
+(settings) the next item**, followed by `NF-03`/`NF-04` in v1.2.
 
 ```
 push2sampler/
@@ -91,10 +93,9 @@ push2sampler/
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
 - Pad velocity is captured in `PadEvent` and thrown away (`NF-10`).
-- `Sample.bars` is metadata; the audio length is the real truth. Nothing
-  enforces agreement (`F-09`).
 - Tempo changes do not move recorded audio, so an old take drifts against a new
-  tempo (`NH-09`).
+  tempo. It is now *detected* and repairable by padding/trimming (`F-09`);
+  pitch-preserving stretching is still open (`NH-09`).
 - `display.py` and the `sounddevice` callback have never run against hardware
   in CI or in this repo's history (`F-08`).
 - The song is exactly 64 bars, one page, one bank of 64 slots (`NF-07`, `NF-11`).
@@ -192,6 +193,8 @@ CC is the most likely merge conflict in this project.
 | Tempo encoder | 14 | **taken** — BPM |
 | Track encoder 1 | 71 | **taken** — take length / sample gain |
 | Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
+| Display row top | 102–109 | **taken** — input level meter (`F-07`) |
+| Display row bottom 1 | 20 | **taken** — Sample page: fit an off-grid take |
 | Solo | 61 | reserved → `NH-01` |
 | Duplicate | 88 | reserved → `NH-05` |
 | New | 87 | reserved → `NH-04` (new layer / punch-in) |
@@ -213,8 +216,7 @@ CC is the most likely merge conflict in this project.
 | User | 59 | free — leave free, users press it to switch Push modes |
 | Octave ▲▼ | 55 / 54 | free |
 | ▶ Right | 45 | free |
-| Display row top | 102–109 | free — 8 contextual buttons, claim per mode |
-| Display row bottom | 20–27 | free — 8 contextual buttons, claim per mode |
+| Display row bottom | 21–27 | free — 7 contextual buttons, claim per mode |
 | Swing encoder | 15 | reserved → `NH-02` |
 | Track encoders 2–8 | 72–78 | reserved → `NH-01` mixer, `NF-03` editor params |
 | Master encoder | 79 | reserved → `NH-01` master volume |
@@ -512,6 +514,18 @@ and raises an event.
 
 ### F-07 — Input metering and monitoring toggle `size: S`
 
+**Status: shipped.** `Stats` carries `input_peak` (with a slow fall-back so a
+meter is readable) and `input_rms`; `Engine.input_clipped` latches and
+`take_clipped()` reads-and-clears it, which the app turns into a 1.5 s warning
+rather than a one-frame flash. Monitoring is the three states from the spec,
+cycled with `Shift`+`Metronome`, metered on the eight buttons above the display
+and on the status line.
+
+One deviation: the default is **off**, not `auto`. Switching on input->output
+routing during an upgrade can physically howl on a speaker setup, and no default
+is safe for unknown hardware, so the safe one ships and `--monitor auto` is one
+flag (or one button) away.
+
 **Problem.** You cannot see whether the mic is live or clipping until after a
 take is ruined, and monitoring is a CLI gain with a feedback footgun.
 
@@ -561,6 +575,25 @@ listed in the README.
 **Deps.** None. Needs hardware access — see §12.Q1.
 
 ### F-09 — Make bar-length and audio-length agree `size: S`
+
+**Status: shipped.** Takes record `source_bpm` and `source_samplerate`;
+`Project.length_error`/`mismatched` ask the one question that matters -- does
+this audio still fill its declared bars at the project's tempo -- which catches
+both a tempo change and audio that was never bar-aligned. Flagged slots are
+yellow in the library, their page explains the error in bars and names the
+tempo it was cut at, and the first button under the display repairs it
+(undoable, via a `RepairLength` command that also clears `audio_saved` so the
+WAV is rewritten). `FORMAT_VERSION` is 2; format-1 takes infer their provenance
+from the project tempo so existing songs do not open covered in warnings.
+
+Deviation: `bars` stays stored rather than being derived from audio length,
+with `Sample.bars_at()` exposing the measured figure instead. Deriving it would
+silently rewrite the arrangement's idea of a loop's length; flagging the
+disagreement and letting the player decide is the better trade.
+
+This turned up honest-to-goodness test debt: several fixtures fabricated
+"1 bar" samples out of 10 frames, which is exactly the lie this item catches.
+They now build real-length takes through a `take()` helper.
 
 **Problem.** `Sample.bars` is metadata; `Sample.audio` is the truth. Loading a
 project recorded at another tempo, or an imported WAV, can leave a "2 bar"

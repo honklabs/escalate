@@ -3,9 +3,27 @@
 from __future__ import annotations
 
 from .. import colors
-from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, ENCODER_TRACK, PAD_COUNT, Btn
-from ..history import ClearTriggers, DeleteSample, SetEnabled, SetGain, ToggleTrigger
+from ..constants import (
+    BTN_BRIGHT,
+    BTN_DIM,
+    BTN_ON,
+    DISPLAY_ROW_BOTTOM,
+    ENCODER_TRACK,
+    PAD_COUNT,
+    Btn,
+)
+from ..history import (
+    ClearTriggers,
+    DeleteSample,
+    RepairLength,
+    SetEnabled,
+    SetGain,
+    ToggleTrigger,
+)
 from .base import Mode
+
+#: Bottom display-row button that fits an off-grid take to its bars.
+REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
 
 #: Bars every this many get a faint tint when empty, so phrases are countable.
 PHRASE_BARS = 4
@@ -64,6 +82,12 @@ class SampleMode(Mode):
                 self.app.delete_armed = True
                 self.app.notify("press any pad to clear all bars")
             return True
+        if cc == REPAIR_BUTTON and sample is not None:
+            if self.project.mismatched(sample):
+                self.app.do(RepairLength(self.slot))
+            else:
+                self.app.notify("this take already fits its bars")
+            return True
         if cc in (Btn.SESSION, Btn.LEFT, Btn.NOTE):
             self.app.goto_library()
             return True
@@ -118,17 +142,28 @@ class SampleMode(Mode):
         buttons[Btn.MUTE] = BTN_BRIGHT if (sample and not sample.enabled) else BTN_DIM
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.DELETE] = BTN_BRIGHT if self.app.delete_armed else BTN_DIM
+        if sample is not None and self.project.mismatched(sample):
+            buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
     def status_lines(self) -> list[str]:
         sample = self.sample
         if sample is None:
             return ["SAMPLE"]
         state = "MUTED" if not sample.enabled else "audible"
-        return [
+        lines = [
             f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}",
             "pad: toggle bar   Record: re-record   Mute: hear",
         ]
+        if self.project.mismatched(sample):
+            measured = sample.bars_at(self.project.bpm, self.project.samplerate,
+                                      self.project.beats_per_bar)
+            recorded_at = sample.source_bpm or self.project.bpm
+            lines.append(
+                f"OFF GRID: {measured:.2f} bars at {self.project.bpm:.0f} BPM "
+                f"(recorded at {recorded_at:.0f}) - button 1 below to fit"
+            )
+        return lines
 
 
 def _grid_tint(bar: int) -> int:

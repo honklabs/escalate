@@ -115,6 +115,8 @@ class LibraryMode(Mode):
                 pads[i] = colors.YELLOW.index if sample.enabled else colors.GREEN_DIM.index
             elif i in sounding:
                 pads[i] = colors.AMBER.index
+            elif self.project.mismatched(sample):
+                pads[i] = colors.YELLOW.index  # does not fill its bars any more
             elif sample.enabled:
                 pads[i] = colors.GREEN.index
             else:
@@ -127,8 +129,13 @@ class LibraryMode(Mode):
     def status_lines(self) -> list[str]:
         filled = len(self.project.filled())
         muted = sum(1 for s in self.project.filled() if not s.enabled)
-        return [
+        lines = [
             "SAMPLE LIBRARY",
             f"{filled}/64 slots filled, {muted} muted",
             "blank pad: record   tap: open page   hold: audition",
         ]
+        off_grid = self.project.mismatched_slots()
+        if off_grid:
+            slots = ", ".join(str(slot + 1) for slot in off_grid[:6])
+            lines.append(f"yellow: off the grid (slot {slots}) - open to fix")
+        return lines

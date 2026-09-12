@@ -195,6 +195,34 @@ class PutSample(Command):
 
 
 @dataclass
+class RepairLength(Command):
+    """Pad or trim a take so it exactly fills its bars at the current tempo."""
+
+    slot: int
+    _previous_audio: object = None
+    _previous_source: tuple = ()
+
+    label = "repaired length"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous_audio = sample.audio
+        self._previous_source = (sample.source_bpm, sample.source_samplerate)
+        project.repair(self.slot)
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or self._previous_audio is None:
+            return
+        sample.audio = self._previous_audio
+        sample.source_bpm, sample.source_samplerate = self._previous_source
+        # The WAV on disk is the repaired one, so it has to be written again.
+        sample.audio_saved = False
+
+
+@dataclass
 class DeleteSample(Command):
     """Empty a slot, keeping the take itself so undo can put it back."""
 

@@ -25,7 +25,13 @@ import sys
 import threading
 import time
 
-from .constants import ENCODER_TEMPO, ENCODER_TRACK, Btn, xy_to_index
+from .constants import (
+    DISPLAY_ROW_BOTTOM,
+    ENCODER_TEMPO,
+    ENCODER_TRACK,
+    Btn,
+    xy_to_index,
+)
 from .push2 import SimPush
 
 BUTTONS = {
@@ -47,6 +53,9 @@ BUTTONS = {
     "down": Btn.DOWN,
     "setup": Btn.SETUP,
     "undo": Btn.UNDO,
+    # Contextual buttons under the display, claimed per mode.
+    "repair": DISPLAY_ROW_BOTTOM[0],
+    "fit": DISPLAY_ROW_BOTTOM[0],
 }
 
 LEGEND = "W/w white  G/g green  A/a amber  R/r red  B/b blue  . off"

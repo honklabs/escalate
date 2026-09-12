@@ -23,9 +23,11 @@ from . import wavio
 from .constants import PAD_COUNT
 
 SONG_BARS = 64
+#: A take may be this far from its declared length before it is flagged.
+LENGTH_TOLERANCE = 0.01
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 @dataclass
@@ -39,6 +41,9 @@ class Sample:
     enabled: bool = True
     gain: float = 1.0
     name: str = ""
+    #: Tempo and rate this take was captured at; 0 means "unknown" (v1 projects).
+    source_bpm: float = 0.0
+    source_samplerate: int = 0
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
@@ -65,6 +70,16 @@ class Sample:
         self.set_trigger(bar, on)
         return on
 
+    def bars_at(self, bpm: float, samplerate: int, beats_per_bar: int = 4) -> float:
+        """How many bars this take's audio fills at the given tempo.
+
+        Fractional by design: 2.0 means it fits exactly, 2.3 means it does not.
+        """
+        frames_per_bar = 60.0 / bpm * samplerate * beats_per_bar
+        if frames_per_bar <= 0:
+            return float(self.bars)
+        return self.frames / frames_per_bar
+
     def to_json(self, audio_path: str) -> dict:
         return {
             "slot": self.slot,
@@ -73,6 +88,8 @@ class Sample:
             "triggers": sorted(self.triggers),
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
+            "source_bpm": round(float(self.source_bpm), 3),
+            "source_samplerate": int(self.source_samplerate),
             "audio": audio_path,
         }
 
@@ -90,6 +107,56 @@ class Project:
         self.dirty = False
 
     # ------------------------------------------------------------------
+    @property
+    def frames_per_bar(self) -> float:
+        return 60.0 / self.bpm * self.samplerate * self.beats_per_bar
+
+    def expected_frames(self, bars: int) -> int:
+        """How long a take of ``bars`` bars must be at the project's tempo."""
+        return int(round(bars * self.frames_per_bar))
+
+    def length_error(self, sample: Sample) -> float:
+        """Relative length error of a take: +0.1 means 10% too long."""
+        expected = self.expected_frames(sample.bars)
+        if expected <= 0:
+            return 0.0
+        return (sample.frames - expected) / expected
+
+    def mismatched(self, sample: Sample, tolerance: float = LENGTH_TOLERANCE) -> bool:
+        """True when this take no longer fills its bars at the current tempo.
+
+        It happens when a project recorded at one tempo is opened at another, or
+        when audio that was never bar-aligned is imported.  The take is kept as
+        it is -- playback would drift, so the UI flags it and offers a repair.
+        """
+        return abs(self.length_error(sample)) > tolerance
+
+    def mismatched_slots(self) -> list[int]:
+        return [s.slot for s in self.filled() if self.mismatched(s)]
+
+    def fitted_audio(self, sample: Sample) -> np.ndarray:
+        """``sample``'s audio padded with silence or trimmed to exactly its bars."""
+        target = self.expected_frames(sample.bars)
+        audio = sample.audio
+        if audio.shape[0] == target:
+            return audio
+        fitted = np.zeros((target, audio.shape[1]), dtype=np.float32)
+        keep = min(target, audio.shape[0])
+        fitted[:keep] = audio[:keep]
+        return fitted
+
+    def repair(self, slot: int) -> bool:
+        """Make one take exactly its declared length.  True if it changed."""
+        sample = self.slots[slot]
+        if sample is None or not self.mismatched(sample):
+            return False
+        sample.audio = self.fitted_audio(sample)
+        sample.source_bpm = self.bpm
+        sample.source_samplerate = self.samplerate
+        sample.audio_saved = False
+        self.dirty = True
+        return True
+
     def __getitem__(self, slot: int) -> Sample | None:
         return self.slots[slot]
 
@@ -115,6 +182,8 @@ class Project:
             enabled=existing.enabled if existing else True,
             gain=existing.gain if existing else 1.0,
             name=existing.name if existing else "",
+            source_bpm=self.bpm,
+            source_samplerate=self.samplerate,
         )
         self.slots[slot] = sample
         self.dirty = True
@@ -205,6 +274,11 @@ class Project:
             if rate != project.samplerate:
                 audio = wavio.resample(audio, rate, project.samplerate)
             slot = int(entry["slot"])
+            # Format 1 stored no provenance.  Assume such a take was recorded at
+            # this project's own tempo -- the best guess available, and the one
+            # that does not flag every existing project as mismatched.
+            source_bpm = float(entry.get("source_bpm") or project.bpm)
+            source_rate = int(entry.get("source_samplerate") or project.samplerate)
             project.slots[slot] = Sample(
                 slot=slot,
                 bars=int(entry.get("bars", 1)),
@@ -213,6 +287,8 @@ class Project:
                 enabled=bool(entry.get("enabled", True)),
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),
+                source_bpm=source_bpm,
+                source_samplerate=source_rate,
                 audio_saved=True,
             )
         project.dirty = False
