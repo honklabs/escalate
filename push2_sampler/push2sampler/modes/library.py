@@ -1,0 +1,141 @@
+"""The sample library: 64 slots, white when blank, green when filled."""
+
+from __future__ import annotations
+
+import time
+
+from .. import colors
+from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, PAD_COUNT, Btn
+from ..history import DeleteSample, SetEnabled
+from .base import Mode
+
+#: Hold a filled pad for this long to audition it instead of opening its page.
+HOLD_PREVIEW_S = 0.4
+
+
+class LibraryMode(Mode):
+    name = "library"
+
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self._held_slot: int | None = None
+        self._held_since = 0.0
+        self._auditioned = False
+
+    def on_exit(self) -> None:
+        self._clear_hold()
+
+    # -- input -------------------------------------------------------------
+    def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
+        sample = self.project[index]
+        if not pressed:
+            return self._on_release(index, sample)
+
+        if self.app.delete_armed:
+            self.app.delete_armed = False
+            if sample is not None:
+                self.app.do(DeleteSample(index))
+            return True
+        if self.app.mute_armed:
+            if sample is not None:
+                self.app.do(SetEnabled(index, not sample.enabled))
+            return True
+        if sample is None:
+            self.app.goto_record(index)
+            return True
+        if self.app.shift:  # audition without leaving the library
+            self._audition(index, sample)
+            return True
+        # A filled pad commits on release: a short press opens its page, a long
+        # press auditions it instead (see on_tick).
+        self._held_slot = index
+        self._held_since = time.monotonic()
+        self._auditioned = False
+        return True
+
+    def _on_release(self, index: int, sample) -> bool:
+        if self._held_slot != index:
+            return True
+        auditioned = self._auditioned
+        self._clear_hold()
+        if not auditioned and sample is not None:
+            self.app.goto_sample(index)
+        return True
+
+    def on_tick(self) -> None:
+        if self._held_slot is None or self._auditioned:
+            return
+        if time.monotonic() - self._held_since < HOLD_PREVIEW_S:
+            return
+        sample = self.project[self._held_slot]
+        if sample is None:  # deleted from under us
+            self._clear_hold()
+            return
+        self._auditioned = True
+        self._audition(self._held_slot, sample)
+
+    def _audition(self, index: int, sample) -> None:
+        self.engine.preview(sample.audio, sample.gain, slot=index)
+        self.app.notify(f"auditioning slot {index + 1}")
+
+    def _clear_hold(self) -> None:
+        self._held_slot = None
+        self._auditioned = False
+
+    def on_button(self, cc: int, pressed: bool) -> bool:
+        if not pressed:
+            return False
+        if cc == Btn.RECORD:
+            slot = self.project.first_empty()
+            if slot is None:
+                self.app.notify("library full")
+            else:
+                self.app.goto_record(slot)
+            return True
+        if cc == Btn.MUTE:
+            # Shortcut for shaping the mix without opening each sample page.
+            self.app.mute_armed = not self.app.mute_armed
+            self.app.notify(
+                "mute armed: press a pad" if self.app.mute_armed else "mute off"
+            )
+            return True
+        return False
+
+    # -- output ------------------------------------------------------------
+    def render_pads(self, pads: list[int]) -> None:
+        sounding = set(self.engine.sounding)
+        blink = self.app.blink
+        for i in range(PAD_COUNT):
+            sample = self.project[i]
+            if sample is None:
+                pads[i] = colors.WHITE.index
+            elif self.app.delete_armed:
+                pads[i] = colors.RED.index if blink else colors.RED_DIM.index
+            elif self.app.mute_armed:
+                pads[i] = colors.YELLOW.index if sample.enabled else colors.GREEN_DIM.index
+            elif i in sounding:
+                pads[i] = colors.AMBER.index
+            elif self.project.mismatched(sample):
+                pads[i] = colors.YELLOW.index  # does not fill its bars any more
+            elif sample.enabled:
+                pads[i] = colors.GREEN.index
+            else:
+                pads[i] = colors.GREEN_DIM.index
+
+    def render_buttons(self, buttons: dict[int, int]) -> None:
+        buttons[Btn.SESSION] = BTN_ON
+        buttons[Btn.MUTE] = BTN_BRIGHT if self.app.mute_armed else BTN_DIM
+
+    def status_lines(self) -> list[str]:
+        filled = len(self.project.filled())
+        muted = sum(1 for s in self.project.filled() if not s.enabled)
+        lines = [
+            "SAMPLE LIBRARY",
+            f"{filled}/64 slots filled, {muted} muted",
+            "blank pad: record   tap: open page   hold: audition",
+        ]
+        off_grid = self.project.mismatched_slots()
+        if off_grid:
+            slots = ", ".join(str(slot + 1) for slot in off_grid[:6])
+            lines.append(f"yellow: off the grid (slot {slots}) - open to fix")
+        return lines
