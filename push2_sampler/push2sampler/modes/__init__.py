@@ -26,6 +26,7 @@ from .base import COUNT_IN_BEATS, Mode
 from .library import LibraryMode
 from .record import RecordMode
 from .sample import SampleMode
+from .settings import SettingsMode
 
 __all__ = [
     "COUNT_IN_BEATS",
@@ -33,4 +34,5 @@ __all__ = [
     "Mode",
     "RecordMode",
     "SampleMode",
+    "SettingsMode",
 ]

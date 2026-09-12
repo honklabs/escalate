@@ -62,15 +62,14 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-v1.0 plus the v1.1 foundations: **`F-01`, `F-02`, `F-04`, `F-05`, `F-07`,
-`F-09`, `CC-01` and `CC-06` are shipped** (each carries a status note in its own
-section below). ~4,600 lines, 141 tests, `ruff` clean, no hardware needed to
-test.
+**Every foundation item is now shipped**: `F-01` through `F-09`, plus `CC-01`
+and `CC-06`. Each carries a status note in its own section below. ~5,200 lines,
+173 tests, `ruff` clean, no hardware needed to test.
 
-All of v1.1 is now done except `F-03` and the remaining creature comforts.
-`F-03` (mode stack) is deliberately held until the first mode that needs it
-(`F-06`'s settings page) rather than landing unused, which makes **`F-06`
-(settings) the next item**, followed by `NF-03`/`NF-04` in v1.2.
+That closes v1.1 and the front half of v1.2. Next: `NF-03` (sample editor) and
+`NF-04` (live quantized triggering) are the two items that most change what the
+instrument can do, and both are now unblocked. `F-08` (hardware verification)
+goes to the top of the list the moment a Push 2 is available -- see §12.Q1.
 
 ```
 push2sampler/
@@ -79,8 +78,9 @@ push2sampler/
   push2.py      MIDI transport, PushBase/Push2/SimPush, translate_midi()
   audio.py      Transport, Engine (_process), Voice, ScheduledSample, recorder
   project.py    Sample, Project, build_schedule(), save()/load()
-  modes/        base (the mode contract), library, record, sample
+  modes/        base (the mode contract), library, record, sample, settings
   history.py    undoable commands + the undo/redo journal
+  settings.py   the settings table: defaults, validation, labels, persistence
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -189,7 +189,7 @@ CC is the most likely merge conflict in this project.
 | Metronome | 9 | **taken** — click |
 | Repeat | 56 | **taken** — loop |
 | Shift | 49 | **taken** — modifier |
-| Setup | 30 | **taken** — Shift+Setup saves; `F-06` takes the unshifted press |
+| Setup | 30 | **taken** — settings page · `Shift`+`Setup` saves the project |
 | Tempo encoder | 14 | **taken** — BPM |
 | Track encoder 1 | 71 | **taken** — take length / sample gain |
 | Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
@@ -218,7 +218,7 @@ CC is the most likely merge conflict in this project.
 | ▶ Right | 45 | free |
 | Display row bottom | 21–27 | free — 7 contextual buttons, claim per mode |
 | Swing encoder | 15 | reserved → `NH-02` |
-| Track encoders 2–8 | 72–78 | reserved → `NH-01` mixer, `NF-03` editor params |
+| Track encoders 2–8 | 72–78 | **taken on the settings page** (one per setting); elsewhere reserved → `NH-01` mixer, `NF-03` editor params |
 | Master encoder | 79 | reserved → `NH-01` master volume |
 
 The eight display-row buttons are the escape hatch: a mode that needs more
@@ -398,6 +398,11 @@ can be added as one new file.
 
 ### F-03 — Mode stack with transient overlays `size: S`
 
+**Status: shipped**, held back until `F-06` gave it a first real caller rather
+than landing unused. `App.mode` is now the top of `_modes`, `push_mode` /
+`pop_mode` open and close overlays, `goto_library` unwinds the whole stack, and
+`Session`/`Stop` pop one layer before heading home. Depth is capped at 4.
+
 **Problem.** `App.set_mode` is flat, so a mode opened from somewhere cannot
 return to where it came from. Settings, editor, browser and mixer all need
 "open over, then go back".
@@ -484,6 +489,25 @@ fades the oldest rather than truncating it.
 **Deps.** `F-01`. Blocks `NF-05` (bounce quality).
 
 ### F-06 — On-device settings page and settings file `size: M`
+
+**Status: shipped.** `settings.py` holds one `Spec` table that supplies the
+defaults, the validation *and* the labels and step sizes the page renders with,
+so a new setting is one entry rather than edits in four files. Precedence is
+defaults -> file -> command line, with command-line values applied as overrides
+that are never written back. A malformed file falls back to defaults with a
+warning; an out-of-range value is repaired silently.
+
+`SettingsMode` is the first overlay: `Setup` opens and closes it, the pads stay
+dark on purpose, and each of the eight buttons under the display owns one
+setting with the encoder above it. `Engine.restart_stream` reopens the stream
+for device and block-size changes, and on failure restores the old settings,
+reopens what was working, and raises an `audio_error` event.
+
+Two deviations. LED brightness is **not** here: the brightness SysEx belongs to
+`CC-13` and is unverified, and a knob that does nothing is worse than no knob.
+And the page does not describe a failed device change itself -- the engine's
+event names the actual problem, which beats anything the UI could invent, so
+there is one message per failure rather than two.
 
 **Problem.** Sample rate, devices, latency compensation and count-in length are
 CLI-only. A standalone instrument cannot require a terminal to change its

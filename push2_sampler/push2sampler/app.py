@@ -17,18 +17,23 @@ from .constants import (
     Btn,
 )
 from .history import Command, History, SetBpm
-from .modes import COUNT_IN_BEATS, LibraryMode, Mode, RecordMode, SampleMode
+from .modes import LibraryMode, Mode, RecordMode, SampleMode, SettingsMode
 from .project import Project
+from .settings import ENGINE_SETTINGS, Settings
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
 
 #: Seconds between LED refreshes.  Only changed pads are actually sent.
 FRAME_INTERVAL = 1.0 / 30.0
-#: Quiet period after a change before the project is written to disk.
+#: Quiet period after a change before the project is written to disk, when the
+#: settings do not say otherwise.
 AUTOSAVE_DELAY = 2.0
 #: How long a clipped input stays flagged on the surface.
 CLIP_WARNING_S = 1.5
 #: Monitoring cycles through these in order.
 MONITOR_CYCLE = (MONITOR_OFF, MONITOR_AUTO, MONITOR_ON)
+#: How deep overlay modes may stack.  Kept shallow on purpose: you should never
+#: be more than a couple of presses from knowing where you are.
+MAX_MODE_DEPTH = 4
 
 
 class App:
@@ -39,7 +44,7 @@ class App:
         project: Project,
         project_dir=None,
         display=None,
-        count_in_beats: int = COUNT_IN_BEATS,
+        settings: Settings | None = None,
         log=None,
     ) -> None:
         self.push = push
@@ -47,7 +52,7 @@ class App:
         self.project = project
         self.project_dir = project_dir
         self.display = display
-        self.count_in_beats = count_in_beats
+        self.settings = settings if settings is not None else Settings()
         self._log = log
 
         self.history = History()
@@ -63,7 +68,8 @@ class App:
         self._last_display = 0.0
         self._rendered_buttons: set[int] = set()
 
-        self.mode: Mode = LibraryMode(self)
+        #: Mode stack; the root is always the library, overlays sit on top.
+        self._modes: list[Mode] = [LibraryMode(self)]
         self.engine.set_bpm(project.bpm)
         self.rebuild_schedule()
         self.mode.on_enter()
@@ -71,14 +77,54 @@ class App:
     # ------------------------------------------------------------------
     # mode transitions
     # ------------------------------------------------------------------
+    @property
+    def mode(self) -> Mode:
+        """The mode on top of the stack: the one the surface belongs to."""
+        return self._modes[-1]
+
+    @property
+    def depth(self) -> int:
+        return len(self._modes)
+
     def set_mode(self, mode: Mode) -> None:
+        """Replace the mode on top of the stack."""
         self.mode.on_exit()
-        self.delete_armed = False
-        self.mute_armed = False
-        self.mode = mode
+        self._clear_modifiers()
+        self._modes[-1] = mode
         mode.on_enter()
 
+    def push_mode(self, mode: Mode) -> bool:
+        """Open ``mode`` over the current one; ``pop_mode`` returns here.
+
+        Refused once the stack is MAX_MODE_DEPTH deep, so no amount of
+        button-pressing can bury you.
+        """
+        if self.depth >= MAX_MODE_DEPTH:
+            self.notify("too many layers open")
+            return False
+        self._clear_modifiers()
+        self._modes.append(mode)
+        mode.on_enter()
+        return True
+
+    def pop_mode(self) -> bool:
+        """Close the top mode and return to the one underneath."""
+        if self.depth <= 1:
+            return False
+        self.mode.on_exit()
+        self._clear_modifiers()
+        self._modes.pop()
+        return True
+
+    def _clear_modifiers(self) -> None:
+        self.delete_armed = False
+        self.mute_armed = False
+
     def goto_library(self) -> None:
+        """Unwind every overlay and land on a fresh library."""
+        while self.depth > 1:
+            self.mode.on_exit()
+            self._modes.pop()
         self.set_mode(LibraryMode(self))
 
     def goto_record(self, slot: int, bars: int | None = None) -> None:
@@ -99,6 +145,61 @@ class App:
             if self.project[candidate] is not None:
                 return candidate
         return None
+
+    # ------------------------------------------------------------------
+    # settings
+    # ------------------------------------------------------------------
+    @property
+    def count_in_beats(self) -> int:
+        return int(self.settings["count_in_beats"])
+
+    @property
+    def autosave_delay(self) -> float:
+        return float(self.settings.get("autosave_delay_s", AUTOSAVE_DELAY))
+
+    def open_settings(self) -> None:
+        if self.mode.name == "settings":
+            self.pop_mode()
+            return
+        self.push_mode(SettingsMode(self))
+
+    def apply_settings(self, name: str | None = None) -> bool:
+        """Push settings into the engine; False if one could not be applied.
+
+        ``name`` limits the work to a single setting, which is what the settings
+        page does as each encoder moves.  A failure is not described here: the
+        engine raises an ``audio_error`` event naming the actual problem, which
+        is more use than anything this could invent.
+        """
+        names = (name,) if name is not None else ENGINE_SETTINGS
+        values = self.settings
+        for setting in names:
+            if values.spec(setting).restarts_audio:
+                continue  # handled below, in one restart
+            if setting == "monitor":
+                self.engine.monitor = values[setting]
+            elif setting == "monitor_gain":
+                self.engine.monitor_gain = float(values[setting])
+            elif setting == "play_while_recording":
+                self.engine.play_while_recording = bool(values[setting])
+            elif setting == "rec_latency_ms":
+                samplerate = self.engine.transport.samplerate
+                self.engine.rec_latency_frames = max(
+                    0, int(samplerate * values[setting] / 1000.0)
+                )
+        changes = {n: values[n] for n in names if values.spec(n).restarts_audio}
+        if changes:
+            return self.engine.restart_stream(**changes)
+        return True
+
+    def save_settings(self) -> bool:
+        if not self.settings.dirty:
+            return False
+        try:
+            return self.settings.save() is not None
+        except OSError as exc:
+            self.notify(f"could not save settings: {exc}")
+            return False
 
     # ------------------------------------------------------------------
     # shared plumbing
@@ -145,7 +246,7 @@ class App:
 
     def save_soon(self) -> None:
         if self.project_dir is not None:
-            self._save_at = time.monotonic() + AUTOSAVE_DELAY
+            self._save_at = time.monotonic() + self.autosave_delay
 
     def save_now(self) -> None:
         if self.project_dir is None:
@@ -199,10 +300,15 @@ class App:
         elif cc == Btn.UNDO:
             self.redo() if self.shift else self.undo()
         elif cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT):
-            self.goto_library()
-        elif cc == Btn.SETUP and self.shift:
-            self.save_now()
-            self.notify("project saved")
+            # An overlay closes back to what was underneath; otherwise home.
+            if not self.pop_mode():
+                self.goto_library()
+        elif cc == Btn.SETUP:
+            if self.shift:
+                self.save_now()
+                self.notify("project saved")
+            else:
+                self.open_settings()
 
     def _global_encoder(self, cc: int, delta: int) -> None:
         if cc == ENCODER_TEMPO:
@@ -225,6 +331,8 @@ class App:
     def on_engine_event(self, event: tuple) -> None:
         if event[0] == "xrun":
             self.notify(f"audio dropout ({event[1]})")
+        elif event[0] == "audio_error":
+            self.notify(f"audio: {event[1]}")
         self.mode.on_engine_event(event)
 
     # ------------------------------------------------------------------
@@ -263,6 +371,7 @@ class App:
         buttons[Btn.UNDO] = BTN_ON if self.history.can_undo else BTN_OFF
         buttons[Btn.SHIFT] = BTN_DIM
         buttons[Btn.SESSION] = BTN_DIM
+        buttons[Btn.SETUP] = BTN_DIM
         buttons[Btn.MUTE] = BTN_OFF
 
     def _render_input_meter(self, buttons: dict[int, int]) -> None:
@@ -349,6 +458,7 @@ class App:
             self.engine.stop()
         except Exception:  # pragma: no cover
             pass
+        self.save_settings()
         if self.project_dir is not None and (self.project.dirty or self._save_at):
             try:
                 self.save_now()

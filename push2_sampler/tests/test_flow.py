@@ -16,9 +16,11 @@ from push2sampler.constants import (
     ENCODER_TRACK,
     Btn,
 )
+from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
 from push2sampler.push2 import SimPush
+from push2sampler.settings import EDITABLE, Settings
 
 SR = 8000
 FADE = int(SR * FADE_MS / 1000.0)
@@ -38,7 +40,8 @@ def rig(tmp_path):
     )
     push = SimPush()
     push.open()
-    app = App(push, engine, project, project_dir=tmp_path / "song")
+    settings = Settings(path=tmp_path / "settings.json")
+    app = App(push, engine, project, project_dir=tmp_path / "song", settings=settings)
     return app, push, engine, project
 
 
@@ -774,3 +777,203 @@ def test_clipping_is_shown_on_the_surface(rig):
     assert app.input_clipping is True
     assert push.button_leds[Btn.RECORD] == colors.RED.index
     assert any("CLIP" in line for line in app.status_lines())
+
+
+# ---------------------------------------------------------- mode stack (F-03)
+class Overlay(Mode):
+    """A throwaway overlay, to test the stack without a real page."""
+
+    name = "overlay"
+    transient = True
+
+    def __init__(self, app, tag="a"):
+        super().__init__(app)
+        self.tag = tag
+        self.exits = 0
+
+    def on_exit(self):
+        self.exits += 1
+
+
+def test_overlays_stack_and_pop_in_order(rig):
+    app, _, _, _ = rig
+    first, second = Overlay(app, "a"), Overlay(app, "b")
+    assert app.depth == 1
+    assert app.push_mode(first) is True
+    assert app.push_mode(second) is True
+    assert app.depth == 3
+    assert app.mode is second
+
+    assert app.pop_mode() is True
+    assert app.mode is first
+    assert second.exits == 1
+    assert app.pop_mode() is True
+    assert app.mode.name == "library"
+    assert first.exits == 1
+    assert app.pop_mode() is False  # the root never pops
+
+
+def test_the_stack_is_capped(rig):
+    app, _, _, _ = rig
+    assert app.push_mode(Overlay(app)) is True
+    assert app.push_mode(Overlay(app)) is True
+    assert app.push_mode(Overlay(app)) is True
+    assert app.depth == 4
+    assert app.push_mode(Overlay(app)) is False  # no burying yourself
+    assert app.message == "too many layers open"
+    assert app.depth == 4
+
+
+def test_going_home_unwinds_every_overlay(rig):
+    app, _, _, _ = rig
+    first, second = Overlay(app, "a"), Overlay(app, "b")
+    app.push_mode(first)
+    app.push_mode(second)
+    app.goto_library()
+    assert app.depth == 1
+    assert app.mode.name == "library"
+    assert first.exits == 1
+    assert second.exits == 1
+
+
+def test_session_closes_an_overlay_before_going_home(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert app.mode.name == "sample"
+    app.push_mode(Overlay(app))
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "sample"  # back to the page underneath
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "library"
+
+
+# ------------------------------------------------------ settings page (F-06)
+def test_setup_opens_and_closes_the_settings_page(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.mode.name == "settings"
+    assert app.depth == 2
+    # The pads are dark, so there is no mistaking it for a page that edits audio.
+    assert set(push.pad_leds) == {0}
+
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.mode.name == "library"
+
+
+def test_shift_setup_still_saves_the_project(rig):
+    app, push, engine, _ = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.mode.name == "sample"  # no overlay opened
+    assert app.message == "project saved"
+
+
+def test_each_encoder_edits_its_own_setting(rig):
+    app, push, engine, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+
+    push.turn(ENCODER_TRACK[0], 2)  # count-in
+    pump(app)
+    assert app.settings["count_in_beats"] == 6
+    assert app.count_in_beats == 6
+
+    push.turn(ENCODER_TRACK[1], 1)  # monitor
+    pump(app)
+    assert app.settings["monitor"] == "auto"
+    assert engine.monitor == "auto"
+
+    push.turn(ENCODER_TRACK[2], -4)  # monitor gain
+    pump(app)
+    assert app.settings["monitor_gain"] == pytest.approx(0.8)
+    assert engine.monitor_gain == pytest.approx(0.8)
+
+    push.turn(ENCODER_TRACK[3], 10)  # record latency
+    pump(app)
+    assert app.settings["rec_latency_ms"] == pytest.approx(10.0)
+    assert engine.rec_latency_frames == int(SR * 10 / 1000)
+
+
+def test_pressing_a_settings_button_cycles_its_value(rig):
+    app, push, engine, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[4])  # play while recording
+    pump(app)
+    assert app.settings["play_while_recording"] is False
+    assert engine.play_while_recording is False
+    assert app.message == "play while rec off"
+
+    push.press_button(DISPLAY_ROW_BOTTOM[1])  # monitor: off -> auto
+    pump(app)
+    assert app.settings["monitor"] == "auto"
+
+
+def test_the_count_in_setting_changes_the_next_take(rig):
+    app, push, engine, project = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[0], -2)  # two beats of count-in
+    pump(app)
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.count_in_beats == 2
+
+    push.press_pad(0)
+    pump(app)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    assert engine.count_in_beats_left == 2
+    record_take(app, engine, 1)
+    assert project[0] is not None
+
+
+def test_settings_are_written_when_the_page_closes(rig, tmp_path):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[0], 1)
+    pump(app)
+    assert not (tmp_path / "settings.json").exists()  # not yet
+
+    push.press_button(Btn.SETUP)
+    pump(app)
+    saved = json.loads((tmp_path / "settings.json").read_text())
+    assert saved["count_in_beats"] == 5
+    assert app.message == "settings saved"
+
+
+def test_a_device_that_will_not_open_keeps_the_old_one(rig, monkeypatch):
+    app, push, engine, _ = rig
+    before = engine.blocksize
+    engine.backend = "sounddevice"  # pretend there is a real stream to reopen
+    monkeypatch.setattr(
+        engine, "_start_sounddevice",
+        lambda: (_ for _ in ()).throw(RuntimeError("no such device")),
+    )
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[7], 1)  # block size: needs a stream restart
+    pump(app)
+    # The engine names the real problem rather than a generic failure.
+    assert app.message == "audio: no such device"
+    assert engine.blocksize == before  # put back
+    assert app.mode.name == "settings"  # and the instrument is still running
+
+
+def test_editable_settings_all_fit_the_button_row(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    lit = [cc for cc in DISPLAY_ROW_BOTTOM if push.button_leds.get(cc, 0) > 0]
+    assert len(lit) == len(EDITABLE)
+    lines = app.status_lines()
+    assert lines[0].startswith("SETTINGS")
+    assert any("count-in" in line for line in lines)

@@ -467,3 +467,42 @@ def test_auto_monitoring_only_while_a_take_runs():
 def test_a_zero_monitor_gain_still_means_silence():
     engine = make_engine(monitor="on", monitor_gain=0.0)
     assert np.all(engine.process_offline(64, np.full((64, 1), 0.5, np.float32)) == 0.0)
+
+
+# ----------------------------------------------- reopening the stream (F-06)
+def test_restart_stream_applies_changes_without_a_device():
+    engine = make_engine()
+    assert engine.restart_stream(blocksize=512, input_device=3) is True
+    assert engine.blocksize == 512
+    assert engine.input_device == 3
+
+
+def test_restart_stream_is_a_no_op_when_nothing_changed():
+    engine = make_engine()
+    assert engine.restart_stream(blocksize=engine.blocksize) is True
+
+
+def test_restart_stream_refuses_what_it_cannot_change():
+    engine = make_engine()
+    with pytest.raises(ValueError, match="samplerate"):
+        engine.restart_stream(samplerate=44_100)
+    with pytest.raises(ValueError):
+        engine.restart_stream(bpm=90)
+
+
+def test_a_failed_restart_puts_everything_back(monkeypatch):
+    engine = make_engine()
+    engine.backend = "sounddevice"
+    attempts = []
+
+    def explode():
+        attempts.append(1)
+        raise RuntimeError("device busy")
+
+    monkeypatch.setattr(engine, "_start_sounddevice", explode)
+    assert engine.restart_stream(blocksize=1024, output_device=7) is False
+    # The old settings are back, and the failure is reported rather than raised.
+    assert engine.blocksize == 64
+    assert engine.output_device is None
+    assert ("audio_error", "device busy") in engine.poll_events()
+    assert len(attempts) == 2  # the new device, then reopening the old one

@@ -65,6 +65,9 @@ MONITOR_ON = "on"
 #: Monitor only while a take is running, which is when a player needs to hear it.
 MONITOR_AUTO = "auto"
 
+#: Engine attributes :meth:`Engine.restart_stream` is allowed to change.
+RESTARTABLE = ("input_device", "output_device", "blocksize", "in_channels", "out_channels")
+
 IDLE = "idle"
 COUNT_IN = "count_in"
 RECORDING = "recording"
@@ -284,13 +287,53 @@ class Engine:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
-        if self._stream is not None:
+        self._stop_stream()
+
+    def _stop_stream(self) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:  # pragma: no cover - best effort
+            pass
+        self._stream = None
+
+    def restart_stream(self, **changes) -> bool:
+        """Reopen the stream with new devices, block size or channel counts.
+
+        Returns True on success.  On failure the previous settings are put back,
+        the old stream is reopened if it can be, and an ``("audio_error", msg)``
+        event is raised: choosing a device that will not open must not take the
+        instrument down with it.
+
+        Sample rate is deliberately not changeable here -- every loaded take
+        would need resampling first.
+        """
+        unknown = set(changes) - set(RESTARTABLE)
+        if unknown:
+            raise ValueError(f"cannot change {sorted(unknown)} on a running engine")
+        previous = {name: getattr(self, name) for name in changes}
+        if all(previous[name] == value for name, value in changes.items()):
+            return True
+        for name, value in changes.items():
+            setattr(self, name, value)
+        if self.backend != "sounddevice":
+            return True  # nothing to reopen
+        try:
+            self._stop_stream()
+            self._start_sounddevice()
+            return True
+        except Exception as exc:
+            for name, value in previous.items():
+                setattr(self, name, value)
             try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:  # pragma: no cover - best effort
+                self._stop_stream()
+                self._start_sounddevice()
+            except Exception:  # pragma: no cover - the old device went away too
                 pass
-            self._stream = None
+            self.events.put(("audio_error", str(exc)))
+            return False
 
     def _sd_callback(self, indata, outdata, frames, _time, status):
         if status:

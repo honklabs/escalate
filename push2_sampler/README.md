@@ -103,6 +103,31 @@ returns with its bars, a tempo nudge returns to the old tempo. A sweep of an
 encoder is one undo step, not forty. The journal is in memory only — it is a
 safety net for your hands, not project history.
 
+### Settings
+
+`Setup` opens the settings page and closes it again. The pads stay dark, because
+nothing on this page should feel like it edits your song; instead each of the
+eight buttons under the display owns one setting, the encoder above it adjusts
+the value, and pressing the button cycles it:
+
+| | | |
+| --- | --- | --- |
+| count-in beats | monitoring | monitor gain |
+| record latency | play while recording | autosave delay |
+| input device | audio block size | |
+
+Changes take effect immediately and are written to
+`~/.config/push2sampler/settings.json` when the page closes (`--settings PATH`
+puts it elsewhere, `--no-settings` ignores it). Picking a device that will not
+open is not fatal: the old one is kept and the display says what went wrong.
+
+Settings come from three places, each overriding the last: the built-in
+defaults, then that file, then this command line. Command-line values steer one
+run without being written back.
+
+Sample rate and channel counts stay on the command line, since changing them
+means resampling every take that is already loaded.
+
 ## Key map
 
 | Control | Action |
@@ -123,7 +148,7 @@ safety net for your hands, not project history.
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
 | Tempo encoder | BPM (hold `Shift` for ±10) |
 | Track encoder 1 | Record mode: take length · Sample page: gain |
-| `Shift`+`Setup` | save the project now (it also autosaves) |
+| `Setup` | open/close the settings page · `Shift`+`Setup` saves the project |
 
 ## Timing and recording
 
@@ -187,9 +212,10 @@ p 9            # ...and bar 10
 b session      # back to the library
 ```
 
-`p N` presses a pad (or `p col,row`), `b NAME` presses a button, `shift on/off`,
-`t ±N` turns the tempo encoder, `k ±N` the first track encoder, `wait S` lets
-the transport run, `q` quits.
+`p N` presses a pad (or `p col,row`), `b NAME` presses a button (or just
+`NAME`, including `b1`..`b8` for the row under the display), `shift on/off`,
+`t ±N` turns the tempo encoder, `k ±N` the first track encoder or `k 3 ±N` the
+third, `wait S` lets the transport run, `q` quits.
 
 ## Hardware notes
 
@@ -208,11 +234,12 @@ the transport run, `q` quits.
 python -m pytest tests -q
 ```
 
-141 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+173 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
-take lengths, command deferral, metering, monitoring, dropout reporting),
-undo/redo, off-grid detection and repair, project save/load, and the full
-pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+take lengths, command deferral, metering, monitoring, dropout reporting, stream
+restarts), undo/redo, off-grid detection and repair, settings precedence and
+persistence, project save/load, and the full pad-by-pad workflow through the
+simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
