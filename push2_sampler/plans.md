@@ -60,18 +60,23 @@ until §12.Q3 is answered.
 
 ---
 
-## 2. Where we are today (v1.0)
+## 2. Where we are today
 
-~3,400 lines, 72 tests, `ruff` clean, no hardware needed to test.
+v1.0 plus the first foundations slice: **`F-02`, `F-05`, `CC-01` and `CC-06` are
+shipped** (each carries a status note in its own section below). ~3,600 lines,
+82 tests, `ruff` clean, no hardware needed to test.
+
+Next up, in this order: `F-01` (lock-free engine), then `F-03` → `F-04`
+(mode stack, then undo — the widest unblocker in the plan).
 
 ```
 push2sampler/
   constants.py  pad/note geometry, button CC map, encoder decode
-  colors.py     private palette (indices 64–74) + simulator glyphs
+  colors.py     private palette (indices 64–75) + simulator glyphs
   push2.py      MIDI transport, PushBase/Push2/SimPush, translate_midi()
   audio.py      Transport, Engine (_process), Voice, ScheduledSample, recorder
   project.py    Sample, Project, build_schedule(), save()/load()
-  modes.py      LibraryMode, RecordMode, SampleMode
+  modes/        base (the mode contract), library, record, sample
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -82,9 +87,7 @@ push2sampler/
 **Known debt, all of it deliberate and all of it scheduled below:**
 
 - The audio callback and the main thread share one `threading.RLock` (`F-01`).
-- Voices start and stop at full amplitude — audible clicks (`F-05`).
 - No undo anywhere (`F-04`).
-- `modes.py` is one file, which three parallel agents cannot edit safely (`F-02`).
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
 - Pad velocity is captured in `PadEvent` and thrown away (`NF-10`).
@@ -155,7 +158,7 @@ back into `Project` from the callback.
 
 - Pads are addressed by palette index; the program uploads its own palette at
   startup (`Push2.program_palette`). **New colours are added to
-  `colors.PALETTE` using indices 75+** and must also get a `SIM_GLYPHS` letter,
+  `colors.PALETTE` using indices 76+** and must also get a `SIM_GLYPHS` letter,
   or the simulator prints `?`.
 - Never send MIDI from a mode. `PushBase.set_pad/set_button` already dedupe, so
   render the full state every frame and let the diff handle the wire.
@@ -349,6 +352,13 @@ pass untouched, and an xrun surfaces as an event.
 
 ### F-02 — Split `modes.py` into a package `size: S`
 
+**Status: shipped.** `modes/` now holds `base.py` (the `Mode` contract plus
+`COUNT_IN_BEATS`), `library.py`, `record.py`, `sample.py`, and an `__init__.py`
+that re-exports the public names. `base.Mode` also gained an `on_tick()` hook,
+called once per event-loop pass, for modes that need a clock (`CC-01` uses it);
+it is the sanctioned place for time-based state changes, since rendering must
+stay a pure function of state.
+
 **Problem.** 417 lines, three modes, and every future mode in one file. Group D
 cannot fan out without conflicts.
 
@@ -414,6 +424,16 @@ sample then undoing yields a byte-identical buffer.
 **Deps.** `F-02`. Collides with every group B/C item — land early.
 
 ### F-05 — Voice envelopes and declicking `size: S`
+
+**Status: shipped**, ahead of `F-01` — there was no contention to avoid with a
+single implementer, but `F-01` will have to carry the envelope state across its
+refactor. Three deviations from the spec below: the release fade is 10 ms for
+both Stop and voice stealing (the spec asked for 5 ms on a steal, which is not
+worth a second window); the voice bound is now `MAX_VOICES` *sounding* plus
+`MAX_RELEASING` fading out, because a stolen voice has to stay in the mix while
+it fades; and eight existing assertions that sampled frame 0 of a buffer moved
+to a frame clear of the new fades (`tests/test_audio.py` documents why at each
+one).
 
 **Problem.** Voices start and stop at full amplitude. Every take boundary
 clicks, voice stealing pops, and `Stop` cuts hard. This is the single most
@@ -1145,6 +1165,9 @@ detected" rather than dividing by zero.
 Small, high-gratitude changes. Ideal first tasks, and most are independent.
 
 ### CC-01 — Hold to audition `size: S`
+
+**Status: shipped.** `Engine.preview` also gained a `slot` argument so an
+auditioned pad lights amber like any other sounding sample.
 Holding any filled library pad for >400 ms previews it and does **not** enter
 the sample page on release; a short press still navigates. Replaces the
 `Shift`+pad preview as the natural gesture (keep `Shift`+pad working).
@@ -1180,6 +1203,8 @@ so the surface always feels alive and dead buttons are obvious. Implemented in
 leaks into `_rendered_buttons` bookkeeping.
 
 ### CC-06 — Bar-grid legibility `size: S`
+
+**Status: shipped.** Added palette entry 75 (`WHITE_MID`, glyph `m`).
 On the sample page, empty bars on a 4-bar boundary (bars 1, 5, 9, …) render
 `WHITE_DIM` instead of off, so you can count phrases without counting pads.
 Bars 1, 17, 33, 49 (16-bar sections) get a slightly brighter tint. **Code:**
@@ -1278,7 +1303,7 @@ show on the display and in `project.json` (already supported). **Code:**
 `Shift` + a top display-row button assigns one of eight user colours to the
 selected slot; the library renders filled slots in their colour (keeping dim for
 muted, amber for sounding) so a 64-slot library becomes readable at a glance.
-**Code:** `colors.py` (eight user colours at indices 75–82), `project.py`
+**Code:** `colors.py` (eight user colours at indices 76–83), `project.py`
 (`Sample.color`), `modes/library.py`. **Tests:** colour persists; muted and
 sounding states still override; unset colour falls back to green.
 

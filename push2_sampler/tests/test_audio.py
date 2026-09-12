@@ -1,9 +1,19 @@
 import numpy as np
 import pytest
 
-from push2sampler.audio import Engine, ScheduledSample
+from push2sampler.audio import (
+    FADE_MS,
+    MAX_RELEASING,
+    MAX_VOICES,
+    Engine,
+    ScheduledSample,
+    Voice,
+    make_fade,
+)
 
 SR = 8000  # small rate keeps the offline renders fast
+#: Frames of the fade applied to both edges of every voice, at SR.
+FADE = int(SR * FADE_MS / 1000.0)
 
 
 def make_engine(**kwargs):
@@ -33,10 +43,14 @@ def test_sample_starts_on_the_exact_frame_of_its_bar():
     engine.set_schedule([(), (ScheduledSample(0, buf),), (), ()])
     engine.play(0)
     out = engine.process_offline(fpbar * 2)
-    # Silence through bar 0, then the sample exactly at the bar-1 boundary.
+    # Silence through bar 0, then the sample from the exact bar-1 boundary on.
+    # The first frame is the start of the declick fade, so it is silent by
+    # design; unity arrives once the fade completes.
     assert np.all(out[:fpbar] == 0)
-    assert out[fpbar, 0] == pytest.approx(1.0)
-    assert out[fpbar + 99, 0] == pytest.approx(1.0)
+    assert out[fpbar, 0] == 0.0
+    assert 0.0 < out[fpbar + 1, 0] < 1.0
+    assert out[fpbar + FADE, 0] == pytest.approx(1.0)
+    assert out[fpbar + 99, 0] < 0.1  # fading out into the end of the buffer
     assert out[fpbar + 100, 0] == pytest.approx(0.0)
 
 
@@ -50,9 +64,9 @@ def test_overlapping_samples_sum():
     )
     engine.play(0)
     out = engine.process_offline(fpbar * 2)
-    assert out[10, 0] == pytest.approx(0.25)
+    assert out[FADE + 10, 0] == pytest.approx(0.25)
     # In bar 1 both samples sound at once.
-    assert out[fpbar + 10, 0] == pytest.approx(0.5)
+    assert out[fpbar + FADE + 10, 0] == pytest.approx(0.5)
     assert set(engine.sounding) == {0, 1}
 
 
@@ -68,13 +82,15 @@ def test_output_is_clipped():
 def test_loop_wraps_and_retriggers_bar_zero():
     engine = make_engine()
     fpbar = int(engine.transport.frames_per_bar)
-    buf = dc(50)
+    buf = dc(200)
     engine.set_schedule([(ScheduledSample(0, buf),), (), (), ()])
     engine.loop = True
     engine.play(0)
-    out = engine.process_offline(fpbar * 4 + 60)
-    assert out[0, 0] == pytest.approx(1.0)
-    assert out[fpbar * 4, 0] == pytest.approx(1.0)  # start of the next pass
+    out = engine.process_offline(fpbar * 4 + 100)
+    assert out[FADE + 10, 0] == pytest.approx(1.0)
+    # ...and again just after the loop wraps to bar 0.
+    assert out[fpbar * 4, 0] == 0.0
+    assert out[fpbar * 4 + FADE + 10, 0] == pytest.approx(1.0)
     assert engine.is_playing
 
 
@@ -162,7 +178,7 @@ def test_mono_sample_feeds_both_output_channels():
     engine.play(0)
     out = engine.process_offline(100)
     assert out[:, 0] == pytest.approx(out[:, 1])
-    assert out[0, 1] == pytest.approx(0.5)
+    assert out[50, 1] == pytest.approx(0.5)  # mid-buffer, clear of both fades
 
 
 def test_stereo_sample_is_not_downmixed():
@@ -172,8 +188,8 @@ def test_stereo_sample_is_not_downmixed():
     engine.set_schedule([(ScheduledSample(0, buf),), (), (), ()])
     engine.play(0)
     out = engine.process_offline(100)
-    assert out[0, 0] == pytest.approx(0.5)
-    assert out[0, 1] == pytest.approx(0.0)
+    assert out[50, 0] == pytest.approx(0.5)
+    assert out[50, 1] == pytest.approx(0.0)
 
 
 def test_tempo_change_rescales_bars():
@@ -197,4 +213,77 @@ def test_voice_count_is_bounded():
     engine.set_schedule([tuple(ScheduledSample(0, buf) for _ in range(200)), (), (), ()])
     engine.play(0)
     engine.process_offline(64)
-    assert len(engine._voices) <= 96
+    # MAX_VOICES sound at once; the rest of the bound is the fade-out queue.
+    assert len(engine._voices) <= MAX_VOICES + MAX_RELEASING
+    assert sum(1 for v in engine._voices if v.releasing is None) <= MAX_VOICES
+
+
+# ------------------------------------------------------------ declicking
+def max_step(out):
+    """Largest jump between consecutive frames: a click is a big jump."""
+    return float(np.abs(np.diff(out[:, 0])).max())
+
+
+def test_make_fade_shapes():
+    rise, fall = make_fade(32)
+    assert rise[0] == 0.0
+    assert rise[-1] == pytest.approx(1.0, abs=0.01)
+    assert fall[0] == pytest.approx(1.0)
+    assert fall[-1] == pytest.approx(0.0, abs=0.01)
+    assert (rise + fall) == pytest.approx(np.ones(32))
+
+
+def test_voice_fades_in_and_out():
+    engine = make_engine()
+    engine.set_schedule([(ScheduledSample(0, dc(200)),), (), (), ()])
+    engine.play(0)
+    out = engine.process_offline(200)
+    assert out[0, 0] == 0.0
+    assert np.all(np.diff(out[:FADE, 0]) > 0)  # strictly rising through the fade
+    assert out[FADE, 0] == pytest.approx(1.0)
+    assert out[199, 0] < 0.05  # and back to silence at the end
+    assert max_step(out) < 0.1  # no edge anywhere in the render
+
+
+def test_stop_releases_voices_instead_of_cutting_them():
+    engine = make_engine()
+    engine.set_schedule([(ScheduledSample(0, dc(100_000)),), (), (), ()])
+    engine.play(0)
+    engine.process_offline(500)  # reach full amplitude
+    engine.stop()
+    release = engine._release_frames
+    out = engine.process_offline(release + 50)
+    assert out[0, 0] == pytest.approx(1.0)  # continuous with what came before
+    assert max_step(out) < 0.1  # a decay, not a cliff
+    assert out[release, 0] == 0.0  # silent once the release completes
+    assert engine._voices == []
+
+
+def test_voice_stealing_fades_the_oldest_rather_than_truncating_it():
+    engine = make_engine()
+    buf = dc(100_000, 0.001)
+    for _ in range(MAX_VOICES):
+        engine._add_voice(Voice(buf))
+    assert all(v.releasing is None for v in engine._voices)
+
+    engine._add_voice(Voice(buf))  # one too many
+    assert engine._voices[0].releasing == 0  # fading, still in the mix
+    assert len(engine._voices) == MAX_VOICES + 1
+
+    for _ in range(MAX_RELEASING * 3):
+        engine._add_voice(Voice(buf))
+    assert len(engine._voices) <= MAX_VOICES + MAX_RELEASING
+
+
+def test_a_new_take_releases_what_was_playing():
+    # play_while_recording off and no count-in, so the only thing in the render
+    # is the tail of the voice that was playing when the take was armed.
+    engine = make_engine(play_while_recording=False)
+    engine.set_schedule([(ScheduledSample(0, dc(100_000)),), (), (), ()])
+    engine.play(0)
+    engine.process_offline(500)
+    engine.arm_record(bars=1, count_in_beats=0)
+    out = engine.process_offline(engine._release_frames + 50)
+    assert out[0, 0] == pytest.approx(1.0)
+    assert max_step(out) < 0.1
+    assert out[engine._release_frames, 0] == 0.0

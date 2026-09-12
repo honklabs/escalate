@@ -229,6 +229,7 @@ class App:
             self.handle(event)
         for event in self.engine.poll_events():
             self.on_engine_event(event)
+        self.mode.on_tick()
 
         now = time.monotonic()
         if now - self._last_frame >= FRAME_INTERVAL:

@@ -7,12 +7,14 @@ import pytest
 
 from push2sampler import colors
 from push2sampler.app import App
-from push2sampler.audio import Engine
+from push2sampler.audio import FADE_MS, Engine
 from push2sampler.constants import Btn, ENCODER_TEMPO, ENCODER_TRACK
+from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
 from push2sampler.push2 import SimPush
 
 SR = 8000
+FADE = int(SR * FADE_MS / 1000.0)
 
 
 @pytest.fixture
@@ -34,11 +36,12 @@ def rig(tmp_path):
 
 
 def pump(app):
-    """Deliver queued surface/engine events and refresh the LEDs."""
+    """One pass of App.tick(): events, the mode's own clock, then the LEDs."""
     for event in app.push.poll_events():
         app.handle(event)
     for event in app.engine.poll_events():
         app.on_engine_event(event)
+    app.mode.on_tick()
     app.render()
 
 
@@ -186,7 +189,8 @@ def test_pads_become_the_64_bars_of_the_song(rig):
     app, push, engine, project = rig
     record_into(app, push, engine, slot=0, bars=1)
     assert app.mode.name == "sample"
-    assert all(v == colors.OFF.index for v in push.pad_leds)
+    # No bar is enabled yet: only the faint phrase/section grid is lit.
+    assert colors.GREEN.index not in push.pad_leds
 
     push.press_pad(0)
     pump(app)
@@ -297,8 +301,9 @@ def test_play_triggers_the_arrangement_with_overlap(rig):
     pump(app)
     assert engine.is_playing
     out = engine.process_offline(fpbar * 2)
-    assert out[10, 0] == pytest.approx(0.25)
-    assert out[fpbar + 10, 0] == pytest.approx(0.5)  # the two overlap in bar 1
+    assert out[FADE + 10, 0] == pytest.approx(0.25)
+    # The two overlap in bar 1 (sampled clear of the declick fades).
+    assert out[fpbar + FADE + 10, 0] == pytest.approx(0.5)
 
     push.press_button(Btn.PLAY)
     pump(app)
@@ -365,7 +370,7 @@ def test_shift_pad_previews_a_sample_without_leaving_the_library(rig):
     pump(app)
     assert app.mode.name == "library"
     out = engine.process_offline(100)
-    assert out[0, 0] == pytest.approx(0.5)
+    assert out[FADE + 10, 0] == pytest.approx(0.5)
 
 
 def test_delete_from_the_library(rig):
@@ -443,3 +448,72 @@ def test_autosave_round_trip(rig, tmp_path):
     assert reloaded[4].triggers == {3}
     assert reloaded[4].bars == 1
     assert reloaded[4].frames == project[4].frames
+
+
+# --------------------------------------------------- hold to audition (CC-01)
+def test_a_tap_on_a_filled_pad_opens_its_page(rig):
+    app, push, _, project = rig
+    project.put(0, np.full((500, 1), 0.5, dtype=np.float32), bars=1)
+    pump(app)
+    push.press_pad(0)  # press and release in one pass: a tap
+    pump(app)
+    assert app.mode.name == "sample"
+    assert app.mode.slot == 0
+
+
+def test_holding_a_filled_pad_auditions_it_instead(rig, monkeypatch):
+    app, push, engine, project = rig
+    project.put(3, np.full((5000, 1), 0.5, dtype=np.float32), bars=1)
+    pump(app)
+    monkeypatch.setattr(library_mode, "HOLD_PREVIEW_S", 0.0)
+
+    push.inject_pad_press(3)
+    pump(app)
+    assert app.mode.name == "library"  # still here, and now sounding
+    out = engine.process_offline(100)
+    assert out[FADE + 10, 0] == pytest.approx(0.5)
+    pump(app)  # LEDs follow the audio, so re-render after rendering audio
+    assert push.pad_leds[3] == colors.AMBER.index  # the pad shows it playing
+
+    push.inject_pad_release(3)
+    pump(app)
+    assert app.mode.name == "library"  # releasing does not navigate
+
+
+def test_an_audition_stops_tracking_a_deleted_slot(rig, monkeypatch):
+    app, push, _, project = rig
+    project.put(0, np.zeros((100, 1), dtype=np.float32), bars=1)
+    pump(app)
+    monkeypatch.setattr(library_mode, "HOLD_PREVIEW_S", 10.0)
+    push.inject_pad_press(0)
+    pump(app)
+    project.delete(0)
+    pump(app)  # on_tick must not trip over the missing sample
+    push.inject_pad_release(0)
+    pump(app)
+    assert app.mode.name == "library"
+
+
+# ------------------------------------------------- phrase/section grid (CC-06)
+def test_phrase_and_section_marks_on_the_sample_page(rig):
+    app, push, engine, _ = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert app.mode.name == "sample"
+    assert push.pad_leds[0] == colors.WHITE_MID.index  # bar 1: a section start
+    assert push.pad_leds[16] == colors.WHITE_MID.index  # bar 17
+    assert push.pad_leds[4] == colors.WHITE_DIM.index  # bar 5: a phrase start
+    assert push.pad_leds[60] == colors.WHITE_DIM.index  # bar 61
+    assert push.pad_leds[1] == colors.OFF.index
+    assert push.pad_leds[5] == colors.OFF.index
+
+
+def test_triggers_and_the_playhead_win_over_the_grid_marks(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.press_pad(4)  # a phrase-start bar
+    pump(app)
+    assert push.pad_leds[4] == colors.GREEN.index
+    project.put(1, np.zeros((10, 1), dtype=np.float32), bars=1, triggers={16})
+    app.rebuild_schedule()
+    pump(app)
+    assert push.pad_leds[16] == colors.BLUE_DIM.index  # another sample's bar

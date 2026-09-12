@@ -28,8 +28,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
-#: Maximum simultaneously sounding voices; oldest are dropped beyond this.
+#: Maximum simultaneously sounding voices; the oldest is faded out beyond this.
 MAX_VOICES = 96
+#: Extra voice slots reserved for voices that are fading out.
+MAX_RELEASING = 16
+#: Fade applied at the start and end of every voice, to stop edges clicking.
+FADE_MS = 3.0
+#: Longer fade used when a voice is cut short: Stop, a new take, voice stealing.
+RELEASE_MS = 10.0
 
 IDLE = "idle"
 COUNT_IN = "count_in"
@@ -42,8 +48,10 @@ class Voice:
 
     buf: np.ndarray
     gain: float = 1.0
-    slot: int = -1  # -1 for clicks/previews, otherwise the sample slot
+    slot: int = -1  # -1 for clicks, otherwise the sample slot
     pos: int = 0
+    #: Frames of release fade applied so far; ``None`` while playing normally.
+    releasing: int | None = None
 
 
 @dataclass
@@ -82,6 +90,17 @@ def make_click(samplerate: int, freq: float, channels: int, ms: float = 28.0,
     t = np.arange(n, dtype=np.float32) / samplerate
     wave = np.sin(2 * np.pi * freq * t) * np.exp(-t * 45.0) * gain
     return np.repeat(wave.astype(np.float32)[:, None], channels, axis=1)
+
+
+def make_fade(frames: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return matching ``(rise, fall)`` raised-cosine ramps of ``frames``.
+
+    ``rise[0]`` is exactly 0 and ``fall[-1]`` is near 0, so a buffer faded with
+    both starts and ends at silence.
+    """
+    phase = np.pi * np.arange(frames, dtype=np.float32) / max(1, frames)
+    rise = (0.5 - 0.5 * np.cos(phase)).astype(np.float32)
+    return rise, (1.0 - rise).astype(np.float32)
 
 
 class Engine:
@@ -140,6 +159,13 @@ class Engine:
         self._click = make_click(samplerate, 1000.0, out_channels)
         self._click_accent = make_click(samplerate, 1600.0, out_channels, gain=0.5)
         self._null_phase = 0.0
+
+        # Fade windows are built once; the callback only ever slices them.
+        self._fade_frames = max(1, int(samplerate * FADE_MS / 1000.0))
+        self._release_frames = max(1, int(samplerate * RELEASE_MS / 1000.0))
+        self._fade_in, self._fade_out = make_fade(self._fade_frames)
+        _, self._release_win = make_fade(self._release_frames)
+        self._env_scratch = np.ones(blocksize, dtype=np.float32)
 
         self._stream = None
         self._thread: threading.Thread | None = None
@@ -298,7 +324,7 @@ class Engine:
     def play(self, from_bar: int = 0) -> None:
         with self._lock:
             self._pos = float(from_bar) * self.transport.frames_per_bar
-            self._voices = [v for v in self._voices if v.slot < 0]
+            self._release_all(samples_only=True)
             self._arm_boundaries()
             self._running = True
 
@@ -309,7 +335,7 @@ class Engine:
             self._rec_state = IDLE
             self._rec_buf = None
             self._pos = 0.0
-            self._voices.clear()
+            self._release_all()
             self.sounding = ()
             self._last_beat = self._last_bar = None
         if was != IDLE:
@@ -334,7 +360,7 @@ class Engine:
             self._rec_written = 0
             self._count_in_beats = max(0, int(count_in_beats))
             self._pos = -self._count_in_beats * self.transport.frames_per_beat
-            self._voices.clear()
+            self._release_all()
             self._arm_boundaries()
             self._rec_state = COUNT_IN if self._count_in_beats else RECORDING
             self._running = True
@@ -348,14 +374,14 @@ class Engine:
             self._rec_buf = None
             self._running = False
             self._pos = 0.0
-            self._voices.clear()
+            self._release_all()
             self._last_beat = self._last_bar = None
         self.events.put(("record_cancelled",))
 
-    def preview(self, buf: np.ndarray, gain: float = 1.0) -> None:
+    def preview(self, buf: np.ndarray, gain: float = 1.0, slot: int = -1) -> None:
         """Play a one-shot outside the transport (auditioning a sample)."""
         with self._lock:
-            self._add_voice(Voice(buf, gain, slot=-1))
+            self._add_voice(Voice(buf, gain, slot=slot))
 
     def _arm_boundaries(self) -> None:
         """Force the next processed segment to fire its beat and bar events."""
@@ -454,9 +480,27 @@ class Engine:
     def _add_voice(self, voice: Voice) -> None:
         if voice.buf is None or voice.buf.shape[0] == 0:
             return
-        if len(self._voices) >= MAX_VOICES:
-            del self._voices[0]
+        # These scans are bounded by MAX_VOICES + MAX_RELEASING and only run
+        # when a voice starts -- a handful of times per bar, never per frame.
+        if sum(1 for v in self._voices if v.releasing is None) >= MAX_VOICES:
+            self._release_oldest()
+        if len(self._voices) >= MAX_VOICES + MAX_RELEASING:
+            del self._voices[0]  # the fade queue is full too: this one goes
         self._voices.append(voice)
+
+    def _release_oldest(self) -> None:
+        for voice in self._voices:
+            if voice.releasing is None:
+                voice.releasing = 0
+                return
+
+    def _release_all(self, samples_only: bool = False) -> None:
+        """Fade every voice out instead of cutting it, which would click."""
+        for voice in self._voices:
+            if samples_only and voice.slot < 0:
+                continue
+            if voice.releasing is None:
+                voice.releasing = 0
 
     def _mix(self, seg: np.ndarray, n: int) -> None:
         if not self._voices:
@@ -466,20 +510,61 @@ class Engine:
         sounding: set[int] = set()
         for voice in self._voices:
             buf = voice.buf
-            k = min(n, buf.shape[0] - voice.pos)
+            total = buf.shape[0]
+            k = min(n, total - voice.pos)
+            if voice.releasing is not None:
+                k = min(k, self._release_frames - voice.releasing)
             if k > 0:
                 chunk = buf[voice.pos : voice.pos + k]
                 if chunk.shape[1] > self.out_channels:
                     chunk = chunk[:, : self.out_channels]
+                env = self._envelope(voice, k, total)
                 # A mono (k, 1) chunk broadcasts across the output channels.
-                seg[:k] += chunk * voice.gain
+                if env is None:
+                    seg[:k] += chunk * voice.gain
+                else:
+                    seg[:k] += chunk * (voice.gain * env[:, None])
                 voice.pos += k
+                if voice.releasing is not None:
+                    voice.releasing += k
                 if voice.slot >= 0:
                     sounding.add(voice.slot)
-            if voice.pos < buf.shape[0]:
+            if not self._voice_done(voice, total):
                 keep.append(voice)
         self._voices = keep
         self.sounding = tuple(sorted(sounding))
+
+    def _voice_done(self, voice: Voice, total: int) -> bool:
+        if voice.pos >= total:
+            return True
+        return voice.releasing is not None and voice.releasing >= self._release_frames
+
+    def _envelope(self, voice: Voice, k: int, total: int) -> np.ndarray | None:
+        """Gain ramp for this segment, or ``None`` when the voice is at unity."""
+        fade = self._fade_frames
+        pos = voice.pos
+        tail_start = total - fade
+        rising = pos < fade
+        falling = pos + k > tail_start
+        releasing = voice.releasing
+        if not rising and not falling and releasing is None:
+            return None
+        if self._env_scratch.shape[0] < k:
+            self._env_scratch = np.ones(k, dtype=np.float32)
+        env = self._env_scratch[:k]
+        env[:] = 1.0
+        if rising:
+            end = min(fade, pos + k)
+            env[: end - pos] *= self._fade_in[pos:end]
+        if falling and releasing is None:
+            start = max(pos, tail_start)
+            env[start - pos :] *= self._fade_out[
+                start - tail_start : pos + k - tail_start
+            ]
+        if releasing is not None:
+            # A release overrides the buffer's own tail fade.
+            env *= self._release_win[releasing : releasing + k]
+        return env
 
     def _monitor(self, seg: np.ndarray, inp: np.ndarray) -> None:
         chunk = inp[:, : self.out_channels]
@@ -508,7 +593,7 @@ class Engine:
         self._rec_buf = None
         self._running = False
         self._pos = 0.0
-        self._voices.clear()
+        self._release_all()
         self.sounding = ()
         self._last_beat = self._last_bar = None
         self.events.put(("record_done", bars, data))

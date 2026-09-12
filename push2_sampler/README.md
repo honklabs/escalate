@@ -25,8 +25,10 @@ All 64 pads are sample slots.
 | amber | that sample is sounding right now |
 
 * Press a **blank** pad → **Record mode** for that slot.
-* Press a **filled** pad → that sample's own **Sample page**.
-* `Shift` + a filled pad auditions the sample without leaving the library.
+* **Tap** a **filled** pad → that sample's own **Sample page**.
+* **Hold** a filled pad (about half a second) → audition it instead, without
+  leaving the library. The pad turns amber while it plays. `Shift` + a filled
+  pad does the same thing immediately.
 
 ### 2. Record mode
 
@@ -54,8 +56,14 @@ disable this sample on that bar:
 | --- | --- |
 | green | this sample plays here |
 | dim blue | some *other* sample plays here |
+| faint white | an empty bar that starts a 4-bar phrase |
+| brighter white | an empty bar that starts a 16-bar section |
 | white | the playhead, while the song is playing |
 | amber | the playhead, on a bar where this sample plays |
+
+The two faint tints are a ruler: they fall on columns 1 and 5 of every row, with
+the brighter mark every other row, so you can count phrases without counting
+pads.
 
 Samples may overlap freely — a 4-bar sample triggered on bars 0 and 2 will
 simply play over itself, and other samples layer on top.
@@ -75,6 +83,7 @@ repeat the whole process with the next sample.
 | Control | Action |
 | --- | --- |
 | 8x8 pads | slot / take length / song bar, depending on the mode |
+| hold a pad | Library: audition the sample instead of opening its page |
 | `Play` | start or stop the song from bar 1 |
 | `Stop` | stop; in Record mode cancel the take, then back out to the library |
 | `Record` | Library: record into the first free slot · Record mode: go · Sample page: re-record |
@@ -95,6 +104,10 @@ frames. A block is split at every beat, bar, loop point and end-of-take, so a
 sample always starts on the exact frame of its bar rather than on an audio
 block boundary. Takes are exactly `bars x 4 beats` long at the current tempo,
 which is why the tempo is locked while a take runs.
+
+Every voice gets a 3 ms fade at each end, and anything cut short — `Stop`, a
+new take, or the 97th simultaneous voice — fades out over 10 ms instead of
+stopping dead, so loop boundaries and stops do not click.
 
 If your interface has noticeable input latency, `--rec-latency-ms 12` trims
 that much from the front of each take (it records a little extra and slides the
@@ -152,7 +165,14 @@ the transport run, `q` quits.
 python -m pytest tests -q
 ```
 
-69 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
-triggering, overlap, looping, latency compensation, exact take lengths),
-project save/load, and the full pad-by-pad workflow through the simulated
-surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+82 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+triggering, overlap, looping, declicking envelopes, latency compensation, exact
+take lengths), project save/load, and the full pad-by-pad workflow through the
+simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+
+## Roadmap
+
+`plans.md` is the product plan: 58 items across foundations, new features,
+nice-to-haves, innovative bets and creature comforts, with the conventions
+(button allocation registry, file-contention map, definition of done) that let
+several people work on it at once.

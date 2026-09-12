@@ -31,6 +31,7 @@ OFF = Color("off", 0, (0, 0, 0))
 # device at startup and also used by the simulator to draw its text grid.
 WHITE = Color("white", 64, (255, 255, 255))
 WHITE_DIM = Color("white_dim", 65, (36, 36, 36))
+WHITE_MID = Color("white_mid", 75, (96, 96, 96))
 GREEN = Color("green", 66, (0, 255, 60))
 GREEN_DIM = Color("green_dim", 67, (0, 48, 14))
 AMBER = Color("amber", 68, (255, 130, 0))
@@ -45,6 +46,7 @@ YELLOW = Color("yellow", 74, (255, 214, 0))
 PALETTE: tuple[Color, ...] = (
     WHITE,
     WHITE_DIM,
+    WHITE_MID,
     GREEN,
     GREEN_DIM,
     AMBER,
@@ -62,6 +64,7 @@ BY_INDEX = {c.index: c for c in (OFF,) + PALETTE}
 SIM_GLYPHS = {
     OFF.index: ".",
     WHITE.index: "W",
+    WHITE_MID.index: "m",
     WHITE_DIM.index: "w",
     GREEN.index: "G",
     GREEN_DIM.index: "g",
