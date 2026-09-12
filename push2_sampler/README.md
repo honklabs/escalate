@@ -80,6 +80,7 @@ disable this sample on that bar:
 | Pad | Meaning |
 | --- | --- |
 | green | this sample plays here |
+| two dimmer greens | plays here, but softer -- see velocity below |
 | dim blue | some *other* sample plays here |
 | faint white | an empty bar that starts a 4-bar phrase |
 | brighter white | an empty bar that starts a 16-bar section |
@@ -100,6 +101,10 @@ simply play over itself, and other samples layer on top.
   `Shift` + **Delete** deletes the sample and returns to the library.
   Both are undoable, as is everything else below.
 * The first track encoder sets this sample's gain.
+* **Accent** decides whether this sample responds to how hard you hit a pad.
+  With it off (the default) every bar plays at the sample's own level, which is
+  what a take toggled in by hand should do. With it on, the green of each bar
+  shows how hard it was played.
 
 Then **Session** (or the left arrow) takes you back to the library, where you
 repeat the whole process with the next sample.
@@ -142,6 +147,23 @@ Everything you play in or erase is one undo step.
 
 `Session` goes back to the library.
 
+### 5. Bouncing
+
+`Shift`+`Record` in the library renders the whole song to
+`<project>/bounces/<timestamp>.wav`. The grid becomes one progress bar while it
+works -- the render happens a chunk at a time inside the event loop, so the
+surface stays live and you can keep playing. It runs far faster than real time.
+
+From a terminal, with no hardware and no audio device needed at all:
+
+```
+python -m push2sampler --bounce song.wav my-song     # the whole mix
+python -m push2sampler --stems stems/ my-song        # one WAV per slot
+```
+
+Stems sum back to the mix exactly, and both keep the tails of samples that
+overrun the last bar.
+
 ### Settings
 
 `Setup` opens the settings page and closes it again. The pads stay dark, because
@@ -174,6 +196,8 @@ means resampling every take that is already loaded.
 | 8x8 pads | slot / take length / song bar, depending on the mode |
 | hold a pad | Library: audition the sample instead of opening its page |
 | `Shift`+`Play` | open/close perform mode and start the loop |
+| `Shift`+`Record` | Library: bounce the song to a file |
+| `Accent` | Sample page: velocity response on/off |
 | `Fixed Length` | Perform: quantize amount |
 | `Play` | start or stop the song from bar 1 |
 | `Stop` | stop; in Record mode cancel the take, then back out to the library |
@@ -227,8 +251,10 @@ A project is a directory, written whenever something changes and on exit:
 
 ```
 my-song/
-  project.json        tempo, and per slot: length in bars, trigger bars, mute,
-                      gain, and the tempo/rate the take was recorded at
+  project.json        tempo, and per slot: length in bars, trigger bars, how
+                      hard each was played, mute, gain, and the tempo/rate the
+                      take was recorded at
+  bounces/*.wav       whatever you have bounced
   samples/slot_00.wav one file per filled slot
 ```
 
@@ -290,13 +316,14 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-213 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+257 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
-restarts, quantised live triggering), undo/redo, off-grid detection and repair,
-settings precedence and persistence, the display's frame format byte for byte,
-the hardware probe driven by a script instead of a person, project save/load, and
-the full pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+restarts, quantised live triggering, velocity), undo/redo, off-grid detection and
+repair, settings precedence and persistence, command-line resolution, offline
+bouncing and stems, the display's frame format byte for byte, the hardware probe
+driven by a script instead of a person, project save/load, and the full
+pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 

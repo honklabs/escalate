@@ -16,10 +16,19 @@ from .. import colors
 from ..audio import QUANTIZE_BEATS
 from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, PAD_COUNT, Btn
 from ..history import ClearBar, ToggleTrigger
+from ..project import FULL_VELOCITY
 from .base import Mode
 
 #: Labels for the quantize amounts, matching audio.QUANTIZE_BEATS.
 QUANTIZE_LABELS = ("off", "1/4 bar", "1/2 bar", "1 bar")
+
+
+def _velocity_scale(sensitivity: float, velocity: int) -> float:
+    """How loud a hit of ``velocity`` is, at this sample's sensitivity."""
+    sensitivity = max(0.0, min(1.0, sensitivity))
+    if sensitivity <= 0.0:
+        return 1.0
+    return (1.0 - sensitivity) + sensitivity * (max(1, velocity) / FULL_VELOCITY)
 
 
 class PerformMode(Mode):
@@ -50,13 +59,18 @@ class PerformMode(Mode):
         sample = self.project[index]
         if sample is None:
             return True
+        scale = _velocity_scale(sample.velocity_sensitivity, velocity)
         self.engine.trigger(
-            sample.audio, sample.gain, slot=index, quantize_beats=self.quantize_beats
+            sample.audio,
+            sample.gain * scale,
+            slot=index,
+            quantize_beats=self.quantize_beats,
         )
         if self.writing:
             bar = self.engine.next_grid_bar(self.quantize_beats)
             if bar not in sample.triggers:
-                self.app.do(ToggleTrigger(index, bar, True))
+                # Keep the dynamics of the performance, not just its notes.
+                self.app.do(ToggleTrigger(index, bar, True, velocity=velocity))
             else:
                 self.app.notify(f"slot {index + 1} already plays on bar {bar + 1}")
         return True

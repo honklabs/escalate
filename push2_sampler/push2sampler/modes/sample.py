@@ -18,6 +18,7 @@ from ..history import (
     RepairLength,
     SetEnabled,
     SetGain,
+    SetVelocitySensitivity,
     ToggleTrigger,
 )
 from .base import Mode
@@ -74,6 +75,12 @@ class SampleMode(Mode):
         if cc == Btn.MUTE and sample is not None:
             self.app.do(SetEnabled(self.slot, not sample.enabled))
             return True
+        if cc == Btn.ACCENT and sample is not None:
+            wanted = 0.0 if sample.velocity_sensitivity > 0 else 1.0
+            self.app.do(
+                SetVelocitySensitivity(self.slot, wanted, sample.velocity_sensitivity)
+            )
+            return True
         if cc == Btn.DELETE:
             if self.app.shift:
                 self.app.do(DeleteSample(self.slot))
@@ -116,10 +123,9 @@ class SampleMode(Mode):
             return
         others = self._other_trigger_bars()
         mine = sample.triggers
-        on_color = colors.GREEN.index if sample.enabled else colors.GREEN_DIM.index
         for bar in range(PAD_COUNT):
             if bar in mine:
-                pads[bar] = on_color
+                pads[bar] = self._trigger_color(sample, bar)
             elif bar in others:
                 pads[bar] = colors.BLUE_DIM.index
             else:
@@ -128,6 +134,20 @@ class SampleMode(Mode):
             bar = self.engine.current_bar
             if 0 <= bar < PAD_COUNT:
                 pads[bar] = colors.AMBER.index if bar in mine else colors.WHITE.index
+
+    @staticmethod
+    def _trigger_color(sample, bar: int) -> int:
+        """Green, in three steps, so you can see how hard a bar was played."""
+        if not sample.enabled:
+            return colors.GREEN_DIM.index
+        if sample.velocity_sensitivity <= 0:
+            return colors.GREEN.index
+        velocity = sample.velocity_at(bar)
+        if velocity >= 100:
+            return colors.GREEN.index
+        if velocity >= 55:
+            return colors.GREEN_MID.index
+        return colors.GREEN_DIM.index
 
     def _other_trigger_bars(self) -> set[int]:
         bars: set[int] = set()
@@ -142,6 +162,9 @@ class SampleMode(Mode):
         buttons[Btn.MUTE] = BTN_BRIGHT if (sample and not sample.enabled) else BTN_DIM
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.DELETE] = BTN_BRIGHT if self.app.delete_armed else BTN_DIM
+        buttons[Btn.ACCENT] = (
+            BTN_BRIGHT if sample and sample.velocity_sensitivity > 0 else BTN_DIM
+        )
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -150,10 +173,11 @@ class SampleMode(Mode):
         if sample is None:
             return ["SAMPLE"]
         state = "MUTED" if not sample.enabled else "audible"
+        velocity = "velocity" if sample.velocity_sensitivity > 0 else "flat"
         lines = [
             f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}",
-            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}",
-            "pad: toggle bar   Record: re-record   Mute: hear",
+            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
+            "pad: toggle bar   Record: re-record   Mute: hear   Accent: velocity",
         ]
         if self.project.mismatched(sample):
             measured = sample.bars_at(self.project.bpm, self.project.samplerate,

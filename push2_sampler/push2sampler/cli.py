@@ -64,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the terminal simulator instead of talking to hardware",
     )
     parser.add_argument(
+        "--bounce", metavar="OUT.WAV", default=None,
+        help="render the project's song to a WAV and exit (needs no hardware)",
+    )
+    parser.add_argument(
+        "--stems", metavar="DIR", default=None,
+        help="render one WAV per filled slot into DIR and exit",
+    )
+    parser.add_argument(
         "--selftest", action="store_true",
         help="walk through the hardware with a real Push 2 and write a report "
              "of what it actually does (see --report)",
@@ -100,8 +108,23 @@ def resolve_settings(args) -> Settings:
     given = {name: value for name, value in overrides.items() if value is not None}
     if args.no_play_while_recording:
         given["play_while_recording"] = False
+    # Say so when a value cannot be used, rather than quietly substituting the
+    # default and leaving someone to wonder why their flag did nothing.
+    refused = [
+        f"{name}={value!r} is not allowed, using {settings.spec(name).coerce(value)!r}"
+        for name, value in given.items()
+        if _differs(settings.spec(name).coerce(value), value)
+    ]
     settings.apply_overrides(given)
+    if refused:
+        settings.warning = "; ".join(filter(None, [settings.warning, *refused]))
     return settings
+
+
+def _differs(stored, asked) -> bool:
+    if isinstance(stored, (int, float)) and isinstance(asked, (int, float)):
+        return abs(float(stored) - float(asked)) > 1e-9
+    return stored != asked
 
 
 def _device(value):
@@ -116,6 +139,8 @@ def _device(value):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    if args.bounce or args.stems:
+        return _render(args)
     if args.selftest:
         from .selftest import run_selftest
 
@@ -197,6 +222,26 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"push2sampler: project {project_dir}, {project.bpm:.0f} BPM. Ctrl-C to quit.")
     app.run()
+    return 0
+
+
+def _render(args) -> int:
+    """Offline bounce: no MIDI, no PortAudio, no hardware."""
+    from .render import bounce_to, stems_to
+
+    settings = resolve_settings(args)
+    project = Project.load(Path(args.project), samplerate=settings["samplerate"])
+    if args.bpm is not None:
+        project.bpm = args.bpm
+    if not project.filled():
+        print(f"{args.project} has no samples to render", file=sys.stderr)
+        return 1
+    if args.bounce:
+        path = bounce_to(project, args.bounce)
+        print(f"wrote {path}")
+    if args.stems:
+        for path in stems_to(project, args.stems):
+            print(f"wrote {path}")
     return 0
 
 

@@ -44,11 +44,14 @@ class Command:
 
 @dataclass
 class ToggleTrigger(Command):
-    """Turn one bar of one sample on or off."""
+    """Turn one bar of one sample on or off, optionally with a velocity."""
 
     slot: int
     bar: int
     on: bool
+    velocity: int | None = None
+    _previous_velocity: int | None = None
+    _was_on: bool = False
 
     @property
     def label(self) -> str:
@@ -56,13 +59,17 @@ class ToggleTrigger(Command):
 
     def apply(self, project) -> None:
         sample = project[self.slot]
-        if sample is not None:
-            sample.set_trigger(self.bar, self.on)
+        if sample is None:
+            return
+        self._was_on = self.bar in sample.triggers
+        self._previous_velocity = sample.velocities.get(self.bar)
+        sample.set_trigger(self.bar, self.on, self.velocity)
 
     def revert(self, project) -> None:
         sample = project[self.slot]
-        if sample is not None:
-            sample.set_trigger(self.bar, not self.on)
+        if sample is None:
+            return
+        sample.set_trigger(self.bar, self._was_on, self._previous_velocity)
 
 
 @dataclass
@@ -71,6 +78,7 @@ class ClearTriggers(Command):
 
     slot: int
     _previous: set[int] = field(default_factory=set)
+    _previous_velocities: dict = field(default_factory=dict)
 
     label = "cleared all bars"
 
@@ -79,12 +87,15 @@ class ClearTriggers(Command):
         if sample is None:
             return
         self._previous = set(sample.triggers)
+        self._previous_velocities = dict(sample.velocities)
         sample.triggers.clear()
+        sample.velocities.clear()
 
     def revert(self, project) -> None:
         sample = project[self.slot]
         if sample is not None:
             sample.triggers = set(self._previous)
+            sample.velocities = dict(self._previous_velocities)
 
 
 @dataclass
@@ -92,6 +103,7 @@ class ClearBar(Command):
     """Remove one bar from every sample, for erase-while-looping."""
 
     bar: int
+    #: (slot, velocity) for every sample that played on this bar.
     _removed: list = field(default_factory=list)
 
     @property
@@ -100,16 +112,18 @@ class ClearBar(Command):
 
     def apply(self, project) -> None:
         self._removed = [
-            sample.slot for sample in project.filled() if self.bar in sample.triggers
+            (sample.slot, sample.velocities.get(self.bar))
+            for sample in project.filled()
+            if self.bar in sample.triggers
         ]
-        for slot in self._removed:
+        for slot, _ in self._removed:
             project[slot].set_trigger(self.bar, False)
 
     def revert(self, project) -> None:
-        for slot in self._removed:
+        for slot, velocity in self._removed:
             sample = project[slot]
             if sample is not None:
-                sample.set_trigger(self.bar, True)
+                sample.set_trigger(self.bar, True, velocity)
 
 
 @dataclass
@@ -132,6 +146,29 @@ class SetEnabled(Command):
         sample = project[self.slot]
         if sample is not None:
             sample.enabled = not self.enabled
+
+
+@dataclass
+class SetVelocitySensitivity(Command):
+    """Turn velocity response on or off for one sample."""
+
+    slot: int
+    sensitivity: float
+    previous: float
+
+    @property
+    def label(self) -> str:
+        return f"velocity {'on' if self.sensitivity > 0 else 'off'}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.velocity_sensitivity = self.sensitivity
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.velocity_sensitivity = self.previous
 
 
 @dataclass

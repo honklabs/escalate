@@ -19,7 +19,7 @@ from push2sampler.constants import (
 from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
-from push2sampler.push2 import SimPush
+from push2sampler.push2 import PadEvent, SimPush
 from push2sampler.settings import EDITABLE, Settings
 
 SR = 8000
@@ -1141,3 +1141,147 @@ def test_shift_play_again_closes_perform_mode(rig):
     pump(app)
     push.hold_button(Btn.SHIFT, False)
     assert app.mode.name == "library"
+
+
+# ------------------------------------------------- velocity on the surface
+def test_how_hard_you_hit_a_pad_sets_the_level(rig):
+    app, push, engine, project = live_rig(rig)
+    sample = project[0]
+    sample.velocity_sensitivity = 1.0
+    app.mode.quantize_index = 0  # fire immediately, so the level is easy to read
+
+    push.inject(PadEvent(0, True, 64))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] == pytest.approx(0.5 * 64 / 127, abs=0.01)
+
+
+def test_velocity_is_ignored_until_the_sample_asks_for_it(rig):
+    app, push, engine, project = live_rig(rig)
+    app.mode.quantize_index = 0
+    push.inject(PadEvent(0, True, 30))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] == pytest.approx(0.5, abs=0.01)  # flat, as recorded
+
+
+def test_a_played_in_arrangement_keeps_its_dynamics(rig):
+    app, push, engine, project = live_rig(rig)
+    project[0].velocity_sensitivity = 1.0
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.inject(PadEvent(0, True, 55))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    assert project[0].velocity_at(0) == 55
+    # The schedule's gain is the sample's gain (1.0) scaled by the velocity --
+    # the 0.5 in the fixture is the audio's amplitude, not its gain.
+    assert engine._schedule[0][0].gain == pytest.approx(55 / 127, abs=0.01)
+
+
+def test_accent_turns_velocity_on_for_a_sample(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert project[0].velocity_sensitivity == 0.0
+
+    push.press_button(Btn.ACCENT)
+    pump(app)
+    assert project[0].velocity_sensitivity == 1.0
+    assert app.message == "velocity on"
+    assert push.button_leds[Btn.ACCENT] > 0
+
+    push.press_button(Btn.ACCENT)
+    pump(app)
+    assert project[0].velocity_sensitivity == 0.0
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].velocity_sensitivity == 1.0
+
+
+def test_the_sample_page_shows_how_hard_each_bar_was_played(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    sample = project[0]
+    sample.velocity_sensitivity = 1.0
+    sample.set_trigger(0, True, velocity=127)
+    sample.set_trigger(1, True, velocity=70)
+    sample.set_trigger(2, True, velocity=20)
+    app.rebuild_schedule()
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[1] == colors.GREEN_MID.index
+    assert push.pad_leds[2] == colors.GREEN_DIM.index
+
+
+def test_without_velocity_every_bar_is_the_same_green(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    project[0].set_trigger(0, True, velocity=20)
+    project[0].set_trigger(1, True)
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[1] == colors.GREEN.index
+
+
+# --------------------------------------------------------- bouncing (NF-05)
+def test_shift_record_bounces_the_song_to_a_file(rig, tmp_path):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1, triggers={0, 1})
+    app.rebuild_schedule()
+    pump(app)
+
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.bounce is not None
+    assert app.message == "bouncing..."
+    # The grid becomes one progress bar while it renders.
+    assert colors.AMBER_DIM.index in push.pad_leds
+    assert any("BOUNCING" in line for line in app.status_lines())
+
+    for _ in range(400):  # the event loop steps the render a chunk at a time
+        app.tick()
+        if app.bounce is None:
+            break
+    assert app.bounce is None
+    bounces = list((tmp_path / "song" / "bounces").glob("*.wav"))
+    assert len(bounces) == 1
+    assert "bounced" in app.message
+
+    from push2sampler import wavio
+
+    audio, rate = wavio.read(bounces[0])
+    assert rate == SR
+    assert audio.shape[1] == 2
+    assert np.abs(audio).max() > 0.4
+
+
+def test_bouncing_an_empty_song_says_so(rig):
+    app, push, _, _ = rig
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.bounce is None
+    assert app.message == "nothing to bounce yet"
+
+
+def test_a_second_bounce_request_is_refused_while_one_runs(rig):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1, triggers={0})
+    app.rebuild_schedule()
+    assert app.start_bounce() is True
+    assert app.start_bounce() is False
+    assert app.message == "already bouncing"
+
+
+def test_recording_still_works_unshifted(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.RECORD)  # no Shift: the old meaning
+    pump(app)
+    assert app.mode.name == "record"
+    assert app.bounce is None

@@ -102,11 +102,14 @@ SPECS: dict[str, Spec] = {
     "input_device": Spec(None, int, label="in dev", restarts_audio=True),
     "output_device": Spec(None, int, label="out dev", restarts_audio=True),
     "blocksize": Spec(
-        256, int, choices=(64, 128, 256, 512, 1024), label="block", restarts_audio=True
+        256, int, choices=(64, 128, 256, 512, 1024, 2048), label="block",
+        restarts_audio=True,
     ),
     # Changing these needs every loaded take resampled, so they stay on the
-    # command line and take effect when the program next starts.
-    "samplerate": Spec(48_000, int, choices=(44_100, 48_000, 88_200, 96_000), label="rate"),
+    # command line and take effect when the program next starts.  Sample rate is
+    # a range, not a list: 8000 and 22050 are as valid as 48000, and a closed
+    # list silently turned anything unlisted into the default.
+    "samplerate": Spec(48_000, int, 8_000, 192_000, label="rate"),
     "in_channels": Spec(1, int, 1, 8, label="in ch"),
     "out_channels": Spec(2, int, 1, 8, label="out ch"),
 }

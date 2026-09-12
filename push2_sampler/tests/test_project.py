@@ -231,7 +231,7 @@ def test_provenance_round_trips(tmp_path):
     project.put(2, tone(bar_frames(project)), bars=1)
     project.save(tmp_path)
     payload = json.loads((tmp_path / "project.json").read_text())
-    assert payload["version"] == 2
+    assert payload["version"] == 3
     assert payload["slots"][0]["source_bpm"] == 100.0
     assert payload["slots"][0]["source_samplerate"] == 8000
 
@@ -263,3 +263,96 @@ def test_a_format_1_project_infers_its_provenance(tmp_path):
     assert loaded[0].source_samplerate == 8000
     assert loaded.mismatched(loaded[0]) is False
     assert loaded[0].triggers == {1}
+
+
+# ------------------------------------------------------ velocity (NF-10)
+def test_a_trigger_remembers_how_hard_it_was_played():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.set_trigger(4, True, velocity=70)
+    assert sample.triggers == {4}
+    assert sample.velocity_at(4) == 70
+    # A bar nobody played softly is simply full.
+    sample.set_trigger(5, True)
+    assert 5 not in sample.velocities
+    assert sample.velocity_at(5) == 127
+
+
+def test_turning_a_bar_off_forgets_its_velocity():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.set_trigger(4, True, velocity=70)
+    sample.set_trigger(4, False)
+    assert sample.velocities == {}  # no stale entries to drift out of step
+
+
+def test_full_velocity_is_not_stored():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.set_trigger(1, True, velocity=127)
+    assert sample.velocities == {}
+
+
+def test_velocity_does_nothing_until_the_sample_asks_for_it():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.set_trigger(0, True, velocity=20)
+    assert sample.velocity_scale(0) == 1.0  # sensitivity 0: flat, as recorded
+
+    sample.velocity_sensitivity = 1.0
+    assert sample.velocity_scale(0) == pytest.approx(20 / 127)
+    sample.velocity_sensitivity = 0.5
+    assert sample.velocity_scale(0) == pytest.approx(0.5 + 0.5 * 20 / 127)
+    assert sample.velocity_scale(9) == 1.0  # an untouched bar is still full
+
+
+def test_the_schedule_carries_the_velocity_as_gain():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.gain = 0.8
+    sample.velocity_sensitivity = 1.0
+    sample.set_trigger(0, True, velocity=64)
+    sample.set_trigger(1, True)
+    schedule = project.build_schedule()
+    assert schedule[0][0].gain == pytest.approx(0.8 * 64 / 127)
+    assert schedule[1][0].gain == pytest.approx(0.8)
+
+
+def test_velocities_survive_a_round_trip(tmp_path):
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.velocity_sensitivity = 0.75
+    sample.set_trigger(2, True, velocity=40)
+    sample.set_trigger(3, True)
+    project.save(tmp_path)
+
+    loaded = Project.load(tmp_path, samplerate=8000)[0]
+    assert loaded.triggers == {2, 3}
+    assert loaded.velocities == {2: 40}
+    assert loaded.velocity_sensitivity == 0.75
+
+
+def test_a_format_2_project_loads_with_velocity_off(tmp_path):
+    project = Project(samplerate=8000)
+    project.put(0, tone(bar_frames(project)), bars=1, triggers={1})
+    project.save(tmp_path)
+    payload = json.loads((tmp_path / "project.json").read_text())
+    payload["version"] = 2
+    del payload["slots"][0]["velocities"]
+    del payload["slots"][0]["velocity_sensitivity"]
+    (tmp_path / "project.json").write_text(json.dumps(payload))
+
+    loaded = Project.load(tmp_path, samplerate=8000)[0]
+    assert loaded.triggers == {1}
+    assert loaded.velocities == {}
+    assert loaded.velocity_sensitivity == 0.0
+
+
+def test_re_recording_keeps_the_dynamics(tmp_path):
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(100), bars=1)
+    sample.velocity_sensitivity = 1.0
+    sample.set_trigger(0, True, velocity=50)
+    replaced = project.put(0, tone(200), bars=1)
+    assert replaced.velocities == {0: 50}
+    assert replaced.velocity_sensitivity == 1.0

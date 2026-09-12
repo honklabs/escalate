@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from . import colors
+from . import colors, wavio
 from .audio import MONITOR_AUTO, MONITOR_OFF, MONITOR_ON
 from .constants import (
     BTN_BRIGHT,
@@ -26,6 +26,7 @@ from .modes import (
     SettingsMode,
 )
 from .project import Project
+from .render import BounceJob, default_bounce_path
 from .settings import ENGINE_SETTINGS, Settings
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
 
@@ -71,6 +72,8 @@ class App:
         self._message_at = 0.0
         self._save_at: float | None = None
         self._clip_until = 0.0
+        #: A render in progress, stepped a chunk at a time by tick().
+        self.bounce: BounceJob | None = None
         self._last_frame = 0.0
         self._last_display = 0.0
         self._rendered_buttons: set[int] = set()
@@ -206,6 +209,40 @@ class App:
         if changes:
             return self.engine.restart_stream(**changes)
         return True
+
+    # ------------------------------------------------------------------
+    # bouncing
+    # ------------------------------------------------------------------
+    def start_bounce(self) -> bool:
+        """Begin rendering the song to a file, without blocking the surface."""
+        if self.bounce is not None:
+            self.notify("already bouncing")
+            return False
+        if not self.project.bars_in_use():
+            self.notify("nothing to bounce yet")
+            return False
+        if self.project_dir is None:
+            self.notify("no project directory to bounce into")
+            return False
+        self.bounce = BounceJob(self.project)
+        self.notify("bouncing...")
+        return True
+
+    def _step_bounce(self) -> None:
+        job = self.bounce
+        if job is None:
+            return
+        if job.step():
+            return
+        self.bounce = None
+        try:
+            path = default_bounce_path(self.project_dir)
+            wavio.write(path, job.result(), self.project.samplerate)
+        except OSError as exc:
+            self.notify(f"bounce failed: {exc}")
+            return
+        seconds = job.result().shape[0] / max(1, self.project.samplerate)
+        self.notify(f"bounced {seconds:.0f}s to {path.name}")
 
     def save_settings(self) -> bool:
         if not self.settings.dirty:
@@ -442,6 +479,7 @@ class App:
             self._clip_until = time.monotonic() + CLIP_WARNING_S
             self.notify("input clipping")
         self.mode.on_tick()
+        self._step_bounce()
 
         now = time.monotonic()
         if now - self._last_frame >= FRAME_INTERVAL:

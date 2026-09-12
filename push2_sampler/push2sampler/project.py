@@ -25,9 +25,11 @@ from .constants import PAD_COUNT
 SONG_BARS = 64
 #: A take may be this far from its declared length before it is flagged.
 LENGTH_TOLERANCE = 0.01
+#: Velocity of a bar that was not played in by hand: as hard as it goes.
+FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 
 
 @dataclass
@@ -38,6 +40,11 @@ class Sample:
     bars: int
     audio: np.ndarray
     triggers: set[int] = field(default_factory=set)
+    #: How hard each bar was played, for the bars that were not played flat out.
+    #: Keys are always a subset of ``triggers``; a missing one means full.
+    velocities: dict[int, int] = field(default_factory=dict)
+    #: 0 = ignore how hard the pad was hit, 1 = velocity controls the level.
+    velocity_sensitivity: float = 0.0
     enabled: bool = True
     gain: float = 1.0
     name: str = ""
@@ -55,20 +62,40 @@ class Sample:
     def frames(self) -> int:
         return int(self.audio.shape[0])
 
-    def set_trigger(self, bar: int, on: bool) -> None:
-        """Enable or disable playback on ``bar``."""
+    def set_trigger(self, bar: int, on: bool, velocity: int | None = None) -> None:
+        """Enable or disable playback on ``bar``, optionally with a velocity."""
         if not 0 <= bar < SONG_BARS:
             raise ValueError(f"bar out of range: {bar}")
-        if on:
-            self.triggers.add(bar)
-        else:
+        if not on:
             self.triggers.discard(bar)
+            self.velocities.pop(bar, None)
+            return
+        self.triggers.add(bar)
+        if velocity is None or velocity >= FULL_VELOCITY:
+            self.velocities.pop(bar, None)
+        else:
+            self.velocities[bar] = max(1, int(velocity))
 
     def toggle(self, bar: int) -> bool:
         """Toggle playback on ``bar``; returns the new state."""
         on = bar not in self.triggers
         self.set_trigger(bar, on)
         return on
+
+    def velocity_at(self, bar: int) -> int:
+        return self.velocities.get(bar, FULL_VELOCITY)
+
+    def velocity_scale(self, bar: int) -> float:
+        """Level multiplier for ``bar``, given how hard it was played.
+
+        At sensitivity 0 every bar plays at the sample's own gain, which is what
+        a take toggled in by hand should do.
+        """
+        sensitivity = max(0.0, min(1.0, self.velocity_sensitivity))
+        if sensitivity <= 0.0:
+            return 1.0
+        loudness = self.velocity_at(bar) / FULL_VELOCITY
+        return (1.0 - sensitivity) + sensitivity * loudness
 
     def bars_at(self, bpm: float, samplerate: int, beats_per_bar: int = 4) -> float:
         """How many bars this take's audio fills at the given tempo.
@@ -88,6 +115,8 @@ class Sample:
             "triggers": sorted(self.triggers),
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
+            "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
+            "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
             "source_bpm": round(float(self.source_bpm), 3),
             "source_samplerate": int(self.source_samplerate),
             "audio": audio_path,
@@ -179,6 +208,8 @@ class Project:
             audio=np.ascontiguousarray(audio, dtype=np.float32),
             triggers=set(triggers) if triggers is not None
             else (set(existing.triggers) if existing else set()),
+            velocities=dict(existing.velocities) if existing else {},
+            velocity_sensitivity=existing.velocity_sensitivity if existing else 0.0,
             enabled=existing.enabled if existing else True,
             gain=existing.gain if existing else 1.0,
             name=existing.name if existing else "",
@@ -222,7 +253,11 @@ class Project:
             for bar in sorted(sample.triggers):
                 if 0 <= bar < self.song_bars:
                     schedule[bar].append(
-                        ScheduledSample(sample.slot, sample.audio, sample.gain)
+                        ScheduledSample(
+                            sample.slot,
+                            sample.audio,
+                            sample.gain * sample.velocity_scale(bar),
+                        )
                     )
         return [tuple(entries) for entries in schedule]
 
@@ -284,6 +319,10 @@ class Project:
                 bars=int(entry.get("bars", 1)),
                 audio=audio,
                 triggers={int(b) for b in entry.get("triggers", [])},
+                velocities={
+                    int(bar): int(v) for bar, v in (entry.get("velocities") or {}).items()
+                },
+                velocity_sensitivity=float(entry.get("velocity_sensitivity", 0.0) or 0.0),
                 enabled=bool(entry.get("enabled", True)),
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),

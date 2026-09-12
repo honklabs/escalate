@@ -85,6 +85,9 @@ class LibraryMode(Mode):
     def on_button(self, cc: int, pressed: bool) -> bool:
         if not pressed:
             return False
+        if cc == Btn.RECORD and self.app.shift:
+            self.app.start_bounce()
+            return True
         if cc == Btn.RECORD:
             slot = self.project.first_empty()
             if slot is None:
@@ -103,6 +106,9 @@ class LibraryMode(Mode):
 
     # -- output ------------------------------------------------------------
     def render_pads(self, pads: list[int]) -> None:
+        if self.app.bounce is not None:
+            self._render_progress(pads, self.app.bounce.progress)
+            return
         sounding = set(self.engine.sounding)
         blink = self.app.blink
         for i in range(PAD_COUNT):
@@ -122,6 +128,13 @@ class LibraryMode(Mode):
             else:
                 pads[i] = colors.GREEN_DIM.index
 
+    @staticmethod
+    def _render_progress(pads: list[int], progress: float) -> None:
+        """The whole grid becomes one bar filling up while a bounce renders."""
+        filled = int(progress * PAD_COUNT + 0.5)
+        for i in range(PAD_COUNT):
+            pads[i] = colors.AMBER.index if i < filled else colors.AMBER_DIM.index
+
     def render_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.MUTE] = BTN_BRIGHT if self.app.mute_armed else BTN_DIM
@@ -133,7 +146,11 @@ class LibraryMode(Mode):
             "SAMPLE LIBRARY",
             f"{filled}/64 slots filled, {muted} muted",
             "blank pad: record   tap: open page   hold: audition",
+            "Shift+Record: bounce the song to a file",
         ]
+        if self.app.bounce is not None:
+            return ["BOUNCING", f"{self.app.bounce.progress * 100:.0f}%",
+                    "rendering the song to a file"]
         off_grid = self.project.mismatched_slots()
         if off_grid:
             slots = ", ".join(str(slot + 1) for slot in off_grid[:6])

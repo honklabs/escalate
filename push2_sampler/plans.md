@@ -62,9 +62,9 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-04`, `CC-01` and
-`CC-06`. Each carries a status note in its own section below. ~6,100 lines, 213
-tests, `ruff` clean, no hardware needed to test.
+**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-04`, `NF-05`,
+`NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own section
+below. ~6,900 lines, 257 tests, `ruff` clean, no hardware needed to test.
 
 `F-08` shipped the *tool* -- `--selftest` walks a real Push 2 and writes a
 report -- but the human half is still outstanding: nobody has run it yet. Until
@@ -72,8 +72,9 @@ they do, every hardware constant remains an educated guess and the README's
 "Confirmed against real hardware" table reads "not yet" all the way down. That
 report is the highest-value thing anyone can hand this project.
 
-Next: `NF-03` (sample editor), then `NF-10` (velocity), which `NF-04` has made
-obviously missing -- playing pads live without dynamics feels like a toy.
+Next: `NF-03` (sample editor) is the biggest remaining gap -- a take is still
+all-or-nothing, with no trim and no fades. After that `NF-01` (song page) and
+`NF-07` (banks), which share a model rewrite and want one owner.
 
 ```
 push2sampler/
@@ -87,6 +88,7 @@ push2sampler/
   history.py    undoable commands + the undo/redo journal
   settings.py   the settings table: defaults, validation, labels, persistence
   selftest.py   the guided hardware probe and its report
+  render.py     offline bouncing: the whole mix, or one stem per slot
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -98,8 +100,8 @@ push2sampler/
 
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
-- Pad velocity is captured in `PadEvent` and thrown away (`NF-10`) -- now the
-  most obviously missing thing, since perform mode plays pads live.
+- Samples are immutable once recorded: no trim, no fades, gain staging is one
+  number (`NF-03`) -- now the biggest gap.
 - Tempo changes do not move recorded audio, so an old take drifts against a new
   tempo. It is now *detected* and repairable by padding/trimming (`F-09`);
   pitch-preserving stretching is still open (`NH-09`).
@@ -186,7 +188,7 @@ CC is the most likely merge conflict in this project.
 | Control | CC | Status |
 | --- | --- | --- |
 | Play | 85 | **taken** — transport · `Shift`+`Play` opens perform mode |
-| Record | 86 | **taken** — take/re-record |
+| Record | 86 | **taken** — take/re-record · `Shift`+`Record` bounces |
 | Stop | 29 | **taken** — stop / cancel / back out |
 | Session | 51 | **taken** — back to library |
 | Note | 50 | **taken** — alias of Session |
@@ -212,7 +214,7 @@ CC is the most likely merge conflict in this project.
 | Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
 | Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
 | Fixed Length | 90 | **taken** — Perform: quantize amount |
-| Accent | 57 | reserved → `NF-10` (velocity sensitivity on/off) |
+| Accent | 57 | **taken** — Sample page: velocity response on/off |
 | Scale | 58 | reserved → `IN-04` (key/pitch tools) |
 | Automate | 89 | reserved → `IN-03` (generative fills) |
 | Convert | 35 | reserved → `IN-01` (slice a take) |
@@ -314,8 +316,8 @@ something that makes the instrument nicer to touch, not only bigger.
 | Release | Theme | Contents |
 | --- | --- | --- |
 | **v1.1 — Trustworthy** | it never bites you | `F-01` `F-02` `F-03` `F-04` `F-05` `F-09` `CC-01` `CC-03` `CC-04` `CC-05` `CC-06` `CC-10` `CC-14` `CC-15` `CC-16` |
-| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-04`~~ `NF-03` `NF-10` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
-| **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | `NF-01` `NF-05` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
+| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-04`~~ ~~`NF-10`~~ `NF-03` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
+| **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
 | **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
@@ -811,6 +813,14 @@ erase removes only triggers in the bars the playhead crossed while held.
 
 ### NF-05 — Bounce the song and export stems `size: M`
 
+**Status: shipped.** `render.py` renders on a throwaway offline engine, so a
+bounce never disturbs the live one. `BounceJob` renders a chunk at a time and is
+stepped by the event loop, which keeps the surface responsive **without threads
+or locks** -- rendering is numpy, so a two-minute song takes a second or two
+spread over a handful of frames, and the pads show it as one progress bar.
+`--bounce` and `--stems` need no MIDI, no PortAudio and no hardware at all.
+Stems sum back to the mix exactly, which is the property worth testing.
+
 **Problem.** Nothing leaves the box. Work done here cannot be shared, finished
 elsewhere, or even listened to away from the device.
 
@@ -926,6 +936,25 @@ emits exactly 24 clocks per beat; Link absence leaves internal clock working.
 throwaway script before touching `audio.py`.
 
 ### NF-10 — Velocity and pressure `size: S`
+
+**Status: shipped** (velocity; aftertouch is still unused, and the probe will
+say whether it even arrives). `Accent` turns velocity response on per sample,
+off by default so every existing project plays exactly as before. In perform
+mode a hit's level is scaled by how hard it was, and a hit written into the
+arrangement keeps its velocity, so a played-in part keeps its dynamics. The
+sample page shows that as three greens.
+
+**Deviation: `triggers` stays a `set`**, with a parallel
+`velocities: dict[bar, int]` holding only the bars that were *not* played flat
+out. The item called for turning `triggers` into a dict, which would have
+rewritten every consumer and ~20 test assertions for no user-visible gain. The
+invariant (velocity keys are a subset of triggers) lives in one place,
+`Sample.set_trigger`, which discards a velocity when its bar is turned off --
+so the two cannot drift. A missing entry means full, which is also what makes
+the format change backward compatible.
+
+This is why the `triggers`-type collision warned about in `NF-01`, `NF-07`,
+`NH-05` and `NH-06` no longer exists: there is no type change.
 
 **Problem.** `PadEvent.velocity` is captured and discarded. A drum pad that
 ignores how hard you hit it is not an instrument.
@@ -1505,6 +1534,7 @@ group from §3.8, and rebase on `main` before opening a PR.
 | Ableton Link / MIDI clock complexity (`NF-09`) | Weeks lost to jitter | Spike first in a standalone script with a synthetic clock; ship `midi_slave` before `midi_master` before Link; accept "internal only" as a valid outcome |
 | The innovative block drifts into novelty | Effort spent on things nobody uses | Each `IN` item must state the one gesture it replaces; if it does not remove work from the musician, cut it |
 | Latency compensation is manual | Takes land late, users blame the instrument | `CC-09` calibration wizard, and show the compensation figure on the record screen so it is never a silent setting |
+| Settings validation silently substituting defaults | A flag appears to do nothing; `--samplerate 8000` was thrown away for a week | Fixed: the CLI now reports any value it could not use. Prefer ranges over closed `choices` lists unless the set really is closed |
 
 ---
 
