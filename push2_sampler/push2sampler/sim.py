@@ -67,7 +67,11 @@ BUTTONS = {
     **{f"b{i + 1}": cc for i, cc in enumerate(DISPLAY_ROW_BOTTOM)},
 }
 
-LEGEND = "W/w white  G/g green  A/a amber  R/r red  B/b blue  . off"
+#: Every glyph ``SimPush.grid`` can print, so the grid is readable without
+#: having to look up the palette.  Upper case is bright, lower case dim.
+LEGEND = (
+    "W m w white  G h g green  A a amber  R r red  B b blue  Y yellow  . off"
+)
 
 
 def _pad_index(token: str) -> int:

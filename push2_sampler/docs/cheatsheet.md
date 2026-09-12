@@ -1,0 +1,212 @@
+# Cheat sheet
+
+One page. Everything the program responds to. Print it, put it next to the Push.
+
+New here? [Getting started](getting-started.md) explains *why* in the order you
+need it. This is the *what*, for when you have already done that once.
+
+---
+
+## Everywhere, in every mode
+
+| Control | Does |
+| --- | --- |
+| **Play** | start the song from bar 1 |
+| **Stop** | stop everything |
+| **Shift**+**Play** | perform mode (play the arrangement in by hand) |
+| **Metronome** | click on / off |
+| **Shift**+**Metronome** | monitoring: `off` → `auto` → `on` |
+| **Repeat** | 64-bar loop on / off |
+| **Undo** | take back the last edit (64 deep) |
+| **Shift**+**Undo** | redo |
+| **Session** / **Note** / **Left arrow** | back — leave this page |
+| **Setup** | settings page (open / close) |
+| **Shift**+**Setup** | save the project right now |
+| **Delete** | arm delete, then press a pad |
+| **Tempo encoder** | BPM ±1 per click |
+| **Shift**+**Tempo encoder** | BPM ±10 per click |
+| **Row above the display** | input level meter (not buttons) |
+
+A lit **Undo** means there is something to take back. A dark one means there
+isn't.
+
+---
+
+## Library — 64 samples
+
+The page you start on, and the one **Session** always returns you to.
+
+| Control | Does |
+| --- | --- |
+| tap a **white** pad | record into that slot → Record mode |
+| tap a **filled** pad | open that sample's page |
+| **hold** a filled pad (½ s) | audition it, stay in the library |
+| **Shift** + a filled pad | audition it immediately |
+| **Record** | record into the first empty slot |
+| **Shift**+**Record** | bounce the song to `bounces/<timestamp>.wav` |
+| **Mute** then a pad | mute / unmute that slot |
+
+| Pad colour | Means |
+| --- | --- |
+| white | empty |
+| green | filled |
+| dim green | filled, muted |
+| amber | sounding right now — auditioned, or playing in the song |
+| yellow | filled, but the wrong length for this tempo |
+| flashing red | **Delete** is armed; the next pad you press is deleted |
+| every filled pad yellow | **Mute** is armed; the next pad you press is muted |
+| amber bar filling the grid | a bounce is rendering |
+
+---
+
+## Record mode — choose a length, play it
+
+| Control | Does |
+| --- | --- |
+| any pad | set the length: top-left through that pad, in reading order |
+| **encoder 1** | same thing, ±1 bar |
+| **Record** | count in, then record |
+| **Record** (while recording) | start the take over |
+| **Stop** | end the take early, or cancel before it starts |
+| **Session** | give up, back to the library |
+
+White pads are the bars that will be recorded; the first white pad is always the
+top-left one. Recording stops by itself and drops you on the new sample's page.
+
+| Pad colour | Means |
+| --- | --- |
+| white | this bar will be recorded |
+| off | not included |
+| red, flashing on each beat | counting in |
+| bright red | being recorded right now |
+| dim red | already recorded |
+
+---
+
+## Sample page — where this sample plays
+
+Each pad is **one bar of the 64-bar song**: top-left is bar 1, the pad below it
+is bar 9, bottom-right is bar 64.
+
+| Control | Does |
+| --- | --- |
+| any pad | this sample plays on that bar / stops playing there |
+| **Mute** | mute this sample (`MUTED` on the display) |
+| **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
+| **Device** | open the editor |
+| **Record** | re-record this slot |
+| **Delete** then a pad | clear every bar of this sample |
+| **Shift**+**Delete** | delete the sample itself |
+| **Up** / **Down** | previous / next filled slot |
+| **encoder 1** | this sample's gain (0 – 2.0) |
+| **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
+
+| Pad colour | Means |
+| --- | --- |
+| green | plays here (hit hard, if this sample is velocity-sensitive) |
+| mid green | plays here, hit at medium velocity |
+| dim green | plays here, hit softly — or this sample is muted |
+| dim blue | another sample plays here |
+| amber | the playhead, on a bar where this sample plays |
+| white | the playhead, anywhere else |
+| faint white | 4-bar phrase mark; brighter every 16 bars |
+
+---
+
+## Editor — shape a take (**Device** on a sample page)
+
+The grid becomes the audio: 64 slices, bright where it is loud. **Press a pad to
+play the take from there.** Dim red is what you are trimming away.
+
+Encoders above the display, left to right; the button underneath resets or
+toggles:
+
+| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| trim in | trim out | fade in | fade out | pitch | gain | reverse | normalise |
+| 5 ms | 5 ms | 2 ms | 2 ms | ±12 st | 0.05 | on/off | on/off |
+
+| Control | Does |
+| --- | --- |
+| **Device** | close the editor |
+| **Shift**+**Device** | apply the edits to the recording for good (undoable) |
+
+Nothing here touches the recording until you ask it to. Every turn is one undo
+step, and turns within 1½ seconds of each other merge into one.
+
+---
+
+## Perform mode — play it in (**Shift**+**Play**)
+
+The library grid again, but the pads *fire*.
+
+| Control | Does |
+| --- | --- |
+| any filled pad | fire that sample at the next quantize point |
+| **Record** | also write what you play into the arrangement (`WRITING`) |
+| **Fixed Length** | quantize: `1 bar` → `1/2 bar` → `1/4 bar` → `off` |
+| **Delete** | erase bars as the playhead crosses them; press again to stop |
+| **Session** | leave |
+
+Hit harder for more level on any sample set to `velocity` (**Accent** on its
+page).
+
+---
+
+## Settings (**Setup**)
+
+The pads go dark on purpose. Each button *below* the display owns one setting;
+the encoder above it changes the value, pressing the button resets or cycles it.
+
+| 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- |
+| count-in beats | monitoring | monitor gain | record latency |
+
+| 5 | 6 | 7 | 8 |
+| --- | --- | --- | --- |
+| play while recording | autosave delay | input device | audio block size |
+
+**Setup** again closes the page and writes
+`~/.config/push2sampler/settings.json`. Changing the input device or block size
+restarts the audio stream; if the new one will not open, the old one is kept and
+the display says why.
+
+---
+
+## Command line
+
+| | |
+| --- | --- |
+| `python -m push2sampler SONG` | run it |
+| `--sim` | no hardware: terminal simulator ([docs](simulator.md)) |
+| `--selftest` | guided hardware probe, writes `hardware-report.json` |
+| `--list-ports` / `--list-devices` | what Python can see |
+| `--bounce OUT.wav SONG` | render the mix, no hardware needed |
+| `--stems DIR SONG` | one WAV per filled slot |
+| `--bpm N` | tempo for this run |
+| `--monitor off\|auto\|on` | hear the input |
+| `--rec-latency-ms N` | trim N ms off the front of each take |
+| `--count-in N` | count-in beats (default 4) |
+| `--no-play-while-recording` | silence the song during a take |
+| `--input-device N` / `--output-device N` | pick audio devices |
+| `--samplerate N` / `--blocksize N` | stream format |
+| `--no-settings` | ignore the settings file |
+| `--no-save` | never write to the project directory |
+| `--no-display` | skip the Push screen |
+
+Command-line values win for that run and are **not** written back to the
+settings file.
+
+---
+
+## Files
+
+```
+SONG/project.json            tempo; per slot: bars, trigger bars, velocities,
+                             mute, gain, edits
+SONG/samples/slot_NN.wav     one per filled slot
+SONG/bounces/*.wav           what you have bounced
+~/.config/push2sampler/settings.json
+```
+
+Saves itself a couple of seconds after any change, and on exit.

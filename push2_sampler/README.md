@@ -11,6 +11,19 @@ python -m push2sampler my-song           # with a Push 2 plugged in
 python -m push2sampler --sim my-song     # no hardware: terminal simulator
 ```
 
+## Documentation
+
+| | |
+| --- | --- |
+| **[docs/getting-started.md](docs/getting-started.md)** | A tutorial: unplugged Push 2 to a finished, bounced song, using every feature. Start here. |
+| **[docs/reference.md](docs/reference.md)** | Every mode, control, colour, setting, file format and command-line option. |
+| **[docs/cheatsheet.md](docs/cheatsheet.md)** | One page to print and keep next to the Push. |
+| **[docs/troubleshooting.md](docs/troubleshooting.md)** | Symptom → cause → fix. |
+| **[docs/simulator.md](docs/simulator.md)** | Driving the whole program from a terminal, with no hardware. |
+
+The rest of this file is a summary for people working on the code;
+[docs/](docs/README.md) is for people using it.
+
 ## When you first plug the Push 2 in
 
 Run the hardware probe before anything else:

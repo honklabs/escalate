@@ -1,7 +1,9 @@
 # push2sampler — product plan
 
-Status: v1.1 shipped and most of v1.2 (see `README.md`). This document is the
-backlog and the rules of engagement for the rest of the way to v2.0.
+Status: v1.1 shipped and most of v1.2 (see `README.md`). User documentation for
+everything shipped so far is in [`docs/`](docs/README.md) — tutorial, reference,
+cheat sheet, troubleshooting, simulator guide. This document is the backlog and
+the rules of engagement for the rest of the way to v2.0.
 
 ---
 
@@ -267,6 +269,11 @@ which something happens, not merely that it happened.
 - [ ] New buttons/encoders claimed in the §3.5 table in the same PR.
 - [ ] New colours added to `colors.PALETTE` **and** `colors.SIM_GLYPHS`.
 - [ ] `README.md` key map and workflow updated if the surface changed.
+- [ ] `docs/` updated if the surface changed: the control tables in
+      `docs/reference.md` and `docs/cheatsheet.md`, a step in
+      `docs/getting-started.md` if it is a feature a new user should meet, and a
+      row in `docs/troubleshooting.md` for any new way it can go wrong.
+      Pad colours appear in three places there; grep for the colour name.
 - [ ] Project-format changes are backward compatible: old `project.json` loads,
       with `FORMAT_VERSION` bumped and a migration in `Project.load`.
 - [ ] Nothing outside `push2_sampler/` modified.
