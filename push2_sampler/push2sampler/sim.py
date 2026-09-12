@@ -9,6 +9,7 @@ Commands::
     p 12        press and release pad 12 (or "p 3,4" for col,row)
     hold 12     press pad 12 and keep holding   rel 12   release it
     b play      press a button by name (see BUTTONS)
+    b undo      take back the last edit (shift on; b undo = redo)
     shift on    hold/release the Shift modifier
     t +4        turn the tempo encoder
     k +1        turn track encoder 1 (length / gain)
@@ -45,6 +46,7 @@ BUTTONS = {
     "up": Btn.UP,
     "down": Btn.DOWN,
     "setup": Btn.SETUP,
+    "undo": Btn.UNDO,
 }
 
 LEGEND = "W/w white  G/g green  A/a amber  R/r red  B/b blue  . off"

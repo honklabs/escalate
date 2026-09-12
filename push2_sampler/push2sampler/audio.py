@@ -16,6 +16,27 @@ recorded frame".
 ``_process`` walks the block in segments that never cross a beat, a bar, the
 end of the song, or the end of a recording, so scheduled samples always start
 on the exact frame of their bar rather than on a block boundary.
+
+Threading model
+---------------
+The callback is the **only** writer of transport state (``_pos``, ``_voices``,
+``_rec_*``, the boundary anchors).  The UI thread never takes a lock, which is
+what keeps a slow UI pass from turning into an audible dropout: instead it
+
+1. does any allocation up front (a take's buffer, a :class:`Voice`),
+2. publishes an :class:`Intent` describing the state it is asking for, and
+3. posts one command tuple, which the callback applies in full at the top of
+   the next block.
+
+Reads stay synchronous because the getters prefer the pending ``Intent`` over
+the callback's state, so ``engine.play(); engine.is_playing`` is True right
+away even though no audio has been rendered yet.  The callback clears the
+intent once it has caught up, and only if the UI has not replaced it since.
+
+Plain attributes the callback merely reads -- ``metronome``, ``loop``,
+``monitor_gain``, ``play_while_recording`` -- are single words written
+atomically by the UI thread.  A one-block-stale read of those is harmless, so
+they are deliberately not commands.
 """
 
 from __future__ import annotations
@@ -24,7 +45,7 @@ import math
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -61,6 +82,35 @@ class ScheduledSample:
     slot: int
     buf: np.ndarray
     gain: float = 1.0
+
+
+@dataclass(frozen=True)
+class Intent:
+    """Transport state the UI has asked for but the callback has not applied.
+
+    Immutable, so publishing one is a single atomic attribute assignment.
+    """
+
+    running: bool
+    rec_state: str
+    pos: float
+    bpm: float
+
+
+@dataclass(frozen=True)
+class Stats:
+    """A snapshot of engine health, republished once per block."""
+
+    #: Dropouts PortAudio has reported since the engine started.
+    xruns: int = 0
+    #: Peak absolute output sample in the last block.
+    peak_out: float = 0.0
+    #: Voices alive at the end of the last block.
+    voices: int = 0
+    #: Wall-clock time the last block took to render.
+    callback_ms: float = 0.0
+    #: Worst block so far; compare against the block's own duration as a budget.
+    callback_ms_max: float = 0.0
 
 
 @dataclass
@@ -104,7 +154,11 @@ def make_fade(frames: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 class Engine:
-    """Transport, mixer and recorder.  Thread-safe for the few public setters."""
+    """Transport, mixer and recorder.
+
+    Public setters are safe to call from any thread: they post commands rather
+    than touching the state the callback owns.  See the threading model above.
+    """
 
     def __init__(
         self,
@@ -139,7 +193,13 @@ class Engine:
         self.metronome = False
         self.loop = True
 
-        self._lock = threading.RLock()
+        #: UI -> callback commands; drained at the top of every block.
+        self._commands: queue.SimpleQueue = queue.SimpleQueue()
+        self._intent: Intent | None = None
+        self.stats = Stats()
+        self._xruns = 0
+        self._cb_ms_max = 0.0
+
         self._pos = 0.0
         self._running = False
         self._voices: list[Voice] = []
@@ -154,7 +214,6 @@ class Engine:
         self._rec_written = 0
         self._rec_keep = 0
         self._rec_bars = 0
-        self._count_in_beats = 0
 
         self._click = make_click(samplerate, 1000.0, out_channels)
         self._click_accent = make_click(samplerate, 1600.0, out_channels, gain=0.5)
@@ -214,9 +273,30 @@ class Engine:
                 pass
             self._stream = None
 
-    def _sd_callback(self, indata, outdata, frames, _time, _status):  # pragma: no cover
-        with self._lock:
-            self._process(outdata, indata, frames)
+    def _sd_callback(self, indata, outdata, frames, _time, status):
+        if status:
+            self.note_status(status)
+        self._process(outdata, indata, frames)
+
+    def note_status(self, status) -> None:
+        """Count a PortAudio status flag set as a dropout and announce it.
+
+        Takes anything with the PortAudio flag attributes, so it is testable
+        without a sound card.
+        """
+        flagged = any(
+            getattr(status, name, False)
+            for name in (
+                "input_overflow",
+                "input_underflow",
+                "output_overflow",
+                "output_underflow",
+            )
+        )
+        if not flagged:
+            return
+        self._xruns += 1
+        self.events.put(("xrun", self._xruns))
 
     def _null_loop(self) -> None:
         n = self.blocksize
@@ -226,8 +306,7 @@ class Engine:
         next_deadline = time.monotonic()
         while not self._stop_evt.is_set():
             self._fill_null_input(inp)
-            with self._lock:
-                self._process(out, inp, n)
+            self._process(out, inp, n)
             next_deadline += period
             delay = next_deadline - time.monotonic()
             if delay > 0:
@@ -252,64 +331,66 @@ class Engine:
         out = np.zeros((frames, self.out_channels), dtype=np.float32)
         if indata is None:
             indata = np.zeros((frames, self.in_channels), dtype=np.float32)
-        with self._lock:
-            self._process(out, indata, frames)
+        self._process(out, indata, frames)
         return out
 
     # ------------------------------------------------------------------
-    # public state
+    # public state -- reads prefer a pending Intent over callback state
     # ------------------------------------------------------------------
     @property
     def bpm(self) -> float:
-        return self.transport.bpm
+        intent = self._intent
+        return intent.bpm if intent else self.transport.bpm
 
-    def set_bpm(self, bpm: float) -> None:
-        with self._lock:
-            if self._rec_state != IDLE:
-                return  # changing tempo mid-take would corrupt the take length
-            self.transport.bpm = max(40.0, min(240.0, float(bpm)))
-            # Re-anchor boundary tracking so the new grid does not retrigger.
-            self._last_beat = int(math.floor(self._pos / self.transport.frames_per_beat))
-            self._last_bar = (
-                int(self._pos // self.transport.frames_per_bar) if self._pos >= 0 else None
-            )
+    @property
+    def frames_per_beat(self) -> float:
+        return 60.0 / self.bpm * self.transport.samplerate
+
+    @property
+    def frames_per_bar(self) -> float:
+        return self.frames_per_beat * self.transport.beats_per_bar
+
+    @property
+    def song_frames(self) -> float:
+        return self.frames_per_bar * self.transport.song_bars
 
     @property
     def is_playing(self) -> bool:
-        return self._running
+        intent = self._intent
+        return intent.running if intent else self._running
 
     @property
     def rec_state(self) -> str:
-        return self._rec_state
+        intent = self._intent
+        return intent.rec_state if intent else self._rec_state
 
     @property
     def position_frames(self) -> float:
-        return self._pos
+        intent = self._intent
+        return intent.pos if intent else self._pos
 
     @property
     def current_bar(self) -> int:
-        pos = self._pos
+        pos = self.position_frames
         if pos < 0:
             return -1
-        return int(pos // self.transport.frames_per_bar)
+        return int(pos // self.frames_per_bar)
 
     @property
     def current_beat(self) -> int:
         """Beat index within the bar, or a negative count-in beat."""
-        return int(math.floor(self._pos / self.transport.frames_per_beat))
+        return int(math.floor(self.position_frames / self.frames_per_beat))
 
     @property
     def beat_phase(self) -> float:
         """Position inside the current beat, 0.0 -> 1.0."""
-        fpb = self.transport.frames_per_beat
-        return (self._pos / fpb) % 1.0
+        return (self.position_frames / self.frames_per_beat) % 1.0
 
     @property
     def count_in_beats_left(self) -> int:
-        if self._rec_state != COUNT_IN:
+        if self.rec_state != COUNT_IN:
             return 0
-        fpb = self.transport.frames_per_beat
-        return max(0, int(math.ceil(-self._pos / fpb)))
+        return max(0, int(math.ceil(-self.position_frames / self.frames_per_beat)))
 
     def set_schedule(self, schedule) -> None:
         """Install the bar -> samples map.  Replaced atomically by reference."""
@@ -319,31 +400,46 @@ class Engine:
         self._schedule = frozen
 
     # ------------------------------------------------------------------
-    # transport commands
+    # transport commands (UI thread: allocate, publish an intent, post)
     # ------------------------------------------------------------------
+    def _post(self, command: tuple, intent: Intent | None = None) -> None:
+        # The intent is published first so the callback can never clear an
+        # intent it has not seen -- see _process.
+        if intent is not None:
+            self._intent = intent
+        self._commands.put(command)
+
+    def _intend(self, **changes) -> Intent:
+        """An Intent like the current view of the engine, with ``changes``."""
+        current = self._intent
+        if current is None:
+            current = Intent(
+                running=self._running,
+                rec_state=self._rec_state,
+                pos=self._pos,
+                bpm=self.transport.bpm,
+            )
+        return replace(current, **changes)
+
+    def set_bpm(self, bpm: float) -> None:
+        if self.rec_state != IDLE:
+            return  # changing tempo mid-take would corrupt the take length
+        bpm = max(40.0, min(240.0, float(bpm)))
+        self._post(("bpm", bpm), self._intend(bpm=bpm))
+
     def play(self, from_bar: int = 0) -> None:
-        with self._lock:
-            self._pos = float(from_bar) * self.transport.frames_per_bar
-            self._release_all(samples_only=True)
-            self._arm_boundaries()
-            self._running = True
+        pos = float(from_bar) * self.frames_per_bar
+        self._post(("play", pos), self._intend(running=True, pos=pos))
 
     def stop(self) -> None:
-        with self._lock:
-            was = self._rec_state
-            self._running = False
-            self._rec_state = IDLE
-            self._rec_buf = None
-            self._pos = 0.0
-            self._release_all()
-            self.sounding = ()
-            self._last_beat = self._last_bar = None
-        if was != IDLE:
+        was_recording = self.rec_state != IDLE
+        self._post(("stop",), self._intend(running=False, rec_state=IDLE, pos=0.0))
+        if was_recording:
             self.events.put(("record_cancelled",))
         self.events.put(("stopped",))
 
     def toggle_play(self) -> None:
-        if self._running:
+        if self.is_playing:
             self.stop()
         else:
             self.play(0)
@@ -351,47 +447,91 @@ class Engine:
     def arm_record(self, bars: int, count_in_beats: int = 4) -> None:
         """Rewind to the count-in and start capturing ``bars`` bars at bar 0."""
         bars = max(1, min(self.transport.song_bars, int(bars)))
-        keep = int(round(bars * self.transport.frames_per_bar))
-        total = keep + self.rec_latency_frames
-        with self._lock:
-            self._rec_bars = bars
-            self._rec_keep = keep
-            self._rec_buf = np.zeros((total, self.in_channels), dtype=np.float32)
-            self._rec_written = 0
-            self._count_in_beats = max(0, int(count_in_beats))
-            self._pos = -self._count_in_beats * self.transport.frames_per_beat
-            self._release_all()
-            self._arm_boundaries()
-            self._rec_state = COUNT_IN if self._count_in_beats else RECORDING
-            self._running = True
+        keep = int(round(bars * self.frames_per_bar))
+        # The take buffer is allocated here, on the UI thread: it can be tens of
+        # megabytes, which is exactly the work that must stay out of the callback.
+        buf = np.zeros((keep + self.rec_latency_frames, self.in_channels), dtype=np.float32)
+        count_in = max(0, int(count_in_beats))
+        pos = -count_in * self.frames_per_beat
+        state = COUNT_IN if count_in else RECORDING
+        self._post(
+            ("arm", bars, keep, buf, pos),
+            self._intend(running=True, rec_state=state, pos=pos),
+        )
         self.events.put(("record_armed", bars))
 
     def cancel_record(self) -> None:
-        with self._lock:
-            if self._rec_state == IDLE:
-                return
-            self._rec_state = IDLE
-            self._rec_buf = None
-            self._running = False
-            self._pos = 0.0
-            self._release_all()
-            self._last_beat = self._last_bar = None
+        if self.rec_state == IDLE:
+            return
+        self._post(("cancel",), self._intend(running=False, rec_state=IDLE, pos=0.0))
         self.events.put(("record_cancelled",))
 
     def preview(self, buf: np.ndarray, gain: float = 1.0, slot: int = -1) -> None:
         """Play a one-shot outside the transport (auditioning a sample)."""
-        with self._lock:
-            self._add_voice(Voice(buf, gain, slot=slot))
+        self._post(("voice", Voice(buf, gain, slot=slot)))
+
+    # ------------------------------------------------------------------
+    # command application (callback thread only)
+    # ------------------------------------------------------------------
+    def _apply_commands(self) -> Intent | None:
+        """Apply every queued command; return the intent we are satisfying."""
+        seen = self._intent
+        while True:
+            try:
+                command = self._commands.get_nowait()
+            except queue.Empty:
+                return seen
+            self._apply(command)
+
+    def _apply(self, command: tuple) -> None:
+        kind = command[0]
+        if kind == "play":
+            self._pos = command[1]
+            self._release_all(samples_only=True)
+            self._arm_boundaries()
+            self._running = True
+        elif kind in ("stop", "cancel"):
+            self._running = False
+            self._rec_state = IDLE
+            self._rec_buf = None
+            self._pos = 0.0
+            self._release_all()
+            self._arm_boundaries()
+        elif kind == "arm":
+            _, bars, keep, buf, pos = command
+            self._rec_bars = bars
+            self._rec_keep = keep
+            self._rec_buf = buf
+            self._rec_written = 0
+            self._pos = pos
+            self._release_all()
+            self._arm_boundaries()
+            self._rec_state = COUNT_IN if pos < 0 else RECORDING
+            self._running = True
+        elif kind == "bpm":
+            self.transport.bpm = command[1]
+            self._reanchor()
+        elif kind == "voice":
+            self._add_voice(command[1])
 
     def _arm_boundaries(self) -> None:
         """Force the next processed segment to fire its beat and bar events."""
         self._last_beat = None
         self._last_bar = None
 
+    def _reanchor(self) -> None:
+        """Re-peg boundary tracking after a tempo change, so nothing retriggers."""
+        self._last_beat = int(math.floor(self._pos / self.transport.frames_per_beat))
+        self._last_bar = (
+            int(self._pos // self.transport.frames_per_bar) if self._pos >= 0 else None
+        )
+
     # ------------------------------------------------------------------
     # the audio callback
     # ------------------------------------------------------------------
     def _process(self, out: np.ndarray, inp: np.ndarray | None, frames: int) -> None:
+        started = time.perf_counter()
+        satisfying = self._apply_commands()
         out[:frames] = 0.0
         i = 0
         while i < frames:
@@ -410,6 +550,11 @@ class Engine:
                 self._wrap_song()
             i += n
         np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
+        # Only drop the intent if the UI has not published a newer one since we
+        # read it, which would otherwise lose that newer view for a block.
+        if self._intent is satisfying:
+            self._intent = None
+        self._publish_stats(started, out[:frames])
 
     def _segment_limit(self, remaining: int) -> int:
         """How many frames we may render before the next musical boundary."""
@@ -597,6 +742,18 @@ class Engine:
         self.sounding = ()
         self._last_beat = self._last_bar = None
         self.events.put(("record_done", bars, data))
+
+    def _publish_stats(self, started: float, rendered: np.ndarray) -> None:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if elapsed_ms > self._cb_ms_max:
+            self._cb_ms_max = elapsed_ms
+        self.stats = Stats(
+            xruns=self._xruns,
+            peak_out=float(np.abs(rendered).max()) if rendered.shape[0] else 0.0,
+            voices=len(self._voices),
+            callback_ms=elapsed_ms,
+            callback_ms_max=self._cb_ms_max,
+        )
 
     # ------------------------------------------------------------------
     def poll_events(self) -> list[tuple]:

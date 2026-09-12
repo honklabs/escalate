@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .. import colors
 from ..constants import BTN_DIM, BTN_OFF, BTN_ON, ENCODER_TRACK, PAD_COUNT, Btn
+from ..history import PutSample
 from ..project import SONG_BARS
 from .base import Mode
 
@@ -68,10 +69,7 @@ class RecordMode(Mode):
     def on_engine_event(self, event: tuple) -> None:
         if event[0] == "record_done":
             bars, audio = event[1], event[2]
-            self.project.put(self.slot, audio, bars)
-            self.app.rebuild_schedule()
-            self.app.save_soon()
-            self.app.notify(f"recorded {bars} bar(s) into slot {self.slot + 1}")
+            self.app.do(PutSample(self.slot, audio, bars))
             self.app.goto_sample(self.slot)
 
     # -- output ------------------------------------------------------------

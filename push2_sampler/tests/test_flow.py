@@ -47,8 +47,8 @@ def pump(app):
 
 def record_take(app, engine, bars):
     """Run a full count-in plus take of ``bars`` bars through the engine."""
-    frames = int(app.count_in_beats * engine.transport.frames_per_beat)
-    frames += int(bars * engine.transport.frames_per_bar) + 64
+    frames = int(app.count_in_beats * engine.frames_per_beat)
+    frames += int(bars * engine.frames_per_bar) + 64
     engine.process_offline(frames, np.full((frames, 1), 0.3, dtype=np.float32))
     pump(app)
 
@@ -120,7 +120,7 @@ def test_record_button_runs_count_in_then_take(rig):
     sample = project[3]
     assert sample is not None
     assert sample.bars == 2
-    assert sample.frames == int(2 * engine.transport.frames_per_bar)
+    assert sample.frames == int(2 * engine.frames_per_bar)
     assert np.allclose(sample.audio, 0.3)
     # ...and we land on that sample's own page.
     assert app.mode.name == "sample"
@@ -137,7 +137,7 @@ def test_recording_progress_is_shown_on_the_pads(rig):
     push.press_button(Btn.RECORD)
     pump(app)
     # Run the count-in plus one and a half bars.
-    frames = int(4 * engine.transport.frames_per_beat + 1.5 * engine.transport.frames_per_bar)
+    frames = int(4 * engine.frames_per_beat + 1.5 * engine.frames_per_bar)
     engine.process_offline(frames, np.zeros((frames, 1), dtype=np.float32))
     pump(app)
     assert engine.rec_state == "recording"
@@ -293,7 +293,7 @@ def test_gain_encoder_updates_the_schedule(rig):
 # --------------------------------------------------------------- transport
 def test_play_triggers_the_arrangement_with_overlap(rig):
     app, push, engine, project = rig
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     project.put(0, np.full((fpbar * 2, 1), 0.25, dtype=np.float32), bars=2, triggers={0})
     project.put(1, np.full((fpbar, 1), 0.25, dtype=np.float32), bars=1, triggers={1})
     app.rebuild_schedule()
@@ -312,7 +312,7 @@ def test_play_triggers_the_arrangement_with_overlap(rig):
 
 def test_playhead_is_shown_on_the_sample_page(rig):
     app, push, engine, project = rig
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     project.put(0, np.zeros((10, 1), dtype=np.float32), bars=1, triggers={0})
     app.rebuild_schedule()
     app.goto_sample(0)
@@ -517,3 +517,139 @@ def test_triggers_and_the_playhead_win_over_the_grid_marks(rig):
     app.rebuild_schedule()
     pump(app)
     assert push.pad_leds[16] == colors.BLUE_DIM.index  # another sample's bar
+
+
+# ------------------------------------------------------------- undo (F-04)
+def test_undo_brings_back_a_deleted_sample(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.press_pad(5)  # play it on bar 6
+    pump(app)
+    original = project[0]
+
+    push.press_button(Btn.SESSION)
+    pump(app)
+    push.press_button(Btn.DELETE)
+    pump(app)
+    push.press_pad(0)
+    pump(app)
+    assert project[0] is None
+    assert engine._schedule[5] == ()
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0] is original  # same take, same audio
+    assert project[0].triggers == {5}
+    assert len(engine._schedule[5]) == 1  # and audible again
+
+
+def test_undo_and_redo_a_bar_toggle(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.press_pad(9)
+    pump(app)
+    assert project[0].triggers == {9}
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == set()
+    assert push.pad_leds[9] == colors.OFF.index
+
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.UNDO)  # Shift+Undo is redo
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert project[0].triggers == {9}
+    assert push.pad_leds[9] == colors.GREEN.index
+
+
+def test_undoing_a_recording_empties_the_slot_and_backs_out(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert app.mode.name == "sample"
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0] is None
+    # The page we were on no longer has a sample, so we land back in the library.
+    assert app.mode.name == "library"
+
+
+def test_the_undo_button_shows_whether_there_is_anything_to_undo(rig):
+    app, push, engine, _ = rig
+    pump(app)
+    assert push.button_leds[Btn.UNDO] == 0
+    record_into(app, push, engine, slot=0, bars=1)
+    assert push.button_leds[Btn.UNDO] > 0
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert push.button_leds[Btn.UNDO] == 0
+
+
+def test_undo_with_nothing_to_undo_says_so(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert app.message == "nothing to undo"
+
+
+def test_a_tempo_sweep_is_one_undo_step(rig):
+    app, push, engine, project = rig
+    for _ in range(5):
+        push.turn(ENCODER_TEMPO, 1)
+        pump(app)
+    assert engine.bpm == pytest.approx(125.0)
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project.bpm == pytest.approx(120.0)
+    assert engine.bpm == pytest.approx(120.0)  # the engine follows the undo
+    assert app.history.can_undo is False
+
+
+def test_a_gain_sweep_is_one_undo_step(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    for _ in range(4):
+        push.turn(ENCODER_TRACK[0], 1)
+        pump(app)
+    assert project[0].gain == pytest.approx(1.08)
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].gain == pytest.approx(1.0)
+
+
+def test_undo_restores_mute_state(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.press_pad(0)
+    pump(app)
+    push.press_button(Btn.MUTE)
+    pump(app)
+    assert project[0].enabled is False
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].enabled is True
+    assert len(engine._schedule[0]) == 1
+
+
+def test_undo_restores_a_cleared_arrangement(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    for bar in (1, 2, 3):
+        push.press_pad(bar)
+        pump(app)
+    push.press_button(Btn.DELETE)
+    pump(app)
+    push.press_pad(20)  # delete-armed: clears every bar
+    pump(app)
+    assert project[0].triggers == set()
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == {1, 2, 3}
+
+
+# --------------------------------------------------------- dropouts (F-01)
+def test_an_audio_dropout_is_surfaced_to_the_player(rig):
+    app, push, engine, _ = rig
+    engine.events.put(("xrun", 3))
+    pump(app)
+    assert "dropout" in app.message

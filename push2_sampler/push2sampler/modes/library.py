@@ -6,6 +6,7 @@ import time
 
 from .. import colors
 from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, PAD_COUNT, Btn
+from ..history import DeleteSample, SetEnabled
 from .base import Mode
 
 #: Hold a filled pad for this long to audition it instead of opening its page.
@@ -33,20 +34,11 @@ class LibraryMode(Mode):
         if self.app.delete_armed:
             self.app.delete_armed = False
             if sample is not None:
-                self.project.delete(index)
-                self.app.rebuild_schedule()
-                self.app.save_soon()
-                self.app.notify(f"deleted slot {index + 1}")
+                self.app.do(DeleteSample(index))
             return True
         if self.app.mute_armed:
             if sample is not None:
-                sample.enabled = not sample.enabled
-                self.project.dirty = True
-                self.app.rebuild_schedule()
-                self.app.save_soon()
-                self.app.notify(
-                    f"slot {index + 1}: {'on' if sample.enabled else 'muted'}"
-                )
+                self.app.do(SetEnabled(index, not sample.enabled))
             return True
         if sample is None:
             self.app.goto_record(index)

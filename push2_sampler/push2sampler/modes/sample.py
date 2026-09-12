@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .. import colors
 from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, ENCODER_TRACK, PAD_COUNT, Btn
+from ..history import ClearTriggers, DeleteSample, SetEnabled, SetGain, ToggleTrigger
 from .base import Mode
 
 #: Bars every this many get a faint tint when empty, so phrases are countable.
@@ -39,17 +40,9 @@ class SampleMode(Mode):
             return True
         if self.app.delete_armed:
             self.app.delete_armed = False
-            sample.triggers.clear()
-            self.project.dirty = True
-            self.app.rebuild_schedule()
-            self.app.save_soon()
-            self.app.notify("cleared all bars")
+            self.app.do(ClearTriggers(self.slot))
             return True
-        on = sample.toggle(index)
-        self.project.dirty = True
-        self.app.rebuild_schedule()
-        self.app.save_soon()
-        self.app.notify(f"bar {index + 1}: {'on' if on else 'off'}")
+        self.app.do(ToggleTrigger(self.slot, index, index not in sample.triggers))
         return True
 
     def on_button(self, cc: int, pressed: bool) -> bool:
@@ -61,18 +54,11 @@ class SampleMode(Mode):
             self.app.goto_record(self.slot, bars)
             return True
         if cc == Btn.MUTE and sample is not None:
-            sample.enabled = not sample.enabled
-            self.project.dirty = True
-            self.app.rebuild_schedule()
-            self.app.save_soon()
-            self.app.notify(f"slot {self.slot + 1}: {'on' if sample.enabled else 'muted'}")
+            self.app.do(SetEnabled(self.slot, not sample.enabled))
             return True
         if cc == Btn.DELETE:
             if self.app.shift:
-                self.project.delete(self.slot)
-                self.app.rebuild_schedule()
-                self.app.save_soon()
-                self.app.notify(f"deleted slot {self.slot + 1}")
+                self.app.do(DeleteSample(self.slot))
                 self.app.goto_library()
             else:
                 self.app.delete_armed = True
@@ -91,11 +77,9 @@ class SampleMode(Mode):
     def on_encoder(self, cc: int, delta: int) -> bool:
         sample = self.sample
         if sample is not None and cc == ENCODER_TRACK[0]:
-            sample.gain = max(0.0, min(2.0, sample.gain + delta * 0.02))
-            self.project.dirty = True
-            self.app.rebuild_schedule()
-            self.app.save_soon()
-            self.app.notify(f"gain {sample.gain:.2f}")
+            gain = max(0.0, min(2.0, sample.gain + delta * 0.02))
+            if gain != sample.gain:
+                self.app.do(SetGain(self.slot, gain, sample.gain))
             return True
         return False
 

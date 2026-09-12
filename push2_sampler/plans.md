@@ -62,12 +62,13 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-v1.0 plus the first foundations slice: **`F-02`, `F-05`, `CC-01` and `CC-06` are
-shipped** (each carries a status note in its own section below). ~3,600 lines,
-82 tests, `ruff` clean, no hardware needed to test.
+v1.0 plus the v1.1 foundations: **`F-01`, `F-02`, `F-04`, `F-05`, `CC-01` and
+`CC-06` are shipped** (each carries a status note in its own section below).
+~4,200 lines, 118 tests, `ruff` clean, no hardware needed to test.
 
-Next up, in this order: `F-01` (lock-free engine), then `F-03` → `F-04`
-(mode stack, then undo — the widest unblocker in the plan).
+Next up: `F-09` (length truth) and `F-07` (input metering), both independent;
+`F-03` (mode stack) is deliberately held until the first mode that needs it
+(`F-06`'s settings page), rather than landing unused.
 
 ```
 push2sampler/
@@ -77,6 +78,7 @@ push2sampler/
   audio.py      Transport, Engine (_process), Voice, ScheduledSample, recorder
   project.py    Sample, Project, build_schedule(), save()/load()
   modes/        base (the mode contract), library, record, sample
+  history.py    undoable commands + the undo/redo journal
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -86,8 +88,6 @@ push2sampler/
 
 **Known debt, all of it deliberate and all of it scheduled below:**
 
-- The audio callback and the main thread share one `threading.RLock` (`F-01`).
-- No undo anywhere (`F-04`).
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
 - Pad velocity is captured in `PadEvent` and thrown away (`NF-10`).
@@ -191,7 +191,7 @@ CC is the most likely merge conflict in this project.
 | Setup | 30 | **taken** — Shift+Setup saves; `F-06` takes the unshifted press |
 | Tempo encoder | 14 | **taken** — BPM |
 | Track encoder 1 | 71 | **taken** — take length / sample gain |
-| Undo | 119 | reserved → `F-04` |
+| Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
 | Solo | 61 | reserved → `NH-01` |
 | Duplicate | 88 | reserved → `NH-05` |
 | New | 87 | reserved → `NH-04` (new layer / punch-in) |
@@ -319,6 +319,24 @@ user.
 
 ### F-01 — Lock-free audio command queue and xrun reporting `size: M`
 
+**Status: shipped.** No lock remains in `audio.py`. The UI thread allocates (a
+take buffer, a `Voice`), publishes an immutable `Intent`, and posts one command
+tuple; the callback applies it at the top of the next block and clears the
+intent only if the UI has not replaced it since.
+
+Two deviations worth knowing. First, the spec said a posted command "is not
+observed until the next block", which would have broken every
+`engine.play(); assert engine.is_playing` read: instead the getters prefer the
+pending `Intent`, so UI reads stay synchronous while the *audio* effect is
+deferred. Second, `Stats` carries `callback_ms` and `callback_ms_max` rather
+than a p95 (a histogram in the callback is not worth it; the max is what
+catches a budget breach). `engine.transport` is now callback-owned — read
+tempo through `engine.bpm` / `frames_per_beat` / `frames_per_bar` /
+`song_frames`, which are intent-aware. One test assertion moved onto those.
+
+The promised benchmark test is **not** included: a wall-clock budget assertion
+is flaky in CI. `stats.callback_ms_max` is the hook for measuring it by hand.
+
 **Problem.** `Engine._sd_callback` takes an `RLock` that the UI thread also
 holds while building schedules. Under PortAudio that is a priority inversion:
 a UI hiccup becomes an audible dropout. We also ignore PortAudio's `status`
@@ -396,6 +414,14 @@ depth cap refuses a fifth push.
 **Deps.** `F-02`. Blocks `F-06`, `NF-03`, `NF-06`, `NH-01`.
 
 ### F-04 — Undo/redo journal `size: M`
+
+**Status: shipped** in `history.py`, with all seven command types from the spec.
+Every mutation in the modes now goes through `app.do(Command)`; nothing writes
+`Sample` fields directly. Added beyond the spec: commands can `merge`, so a
+gain or tempo sweep from an encoder is one undo step instead of one per click,
+and `Sample.set_trigger` now owns the bar-range validation that `toggle` used
+to hold, so commands validate too. Undoing a recording returns to the library
+when it empties the page you were on.
 
 **Problem.** `Delete` + pad destroys a take with no recourse; a mis-toggled bar
 has no undo. The Undo button is dark. This violates principle 4.

@@ -14,6 +14,7 @@ from .constants import (
     PAD_COUNT,
     Btn,
 )
+from .history import Command, History, SetBpm
 from .modes import COUNT_IN_BEATS, LibraryMode, Mode, RecordMode, SampleMode
 from .project import Project
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
@@ -43,6 +44,7 @@ class App:
         self.count_in_beats = count_in_beats
         self._log = log
 
+        self.history = History()
         self.shift = False
         self.delete_armed = False
         self.mute_armed = False
@@ -96,6 +98,37 @@ class App:
     # ------------------------------------------------------------------
     def rebuild_schedule(self) -> None:
         self.engine.set_schedule(self.project.build_schedule())
+
+    def do(self, command: Command) -> None:
+        """Apply an undoable edit and refresh everything that depends on it."""
+        label = self.history.do(self.project, command)
+        self.rebuild_schedule()
+        self.save_soon()
+        self.notify(label)
+
+    def undo(self) -> None:
+        label = self.history.undo(self.project)
+        if label is None:
+            self.notify("nothing to undo")
+            return
+        self._after_undo(f"undo: {label}")
+
+    def redo(self) -> None:
+        label = self.history.redo(self.project)
+        if label is None:
+            self.notify("nothing to redo")
+            return
+        self._after_undo(f"redo: {label}")
+
+    def _after_undo(self, message: str) -> None:
+        self.engine.set_bpm(self.project.bpm)
+        self.rebuild_schedule()
+        self.save_soon()
+        self.notify(message)
+        # An undo can empty the slot whose page we are on.
+        slot = getattr(self.mode, "slot", None)
+        if slot is not None and self.mode.name == "sample" and self.project[slot] is None:
+            self.goto_library()
 
     def notify(self, message: str) -> None:
         self.message = message
@@ -153,6 +186,8 @@ class App:
             self.delete_armed = not self.delete_armed
             self.mute_armed = False
             self.notify("delete armed: press a pad" if self.delete_armed else "delete off")
+        elif cc == Btn.UNDO:
+            self.redo() if self.shift else self.undo()
         elif cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT):
             self.goto_library()
         elif cc == Btn.SETUP and self.shift:
@@ -162,12 +197,14 @@ class App:
     def _global_encoder(self, cc: int, delta: int) -> None:
         if cc == ENCODER_TEMPO:
             step = 10.0 if self.shift else 1.0
-            self.engine.set_bpm(self.engine.bpm + delta * step)
-            self.project.bpm = self.engine.bpm
-            self.save_soon()
-            self.notify(f"{self.engine.bpm:.0f} BPM")
+            previous = self.engine.bpm
+            self.engine.set_bpm(previous + delta * step)
+            if self.engine.bpm != previous:
+                self.do(SetBpm(self.engine.bpm, previous))
 
     def on_engine_event(self, event: tuple) -> None:
+        if event[0] == "xrun":
+            self.notify(f"audio dropout ({event[1]})")
         self.mode.on_engine_event(event)
 
     # ------------------------------------------------------------------
@@ -200,6 +237,7 @@ class App:
         buttons[Btn.METRONOME] = BTN_BRIGHT if self.engine.metronome else BTN_DIM
         buttons[Btn.REPEAT] = BTN_ON if self.engine.loop else BTN_DIM
         buttons[Btn.DELETE] = BTN_BRIGHT if self.delete_armed else BTN_DIM
+        buttons[Btn.UNDO] = BTN_ON if self.history.can_undo else BTN_OFF
         buttons[Btn.SHIFT] = BTN_DIM
         buttons[Btn.SESSION] = BTN_DIM
         buttons[Btn.MUTE] = BTN_OFF

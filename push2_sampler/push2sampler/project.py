@@ -50,15 +50,20 @@ class Sample:
     def frames(self) -> int:
         return int(self.audio.shape[0])
 
-    def toggle(self, bar: int) -> bool:
-        """Toggle playback on ``bar``; returns the new state."""
+    def set_trigger(self, bar: int, on: bool) -> None:
+        """Enable or disable playback on ``bar``."""
         if not 0 <= bar < SONG_BARS:
             raise ValueError(f"bar out of range: {bar}")
-        if bar in self.triggers:
+        if on:
+            self.triggers.add(bar)
+        else:
             self.triggers.discard(bar)
-            return False
-        self.triggers.add(bar)
-        return True
+
+    def toggle(self, bar: int) -> bool:
+        """Toggle playback on ``bar``; returns the new state."""
+        on = bar not in self.triggers
+        self.set_trigger(bar, on)
+        return on
 
     def to_json(self, audio_path: str) -> dict:
         return {
@@ -114,6 +119,15 @@ class Project:
         self.slots[slot] = sample
         self.dirty = True
         return sample
+
+    def install(self, slot: int, sample: Sample | None) -> None:
+        """Put a sample (or ``None``) straight into a slot.
+
+        Used by undo, which has to restore exactly the take it removed rather
+        than build a new one.
+        """
+        self.slots[slot] = sample
+        self.dirty = True
 
     def delete(self, slot: int) -> None:
         if self.slots[slot] is not None:

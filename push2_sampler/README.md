@@ -73,10 +73,19 @@ simply play over itself, and other samples layer on top.
   this is the per-sample enable/disable.
 * **Delete** then any pad clears every bar for this sample;
   `Shift` + **Delete** deletes the sample and returns to the library.
+  Both are undoable, as is everything else below.
 * The first track encoder sets this sample's gain.
 
 Then **Session** (or the left arrow) takes you back to the library, where you
 repeat the whole process with the next sample.
+
+### Undo
+
+`Undo` takes back the last 64 edits and `Shift`+`Undo` puts them back: a
+deleted take returns with its audio and its arrangement, a cleared arrangement
+returns with its bars, a tempo nudge returns to the old tempo. A sweep of an
+encoder is one undo step, not forty. The journal is in memory only — it is a
+safety net for your hands, not project history.
 
 ## Key map
 
@@ -90,6 +99,7 @@ repeat the whole process with the next sample.
 | `Session`, `Note`, `◀` | back to the Sample Library |
 | `Mute` | Sample page: hear / don't hear this sample |
 | `Delete` | arm delete (then press a pad) · `Shift`+`Delete` on a sample page deletes it |
+| `Undo` | take back the last edit · `Shift`+`Undo` redoes it |
 | `Metronome` | click on/off |
 | `Repeat` | loop the 64-bar song on/off |
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
@@ -108,6 +118,12 @@ which is why the tempo is locked while a take runs.
 Every voice gets a 3 ms fade at each end, and anything cut short — `Stop`, a
 new take, or the 97th simultaneous voice — fades out over 10 ms instead of
 stopping dead, so loop boundaries and stops do not click.
+
+Only the audio callback writes transport state. The UI thread allocates up
+front, publishes what it is asking for, and posts a command the callback
+applies at the top of the next block — it never takes a lock, so a slow UI pass
+cannot turn into a dropout. When PortAudio does report one, the display says
+so rather than letting it pass silently.
 
 If your interface has noticeable input latency, `--rec-latency-ms 12` trims
 that much from the front of each take (it records a little extra and slides the
@@ -165,10 +181,10 @@ the transport run, `q` quits.
 python -m pytest tests -q
 ```
 
-82 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+118 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
-take lengths), project save/load, and the full pad-by-pad workflow through the
-simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+take lengths, command deferral, dropout reporting), undo/redo, project
+save/load, and the full pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 

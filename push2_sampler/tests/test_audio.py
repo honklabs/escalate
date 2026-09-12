@@ -31,14 +31,14 @@ def dc(frames, value=1.0, channels=1):
 def test_bar_and_beat_maths():
     engine = make_engine()
     # 120 BPM, 4/4 -> 0.5 s per beat, 2 s per bar.
-    assert engine.transport.frames_per_beat == pytest.approx(SR * 0.5)
-    assert engine.transport.frames_per_bar == pytest.approx(SR * 2.0)
-    assert engine.transport.song_frames == pytest.approx(SR * 8.0)
+    assert engine.frames_per_beat == pytest.approx(SR * 0.5)
+    assert engine.frames_per_bar == pytest.approx(SR * 2.0)
+    assert engine.song_frames == pytest.approx(SR * 8.0)
 
 
 def test_sample_starts_on_the_exact_frame_of_its_bar():
     engine = make_engine()
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     buf = dc(100)
     engine.set_schedule([(), (ScheduledSample(0, buf),), (), ()])
     engine.play(0)
@@ -56,7 +56,7 @@ def test_sample_starts_on_the_exact_frame_of_its_bar():
 
 def test_overlapping_samples_sum():
     engine = make_engine()
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     long_buf = dc(fpbar * 3, 0.25)  # spans three bars
     short_buf = dc(fpbar, 0.25)
     engine.set_schedule(
@@ -81,7 +81,7 @@ def test_output_is_clipped():
 
 def test_loop_wraps_and_retriggers_bar_zero():
     engine = make_engine()
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     buf = dc(200)
     engine.set_schedule([(ScheduledSample(0, buf),), (), (), ()])
     engine.loop = True
@@ -98,15 +98,15 @@ def test_no_loop_stops_at_the_end():
     engine = make_engine()
     engine.loop = False
     engine.play(0)
-    engine.process_offline(int(engine.transport.song_frames) + 10)
+    engine.process_offline(int(engine.song_frames) + 10)
     assert not engine.is_playing
     assert ("stopped",) in engine.poll_events()
 
 
 def test_count_in_then_exact_length_recording():
     engine = make_engine()
-    fpb = int(engine.transport.frames_per_beat)
-    fpbar = int(engine.transport.frames_per_bar)
+    fpb = int(engine.frames_per_beat)
+    fpbar = int(engine.frames_per_bar)
     engine.arm_record(bars=2, count_in_beats=4)
     assert engine.rec_state == "count_in"
     assert engine.count_in_beats_left == 4
@@ -134,7 +134,7 @@ def test_count_in_then_exact_length_recording():
 
 def test_count_in_clicks_are_audible_before_the_take():
     engine = make_engine()
-    fpb = int(engine.transport.frames_per_beat)
+    fpb = int(engine.frames_per_beat)
     engine.arm_record(bars=1, count_in_beats=4)
     out = engine.process_offline(4 * fpb)
     assert np.abs(out).max() > 0.1  # the four count-in clicks
@@ -144,7 +144,7 @@ def test_record_latency_compensation_shifts_the_take():
     lat_ms = 10.0
     engine = make_engine(rec_latency_ms=lat_ms)
     lat = int(SR * lat_ms / 1000.0)
-    fpbar = int(engine.transport.frames_per_bar)
+    fpbar = int(engine.frames_per_bar)
     engine.arm_record(bars=1, count_in_beats=0)
     total = fpbar + lat + 10
     ramp = np.arange(total, dtype=np.float32).reshape(-1, 1)
@@ -195,7 +195,7 @@ def test_stereo_sample_is_not_downmixed():
 def test_tempo_change_rescales_bars():
     engine = make_engine()
     engine.set_bpm(240.0)
-    assert engine.transport.frames_per_bar == pytest.approx(SR)
+    assert engine.frames_per_bar == pytest.approx(SR)
     engine.arm_record(bars=1, count_in_beats=0)
     engine.set_bpm(120.0)  # refused mid-take
     assert engine.bpm == pytest.approx(240.0)
@@ -287,3 +287,120 @@ def test_a_new_take_releases_what_was_playing():
     assert out[0, 0] == pytest.approx(1.0)
     assert max_step(out) < 0.1
     assert out[engine._release_frames, 0] == 0.0
+
+
+# ------------------------------------------ command queue and stats (F-01)
+class FakeStatus:
+    """Stands in for sounddevice's CallbackFlags."""
+
+    def __init__(self, **flags):
+        self.__dict__.update(flags)
+
+    def __bool__(self):
+        return True
+
+
+def test_a_command_is_applied_at_the_top_of_the_next_block():
+    engine = make_engine()
+    engine.play(2)
+    # The UI sees its request immediately...
+    assert engine.is_playing
+    assert engine.current_bar == 2
+    # ...but the callback has not touched transport state yet.
+    assert engine._running is False
+    assert engine._pos == 0.0
+
+    engine.process_offline(64)
+    assert engine._running is True
+    assert engine._pos == pytest.approx(2 * engine.frames_per_bar + 64)
+    assert engine._intent is None  # the callback has caught up
+
+
+def test_the_newest_request_is_what_the_ui_reads():
+    engine = make_engine()
+    engine.play(0)
+    engine.stop()  # before a single block has run
+    assert engine.is_playing is False
+    engine.process_offline(64)
+    assert engine._running is False
+
+
+def test_apply_commands_reports_the_intent_it_was_satisfying():
+    # The callback clears the intent only if it is still the one it saw, which
+    # is what stops a mid-block request from being lost.
+    engine = make_engine()
+    engine.play(0)
+    first = engine._intent
+    assert engine._apply_commands() is first
+    engine.stop()
+    assert engine._intent is not first
+    assert engine._apply_commands() is engine._intent
+
+
+def test_the_take_buffer_is_allocated_before_the_callback_sees_it():
+    engine = make_engine()
+    engine.arm_record(bars=2, count_in_beats=0)
+    command = engine._commands.get_nowait()
+    assert command[0] == "arm"
+    buf = command[3]
+    assert isinstance(buf, np.ndarray)
+    assert buf.shape == (int(2 * engine.frames_per_bar), 1)
+
+
+def test_a_tempo_change_does_not_retrigger_the_current_bar():
+    engine = make_engine()
+    # Nothing on bar 0, a sample on bar 1.
+    engine.set_schedule([(), (ScheduledSample(0, dc(100_000)),), (), ()])
+    engine.play(0)
+    engine.process_offline(int(engine.frames_per_bar) - 1000)
+    assert engine._voices == []
+
+    # Doubling the tempo moves the playhead into bar 1 of the new grid; the
+    # re-anchor must stop that counting as a fresh bar boundary.
+    engine.set_bpm(240.0)
+    engine.process_offline(64)
+    assert engine._voices == []
+
+
+def test_stats_are_published_every_block():
+    engine = make_engine()
+    engine.set_schedule([(ScheduledSample(0, dc(1000, 0.5)),), (), (), ()])
+    engine.play(0)
+    engine.process_offline(200)
+    assert engine.stats.peak_out == pytest.approx(0.5, abs=0.01)
+    assert engine.stats.voices == 1
+    assert engine.stats.callback_ms > 0.0
+    assert engine.stats.callback_ms_max >= engine.stats.callback_ms
+
+
+def test_dropouts_are_counted_and_announced():
+    engine = make_engine()
+    engine.note_status(FakeStatus(input_overflow=True))
+    assert ("xrun", 1) in engine.poll_events()
+    engine.note_status(FakeStatus(output_underflow=True))
+    assert ("xrun", 2) in engine.poll_events()
+    engine.process_offline(64)
+    assert engine.stats.xruns == 2
+
+
+def test_a_status_without_a_dropout_flag_is_ignored():
+    engine = make_engine()
+    engine.note_status(FakeStatus(priming_output=True))
+    assert engine.poll_events() == []
+    engine.process_offline(64)
+    assert engine.stats.xruns == 0
+
+
+def test_the_portaudio_callback_renders_and_reports():
+    # The one entry point a machine without a sound card never exercises, so
+    # drive it directly with the arguments PortAudio would pass.
+    engine = make_engine()
+    engine.set_schedule([(ScheduledSample(0, dc(1000, 0.5)),), (), (), ()])
+    engine.play(0)
+    frames = 64
+    outdata = np.zeros((frames, 2), dtype=np.float32)
+    indata = np.zeros((frames, 1), dtype=np.float32)
+    engine._sd_callback(indata, outdata, frames, None, FakeStatus(output_underflow=True))
+    assert outdata[FADE + 10, 0] == pytest.approx(0.5)  # it rendered
+    assert engine.stats.xruns == 1  # and noticed the dropout
+    assert ("xrun", 1) in engine.poll_events()
