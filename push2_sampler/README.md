@@ -147,7 +147,32 @@ Everything you play in or erase is one undo step.
 
 `Session` goes back to the library.
 
-### 5. Bouncing
+### 5. The sample editor
+
+`Device` on a sample page opens the editor. Each encoder above the display owns
+one parameter, and the button under it resets that parameter (or toggles it,
+where it is a switch):
+
+| | | | |
+| --- | --- | --- | --- |
+| trim in | trim out | fade in | fade out |
+| pitch (±12) | gain | reverse | normalise |
+
+The grid becomes the take: 64 pads, one per slice, lit by how loud that slice
+is, with the parts you are trimming away in dim red. Press a pad to hear the
+take from that point. The display carries a one-line picture of the waveform and
+the edited length.
+
+**Nothing here touches the recording.** Edits are stored beside the audio and
+applied on the way to the mixer, so you can change them for as long as you like,
+undo any of them, and still have the original take. `Shift`+`Device` folds them
+in for good when you are sure — and even that is one undo step.
+
+A trimmed take is shorter than its bars, so it will show up as off-grid
+(yellow in the library). That is not a bug: the loop really is shorter now, and
+you either meant it or you repair it.
+
+### 6. Bouncing
 
 `Shift`+`Record` in the library renders the whole song to
 `<project>/bounces/<timestamp>.wav`. The grid becomes one progress bar while it
@@ -198,6 +223,7 @@ means resampling every take that is already loaded.
 | `Shift`+`Play` | open/close perform mode and start the loop |
 | `Shift`+`Record` | Library: bounce the song to a file |
 | `Accent` | Sample page: velocity response on/off |
+| `Device` | Sample page: open the editor · `Shift`+`Device` applies its edits |
 | `Fixed Length` | Perform: quantize amount |
 | `Play` | start or stop the song from bar 1 |
 | `Stop` | stop; in Record mode cancel the take, then back out to the library |
@@ -252,8 +278,8 @@ A project is a directory, written whenever something changes and on exit:
 ```
 my-song/
   project.json        tempo, and per slot: length in bars, trigger bars, how
-                      hard each was played, mute, gain, and the tempo/rate the
-                      take was recorded at
+                      hard each was played, mute, gain, the non-destructive
+                      edits, and the tempo/rate the take was recorded at
   bounces/*.wav       whatever you have bounced
   samples/slot_00.wav one file per filled slot
 ```
@@ -316,11 +342,12 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-257 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+298 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
-restarts, quantised live triggering, velocity), undo/redo, off-grid detection and
-repair, settings precedence and persistence, command-line resolution, offline
+restarts, quantised live triggering, velocity), the non-destructive edits
+(including an octave shift proved against an FFT), undo/redo, off-grid detection
+and repair, settings precedence and persistence, command-line resolution, offline
 bouncing and stems, the display's frame format byte for byte, the hardware probe
 driven by a script instead of a person, project save/load, and the full
 pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.

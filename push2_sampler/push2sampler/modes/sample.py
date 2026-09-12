@@ -22,6 +22,7 @@ from ..history import (
     ToggleTrigger,
 )
 from .base import Mode
+from .sample_edit import SampleEditMode
 
 #: Bottom display-row button that fits an off-grid take to its bars.
 REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
@@ -74,6 +75,9 @@ class SampleMode(Mode):
             return True
         if cc == Btn.MUTE and sample is not None:
             self.app.do(SetEnabled(self.slot, not sample.enabled))
+            return True
+        if cc == Btn.DEVICE and sample is not None:
+            self.app.push_mode(SampleEditMode(self.app, self.slot))
             return True
         if cc == Btn.ACCENT and sample is not None:
             wanted = 0.0 if sample.velocity_sensitivity > 0 else 1.0
@@ -165,6 +169,9 @@ class SampleMode(Mode):
         buttons[Btn.ACCENT] = (
             BTN_BRIGHT if sample and sample.velocity_sensitivity > 0 else BTN_DIM
         )
+        buttons[Btn.DEVICE] = (
+            BTN_BRIGHT if sample and not sample.edits.is_default else BTN_ON
+        )
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -178,6 +185,7 @@ class SampleMode(Mode):
             f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
             "pad: toggle bar   Record: re-record   Mute: hear   Accent: velocity",
+            "Device: edit the take" + ("   (edited)" if not sample.edits.is_default else ""),
         ]
         if self.project.mismatched(sample):
             measured = sample.bars_at(self.project.bpm, self.project.samplerate,

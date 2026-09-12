@@ -231,7 +231,7 @@ def test_provenance_round_trips(tmp_path):
     project.put(2, tone(bar_frames(project)), bars=1)
     project.save(tmp_path)
     payload = json.loads((tmp_path / "project.json").read_text())
-    assert payload["version"] == 3
+    assert payload["version"] == 4
     assert payload["slots"][0]["source_bpm"] == 100.0
     assert payload["slots"][0]["source_samplerate"] == 8000
 
@@ -356,3 +356,121 @@ def test_re_recording_keeps_the_dynamics(tmp_path):
     replaced = project.put(0, tone(200), bars=1)
     assert replaced.velocities == {0: 50}
     assert replaced.velocity_sensitivity == 1.0
+
+
+# --------------------------------------------------- the editor (NF-03)
+def test_a_take_with_no_edits_plays_the_recording_itself():
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(1000), bars=1)
+    assert sample.effective_audio(8000) is sample.audio
+    assert sample.frames == sample.raw_frames == 1000
+
+
+def test_edits_change_what_plays_but_not_the_recording():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(8000), bars=1)
+    raw = sample.audio
+    sample.set_edits(Edits(trim_start_ms=250, trim_end_ms=250))
+    assert sample.frames == 4000  # what plays
+    assert sample.raw_frames == 8000  # what was recorded
+    assert sample.audio is raw
+
+
+def test_the_rendered_audio_is_cached_until_something_changes():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(8000), bars=1)
+    sample.set_edits(Edits(reverse=True))
+    first = sample.effective_audio(8000)
+    assert sample.effective_audio(8000) is first  # same object, no re-render
+
+    sample.set_edits(Edits(reverse=True, normalize=True))
+    assert sample.effective_audio(8000) is not first
+
+
+def test_a_new_recording_invalidates_the_cache():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(8000), bars=1)
+    sample.set_edits(Edits(reverse=True))
+    before = sample.effective_audio(8000)
+    sample.audio = tone(4000, 0.25)
+    after = sample.effective_audio(8000)
+    assert after is not before
+    assert after.shape[0] == 4000
+
+
+def test_the_schedule_plays_the_edited_audio():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(8000), bars=1, triggers={0})
+    sample.set_edits(Edits(trim_end_ms=500))
+    entry = project.build_schedule()[0][0]
+    assert entry.buf.shape[0] == 4000
+    assert entry.buf is sample.effective_audio(8000)
+
+
+def test_trimming_a_take_makes_it_off_grid():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000, bpm=120.0)
+    sample = project.put(0, tone(bar_frames(project)), bars=1)
+    assert project.mismatched(sample) is False
+    sample.set_edits(Edits(trim_end_ms=500))  # now half a second short
+    assert project.mismatched(sample) is True
+
+
+def test_applying_edits_folds_them_into_the_recording():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(8000), bars=1)
+    sample.audio_saved = True
+    sample.set_edits(Edits(trim_end_ms=500, reverse=True))
+    assert sample.apply_edits() is True
+    assert sample.raw_frames == 4000  # the recording is the edit now
+    assert sample.edits.is_default
+    assert sample.audio_saved is False  # so the WAV gets rewritten
+    assert sample.apply_edits() is False  # nothing left to apply
+
+
+def test_edits_survive_a_round_trip(tmp_path):
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000)
+    sample = project.put(0, tone(1000), bars=1)
+    sample.set_edits(Edits(trim_start_ms=10, fade_out_ms=25, pitch_semitones=-2,
+                           reverse=True, normalize=True))
+    project.save(tmp_path)
+    loaded = Project.load(tmp_path, samplerate=8000)[0]
+    assert loaded.edits == sample.edits
+    assert loaded.raw_frames == 1000
+
+
+def test_a_format_3_project_loads_with_no_edits(tmp_path):
+    project = Project(samplerate=8000)
+    project.put(0, tone(bar_frames(project)), bars=1, triggers={0})
+    project.save(tmp_path)
+    payload = json.loads((tmp_path / "project.json").read_text())
+    payload["version"] = 3
+    del payload["slots"][0]["edits"]
+    (tmp_path / "project.json").write_text(json.dumps(payload))
+    loaded = Project.load(tmp_path, samplerate=8000)[0]
+    assert loaded.edits.is_default
+    assert loaded.triggers == {0}
+
+
+def test_repairing_a_length_folds_the_edits_in():
+    from push2sampler.edits import Edits
+
+    project = Project(samplerate=8000, bpm=120.0)
+    sample = project.put(0, tone(bar_frames(project)), bars=1)
+    sample.set_edits(Edits(trim_end_ms=500, reverse=True))
+    assert project.repair(0) is True
+    assert sample.frames == project.expected_frames(1)
+    assert sample.edits.is_default  # fitting is destructive, so it commits them

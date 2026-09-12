@@ -21,6 +21,7 @@ import numpy as np
 
 from . import wavio
 from .constants import PAD_COUNT
+from .edits import DEFAULT_EDITS, Edits, render_edits
 
 SONG_BARS = 64
 #: A take may be this far from its declared length before it is flagged.
@@ -29,7 +30,7 @@ LENGTH_TOLERANCE = 0.01
 FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 
 @dataclass
@@ -51,16 +52,56 @@ class Sample:
     #: Tempo and rate this take was captured at; 0 means "unknown" (v1 projects).
     source_bpm: float = 0.0
     source_samplerate: int = 0
+    #: Non-destructive trim/fade/pitch/reverse/normalise.
+    edits: Edits = DEFAULT_EDITS
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
             self.name = f"S{self.slot + 1:02d}"
+        self._rendered: np.ndarray | None = None
+        self._rendered_key: tuple | None = None
+
+    @property
+    def raw_frames(self) -> int:
+        """Length of the recording itself, before any edits."""
+        return int(self.audio.shape[0])
 
     @property
     def frames(self) -> int:
-        return int(self.audio.shape[0])
+        """Length of what actually plays, edits included."""
+        return int(self.effective_audio().shape[0])
+
+    def effective_audio(self, samplerate: int | None = None) -> np.ndarray:
+        """The audio as edited, cached until an edit or the recording changes.
+
+        With no edits this is the recording itself, by identity -- the editor
+        costs nothing until it is used.
+        """
+        rate = samplerate or self.source_samplerate or 48_000
+        key = (self.edits, rate, id(self.audio), self.audio.shape)
+        if self._rendered_key == key and self._rendered is not None:
+            return self._rendered
+        rendered = render_edits(self.audio, rate, self.edits)
+        self._rendered_key = key
+        # Holding the key's array alive keeps its id() from being reused.
+        self._rendered = rendered
+        return rendered
+
+    def set_edits(self, edits: Edits) -> None:
+        self.edits = edits
+        self._rendered_key = None
+        self._rendered = None
+
+    def apply_edits(self) -> bool:
+        """Fold the edits into the recording for good.  True if anything changed."""
+        if self.edits.is_default:
+            return False
+        self.audio = np.ascontiguousarray(self.effective_audio(), dtype=np.float32)
+        self.set_edits(DEFAULT_EDITS)
+        self.audio_saved = False
+        return True
 
     def set_trigger(self, bar: int, on: bool, velocity: int | None = None) -> None:
         """Enable or disable playback on ``bar``, optionally with a velocity."""
@@ -116,6 +157,7 @@ class Sample:
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
             "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
+            "edits": self.edits.as_dict(),
             "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
             "source_bpm": round(float(self.source_bpm), 3),
             "source_samplerate": int(self.source_samplerate),
@@ -164,9 +206,13 @@ class Project:
         return [s.slot for s in self.filled() if self.mismatched(s)]
 
     def fitted_audio(self, sample: Sample) -> np.ndarray:
-        """``sample``'s audio padded with silence or trimmed to exactly its bars."""
+        """``sample``'s audio padded with silence or trimmed to exactly its bars.
+
+        Works on the edited audio: fitting is destructive anyway, so it folds in
+        whatever the editor is doing rather than fighting it.
+        """
         target = self.expected_frames(sample.bars)
-        audio = sample.audio
+        audio = sample.effective_audio(self.samplerate)
         if audio.shape[0] == target:
             return audio
         fitted = np.zeros((target, audio.shape[1]), dtype=np.float32)
@@ -180,6 +226,7 @@ class Project:
         if sample is None or not self.mismatched(sample):
             return False
         sample.audio = self.fitted_audio(sample)
+        sample.set_edits(DEFAULT_EDITS)
         sample.source_bpm = self.bpm
         sample.source_samplerate = self.samplerate
         sample.audio_saved = False
@@ -250,12 +297,13 @@ class Project:
         for sample in self.filled():
             if not sample.enabled or sample.frames == 0:
                 continue
+            audio = sample.effective_audio(self.samplerate)
             for bar in sorted(sample.triggers):
                 if 0 <= bar < self.song_bars:
                     schedule[bar].append(
                         ScheduledSample(
                             sample.slot,
-                            sample.audio,
+                            audio,
                             sample.gain * sample.velocity_scale(bar),
                         )
                     )
@@ -323,6 +371,7 @@ class Project:
                     int(bar): int(v) for bar, v in (entry.get("velocities") or {}).items()
                 },
                 velocity_sensitivity=float(entry.get("velocity_sensitivity", 0.0) or 0.0),
+                edits=Edits.from_dict(entry.get("edits")),
                 enabled=bool(entry.get("enabled", True)),
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),

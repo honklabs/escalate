@@ -257,6 +257,83 @@ class PutSample(Command):
 
 
 @dataclass
+class SetEdit(Command):
+    """Change one non-destructive edit; encoder sweeps coalesce."""
+
+    slot: int
+    field: str
+    value: object
+    previous: object
+    #: How to say it on screen.  The page owns its own wording and units, so
+    #: there is only ever one formatter for a value.
+    display: str = ""
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        if self.display:
+            return self.display
+        return f"{self.field.replace('_', ' ')} {_format_edit(self.value)}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.set_edits(sample.edits.with_value(self.field, self.value))
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.set_edits(sample.edits.with_value(self.field, self.previous))
+
+    def merge(self, newer: Command) -> bool:
+        if not isinstance(newer, SetEdit):
+            return False
+        if (newer.slot, newer.field) != (self.slot, self.field):
+            return False
+        if newer.at - self.at > MERGE_WINDOW_S:
+            return False
+        self.value = newer.value
+        self.display = newer.display
+        self.at = newer.at
+        return True
+
+
+@dataclass
+class ApplyEdits(Command):
+    """Fold a sample's edits into its recording, keeping the original for undo."""
+
+    slot: int
+    _previous_audio: object = None
+    _previous_edits: object = None
+
+    label = "edits applied"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous_audio = sample.audio
+        self._previous_edits = sample.edits
+        sample.apply_edits()
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or self._previous_audio is None:
+            return
+        sample.audio = self._previous_audio
+        sample.set_edits(self._previous_edits)
+        sample.audio_saved = False
+
+
+def _format_edit(value) -> str:
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, float):
+        return f"{value:.0f}" if abs(value) >= 10 else f"{value:.1f}"
+    return str(value)
+
+
+@dataclass
 class RepairLength(Command):
     """Pad or trim a take so it exactly fills its bars at the current tempo."""
 

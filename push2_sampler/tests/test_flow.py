@@ -1285,3 +1285,162 @@ def test_recording_still_works_unshifted(rig):
     pump(app)
     assert app.mode.name == "record"
     assert app.bounce is None
+
+
+# ----------------------------------------------------- sample editor (NF-03)
+def open_editor(rig, slot=0):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=slot, bars=1)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    return app, push, engine, project
+
+
+def test_device_opens_the_editor_over_the_sample_page(rig):
+    app, push, _, _ = open_editor(rig)
+    assert app.mode.name == "edit"
+    # The sample page replaces the library rather than stacking on it, so the
+    # editor is the only overlay: depth 2, not 3.
+    assert app.depth == 2
+
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    assert app.mode.name == "sample"  # back to where it was opened from
+
+
+def test_each_encoder_shapes_one_thing(rig):
+    app, push, _, project = open_editor(rig)
+    sample = project[0]
+
+    push.turn(ENCODER_TRACK[0], 4)  # trim in
+    pump(app)
+    assert sample.edits.trim_start_ms == pytest.approx(20.0)
+    assert app.message == "trim in 20ms"  # the page's wording, not the field name
+
+    push.turn(ENCODER_TRACK[4], 3)  # pitch
+    pump(app)
+    assert sample.edits.pitch_semitones == pytest.approx(3.0)
+
+    push.turn(ENCODER_TRACK[6], 1)  # reverse is a switch
+    pump(app)
+    assert sample.edits.reverse is True
+
+    push.turn(ENCODER_TRACK[5], 4)  # gain is the sample's own, not an edit
+    pump(app)
+    assert sample.gain == pytest.approx(1.2)
+    assert sample.edits.trim_start_ms == pytest.approx(20.0)
+
+
+def test_an_edit_is_heard_without_touching_the_recording(rig):
+    app, push, engine, project = open_editor(rig)
+    sample = project[0]
+    raw_frames = sample.raw_frames
+
+    push.turn(ENCODER_TRACK[1], 20)  # trim 100ms off the end
+    pump(app)
+    assert sample.raw_frames == raw_frames
+    assert sample.frames < raw_frames
+    # ...and the scheduler picks up the shorter version.
+    sample.set_trigger(0, True)
+    app.rebuild_schedule()
+    assert engine._schedule[0][0].buf.shape[0] == sample.frames
+
+
+def test_a_button_under_the_display_puts_a_parameter_back(rig):
+    app, push, _, project = open_editor(rig)
+    push.turn(ENCODER_TRACK[2], 10)  # fade in
+    pump(app)
+    assert project[0].edits.fade_in_ms == pytest.approx(20.0)
+
+    push.press_button(DISPLAY_ROW_BOTTOM[2])
+    pump(app)
+    assert project[0].edits.fade_in_ms == 0.0
+
+    push.press_button(DISPLAY_ROW_BOTTOM[2])  # already there
+    pump(app)
+    assert "already" in app.message
+
+
+def test_a_switch_is_toggled_by_its_button(rig):
+    app, push, _, project = open_editor(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[7])  # normalise
+    pump(app)
+    assert project[0].edits.normalize is True
+    push.press_button(DISPLAY_ROW_BOTTOM[7])
+    pump(app)
+    assert project[0].edits.normalize is False
+
+
+def test_an_encoder_sweep_is_one_undo_step(rig):
+    app, push, _, project = open_editor(rig)
+    for _ in range(5):
+        push.turn(ENCODER_TRACK[0], 1)
+        pump(app)
+    assert project[0].edits.trim_start_ms == pytest.approx(25.0)
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].edits.trim_start_ms == 0.0
+
+
+def test_shift_device_applies_the_edits_and_undo_takes_them_back(rig):
+    app, push, _, project = open_editor(rig)
+    sample = project[0]
+    raw = sample.audio
+    push.turn(ENCODER_TRACK[6], 1)  # reverse
+    pump(app)
+
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert sample.edits.is_default
+    assert sample.audio is not raw
+    assert app.message == "edits applied"
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].audio is raw
+    assert project[0].edits.reverse is True
+
+
+def test_applying_nothing_says_so(rig):
+    app, push, _, _ = open_editor(rig)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.message == "nothing to apply"
+
+
+def test_the_grid_draws_the_take_and_what_is_being_trimmed(rig):
+    app, push, engine, project = open_editor(rig)
+    # A take that is loud in its first half and silent in its second.
+    half = int(engine.frames_per_bar) // 2
+    audio = np.zeros((half * 2, 1), dtype=np.float32)
+    audio[:half] = 0.8
+    project[0].audio = audio
+    project[0].set_edits(project[0].edits)  # drop the cache
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index  # loud
+    assert push.pad_leds[63] == colors.OFF.index  # silent
+
+    push.turn(ENCODER_TRACK[0], 100)  # trim a long way in
+    pump(app)
+    assert push.pad_leds[0] == colors.RED_DIM.index  # cut away
+
+
+def test_a_pad_auditions_from_that_point(rig):
+    app, push, engine, project = open_editor(rig)
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(200)
+    assert np.abs(out).max() > 0.0
+
+
+def test_the_editor_refuses_to_open_on_an_empty_slot(rig):
+    from push2sampler.modes import SampleEditMode
+
+    app, _, _, _ = rig
+    app.push_mode(SampleEditMode(app, 9))  # slot 10 is empty
+    assert app.mode.name == "library"  # it closed itself again
+    assert app.depth == 1

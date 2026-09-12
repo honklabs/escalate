@@ -57,6 +57,8 @@ BUTTONS = {
     "undo": Btn.UNDO,
     "quantize": Btn.FIXED_LENGTH,
     "accent": Btn.ACCENT,
+    "device": Btn.DEVICE,
+    "edit": Btn.DEVICE,
     "velocity": Btn.ACCENT,
     "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.

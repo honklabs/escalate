@@ -14,6 +14,10 @@ Perform
     The pads fire samples, quantised to the grid, and can write what you play
     into the arrangement as the loop goes round.
 
+Edit
+    One take's shape: trim, fades, pitch, reverse, normalise, all undoable and
+    none of it touching the recording until you say so.
+
 Sample
     The 64 pads are now the 64 bars of the song.  Lit pads are the bars where
     this sample plays; they may overlap freely with other samples.  Record
@@ -31,6 +35,7 @@ from .library import LibraryMode
 from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
+from .sample_edit import SampleEditMode
 from .settings import SettingsMode
 
 __all__ = [
@@ -39,6 +44,7 @@ __all__ = [
     "Mode",
     "PerformMode",
     "RecordMode",
+    "SampleEditMode",
     "SampleMode",
     "SettingsMode",
 ]

@@ -62,9 +62,10 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-04`, `NF-05`,
-`NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own section
-below. ~6,900 lines, 257 tests, `ruff` clean, no hardware needed to test.
+**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-03`, `NF-04`,
+`NF-05`, `NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own
+section below. ~7,700 lines, 298 tests, `ruff` clean, no hardware needed to
+test.
 
 `F-08` shipped the *tool* -- `--selftest` walks a real Push 2 and writes a
 report -- but the human half is still outstanding: nobody has run it yet. Until
@@ -72,9 +73,10 @@ they do, every hardware constant remains an educated guess and the README's
 "Confirmed against real hardware" table reads "not yet" all the way down. That
 report is the highest-value thing anyone can hand this project.
 
-Next: `NF-03` (sample editor) is the biggest remaining gap -- a take is still
-all-or-nothing, with no trim and no fades. After that `NF-01` (song page) and
-`NF-07` (banks), which share a model rewrite and want one owner.
+That finishes **v1.2**. Next is v1.3's pair: `NF-01` (song page) and `NF-07`
+(banks), which both rewrite how slots and bars are addressed -- one owner, in
+that order, or they will collide. `NH-01` (mixer) is the easy independent one if
+something smaller is wanted first.
 
 ```
 push2sampler/
@@ -89,6 +91,7 @@ push2sampler/
   settings.py   the settings table: defaults, validation, labels, persistence
   selftest.py   the guided hardware probe and its report
   render.py     offline bouncing: the whole mix, or one stem per slot
+  edits.py      non-destructive trim/fade/pitch/reverse/normalise
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -100,8 +103,8 @@ push2sampler/
 
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
-- Samples are immutable once recorded: no trim, no fades, gain staging is one
-  number (`NF-03`) -- now the biggest gap.
+- No time-stretch: a take from another tempo is detected and can be padded or
+  trimmed, but not stretched in pitch-preserving fashion (`NH-09`).
 - Tempo changes do not move recorded audio, so an old take drifts against a new
   tempo. It is now *detected* and repairable by padding/trimming (`F-09`);
   pitch-preserving stretching is still open (`NH-09`).
@@ -209,7 +212,7 @@ CC is the most likely merge conflict in this project.
 | Duplicate | 88 | reserved → `NH-05` |
 | New | 87 | reserved → `NH-04` (new layer / punch-in) |
 | Clip | 113 | reserved → `NF-01` (Song page) |
-| Device | 110 | reserved → `NF-03` (Sample editor) |
+| Device | 110 | **taken** — Sample page: editor · `Shift`+`Device` applies |
 | Mix | 112 | reserved → `NH-01` (Mixer page) |
 | Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
 | Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
@@ -316,7 +319,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | Release | Theme | Contents |
 | --- | --- | --- |
 | **v1.1 — Trustworthy** | it never bites you | `F-01` `F-02` `F-03` `F-04` `F-05` `F-09` `CC-01` `CC-03` `CC-04` `CC-05` `CC-06` `CC-10` `CC-14` `CC-15` `CC-16` |
-| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-04`~~ ~~`NF-10`~~ `NF-03` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
+| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
 | **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
 | **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
@@ -739,6 +742,29 @@ voice for that slot; two samples in choke group 1 never sound together.
 **Deps.** `F-01`, `F-05`.
 
 ### NF-03 — Sample editor `size: L`
+
+**Status: shipped.** `edits.py` holds a frozen `Edits` (trim in/out, fades,
+pitch, reverse, normalise) and renders it on the way to the mixer, in a fixed
+order that is documented because it matters. `Sample.effective_audio()` caches
+the result and hands back the recording *by identity* when there are no edits,
+so the editor costs nothing until it is used. `SampleEditMode` gives each of the
+eight encoders one parameter with the button under it resetting or toggling it,
+draws the take across the 64 pads by loudness with the trimmed parts in dim red,
+and auditions from a pressed pad. `Shift`+`Device` commits destructively as one
+undo step.
+
+Deviations: gain sits on the encoder row although it is a `Sample` field rather
+than an `Edits` one, because from the player's side it is the same kind of
+knob. The waveform is drawn on the **pads** and as a one-line text envelope
+rather than as a picture on the colour display -- it works with or without a
+screen that has never been verified, and `F-08` can tell us later whether a real
+drawing is worth it.
+
+Two things fell out of building it. A trimmed take is genuinely shorter than its
+bars, so `F-09` flags it as off-grid -- correct, and worth knowing before someone
+reports it as a bug. And `Edits.from_dict` now coerces **per field**: the first
+version stored whatever was in the JSON, so one bad value in a hand-edited
+project file would have crashed inside the renderer rather than at load.
 
 **Problem.** A take is take-it-or-leave-it. A great loop with 40 ms of silence
 at the front, or 3 dB too quiet, has to be re-recorded.
