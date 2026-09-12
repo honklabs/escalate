@@ -1,0 +1,10 @@
+# Core
+numpy>=1.22
+mido>=1.2.10
+python-rtmidi>=1.4.9     # mido's MIDI backend
+sounddevice>=0.4.5       # PortAudio bindings for the audio engine
+
+# Optional
+soundfile>=0.12          # float32 WAV files (stdlib 16-bit PCM is used without it)
+pyusb>=1.2               # Push 2 colour display
+Pillow>=9.0              # text rendering for that display

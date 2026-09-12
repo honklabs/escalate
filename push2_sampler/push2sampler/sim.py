@@ -1,0 +1,129 @@
+"""Terminal simulator: drive the whole program without a Push 2 attached.
+
+The app runs in a background thread exactly as it does with hardware; this REPL
+injects control-surface events and prints the pad grid, so the mode logic,
+transport and recorder can all be exercised (and demoed) on any machine.
+
+Commands::
+
+    p 12        press and release pad 12 (or "p 3,4" for col,row)
+    hold 12     press pad 12 and keep holding   rel 12   release it
+    b play      press a button by name (see BUTTONS)
+    shift on    hold/release the Shift modifier
+    t +4        turn the tempo encoder
+    k +1        turn track encoder 1 (length / gain)
+    g           print the pad grid        s   print status
+    wait 2.5    let the transport run for 2.5 seconds
+    q           quit
+"""
+
+from __future__ import annotations
+
+import shlex
+import sys
+import threading
+import time
+
+from .constants import ENCODER_TEMPO, ENCODER_TRACK, Btn, xy_to_index
+from .push2 import SimPush
+
+BUTTONS = {
+    "play": Btn.PLAY,
+    "stop": Btn.STOP,
+    "record": Btn.RECORD,
+    "rec": Btn.RECORD,
+    "metronome": Btn.METRONOME,
+    "click": Btn.METRONOME,
+    "repeat": Btn.REPEAT,
+    "loop": Btn.REPEAT,
+    "mute": Btn.MUTE,
+    "delete": Btn.DELETE,
+    "session": Btn.SESSION,
+    "library": Btn.SESSION,
+    "back": Btn.SESSION,
+    "left": Btn.LEFT,
+    "up": Btn.UP,
+    "down": Btn.DOWN,
+    "setup": Btn.SETUP,
+}
+
+LEGEND = "W/w white  G/g green  A/a amber  R/r red  B/b blue  . off"
+
+
+def _pad_index(token: str) -> int:
+    if "," in token:
+        col, row = (int(part) for part in token.split(",", 1))
+        return xy_to_index(col, row)
+    index = int(token)
+    if not 0 <= index < 64:
+        raise ValueError(f"pad index out of range: {index}")
+    return index
+
+
+def print_state(push: SimPush, app) -> None:
+    print()
+    print(push.grid())
+    print(LEGEND)
+    for line in app.status_lines():
+        print(f"  {line}")
+    sys.stdout.flush()
+
+
+def run(app, push: SimPush, stream=None) -> None:
+    """Run the REPL until EOF or ``q``.  ``app`` must not be running yet."""
+    stream = stream or sys.stdin
+    thread = threading.Thread(target=app.run, daemon=True)
+    thread.start()
+    time.sleep(0.1)
+    print(__doc__.split("Commands::")[1])
+    print_state(push, app)
+    try:
+        for raw in stream:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                if not _dispatch(line, app, push):
+                    break
+            except Exception as exc:
+                print(f"error: {exc}")
+                continue
+            time.sleep(0.12)  # let the app thread react before we print
+            print_state(push, app)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        app.stop()
+        thread.join(timeout=2.0)
+
+
+def _dispatch(line: str, app, push: SimPush) -> bool:
+    """Run one command; return False to quit."""
+    parts = shlex.split(line)
+    cmd, args = parts[0].lower(), parts[1:]
+    if cmd in ("q", "quit", "exit"):
+        return False
+    if cmd == "p":
+        push.press_pad(_pad_index(args[0]))
+    elif cmd == "hold":
+        push.inject_pad_press(_pad_index(args[0]))
+    elif cmd == "rel":
+        push.inject_pad_release(_pad_index(args[0]))
+    elif cmd == "b":
+        name = args[0].lower()
+        if name not in BUTTONS:
+            raise ValueError(f"unknown button {name!r}; try: {', '.join(sorted(BUTTONS))}")
+        push.press_button(BUTTONS[name])
+    elif cmd == "shift":
+        push.hold_button(Btn.SHIFT, args[0].lower() in ("on", "1", "true", "down"))
+    elif cmd == "t":
+        push.turn(ENCODER_TEMPO, int(args[0]))
+    elif cmd == "k":
+        push.turn(ENCODER_TRACK[0], int(args[0]))
+    elif cmd in ("g", "grid", "s", "status"):
+        pass  # state is printed after every command anyway
+    elif cmd == "wait":
+        time.sleep(max(0.0, float(args[0])))
+    else:
+        raise ValueError(f"unknown command {cmd!r}")
+    return True

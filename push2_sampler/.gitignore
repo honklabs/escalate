@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# Recorded projects live next to the program by default.
+song/
+*.wav
