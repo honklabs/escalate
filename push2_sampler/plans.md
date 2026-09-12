@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: v1.0 shipped (see `README.md`). This document is the backlog and the
-rules of engagement for building v1.1 → v2.0.
+Status: v1.1 shipped and most of v1.2 (see `README.md`). This document is the
+backlog and the rules of engagement for the rest of the way to v2.0.
 
 ---
 
@@ -62,14 +62,18 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-**Every foundation item is now shipped**: `F-01` through `F-09`, plus `CC-01`
-and `CC-06`. Each carries a status note in its own section below. ~5,200 lines,
-173 tests, `ruff` clean, no hardware needed to test.
+**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-04`, `CC-01` and
+`CC-06`. Each carries a status note in its own section below. ~6,100 lines, 213
+tests, `ruff` clean, no hardware needed to test.
 
-That closes v1.1 and the front half of v1.2. Next: `NF-03` (sample editor) and
-`NF-04` (live quantized triggering) are the two items that most change what the
-instrument can do, and both are now unblocked. `F-08` (hardware verification)
-goes to the top of the list the moment a Push 2 is available -- see §12.Q1.
+`F-08` shipped the *tool* -- `--selftest` walks a real Push 2 and writes a
+report -- but the human half is still outstanding: nobody has run it yet. Until
+they do, every hardware constant remains an educated guess and the README's
+"Confirmed against real hardware" table reads "not yet" all the way down. That
+report is the highest-value thing anyone can hand this project.
+
+Next: `NF-03` (sample editor), then `NF-10` (velocity), which `NF-04` has made
+obviously missing -- playing pads live without dynamics feels like a toy.
 
 ```
 push2sampler/
@@ -78,9 +82,11 @@ push2sampler/
   push2.py      MIDI transport, PushBase/Push2/SimPush, translate_midi()
   audio.py      Transport, Engine (_process), Voice, ScheduledSample, recorder
   project.py    Sample, Project, build_schedule(), save()/load()
-  modes/        base (the mode contract), library, record, sample, settings
+  modes/        base (the mode contract), library, record, sample, settings,
+                perform
   history.py    undoable commands + the undo/redo journal
   settings.py   the settings table: defaults, validation, labels, persistence
+  selftest.py   the guided hardware probe and its report
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -92,12 +98,14 @@ push2sampler/
 
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
-- Pad velocity is captured in `PadEvent` and thrown away (`NF-10`).
+- Pad velocity is captured in `PadEvent` and thrown away (`NF-10`) -- now the
+  most obviously missing thing, since perform mode plays pads live.
 - Tempo changes do not move recorded audio, so an old take drifts against a new
   tempo. It is now *detected* and repairable by padding/trimming (`F-09`);
   pitch-preserving stretching is still open (`NH-09`).
-- `display.py` and the `sounddevice` callback have never run against hardware
-  in CI or in this repo's history (`F-08`).
+- Nothing has run against a real Push 2 yet. `--selftest` exists to fix that
+  (`F-08`); the display's framing is now pinned byte for byte by unit tests, but
+  only a human with the device can confirm it looks right.
 - The song is exactly 64 bars, one page, one bank of 64 slots (`NF-07`, `NF-11`).
 
 ---
@@ -177,7 +185,7 @@ CC is the most likely merge conflict in this project.
 
 | Control | CC | Status |
 | --- | --- | --- |
-| Play | 85 | **taken** — transport |
+| Play | 85 | **taken** — transport · `Shift`+`Play` opens perform mode |
 | Record | 86 | **taken** — take/re-record |
 | Stop | 29 | **taken** — stop / cancel / back out |
 | Session | 51 | **taken** — back to library |
@@ -203,7 +211,7 @@ CC is the most likely merge conflict in this project.
 | Mix | 112 | reserved → `NH-01` (Mixer page) |
 | Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
 | Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
-| Fixed Length | 90 | reserved → `NF-04` (quantize amount) |
+| Fixed Length | 90 | **taken** — Perform: quantize amount |
 | Accent | 57 | reserved → `NF-10` (velocity sensitivity on/off) |
 | Scale | 58 | reserved → `IN-04` (key/pitch tools) |
 | Automate | 89 | reserved → `IN-03` (generative fills) |
@@ -306,9 +314,9 @@ something that makes the instrument nicer to touch, not only bigger.
 | Release | Theme | Contents |
 | --- | --- | --- |
 | **v1.1 — Trustworthy** | it never bites you | `F-01` `F-02` `F-03` `F-04` `F-05` `F-09` `CC-01` `CC-03` `CC-04` `CC-05` `CC-06` `CC-10` `CC-14` `CC-15` `CC-16` |
-| **v1.2 — Playable** | recording and arranging feel good | `F-06` `F-07` `NF-03` `NF-04` `NF-10` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
+| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-04`~~ `NF-03` `NF-10` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
 | **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | `NF-01` `NF-05` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
-| **v1.4 — Plays with others** | sync, import, and a verified surface | `F-08` `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
+| **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 ---
@@ -574,6 +582,27 @@ silent in Library mode and audible in Record mode.
 
 ### F-08 — Hardware verification pass and display test harness `size: M`
 
+**Status: the tool is shipped; the human pass is still open.**
+
+`--selftest` (`selftest.py`) walks nine checks: MIDI ports, grid orientation,
+the notes the corner pads send, velocity and aftertouch, every palette colour,
+35 buttons, four encoders including which way is clockwise, the touch strip, and
+the display. Each check records believed-vs-observed, and the run writes
+`hardware-report.json` plus a markdown version whose first table is exactly the
+list of corrections to make. It is built so one person at the device can do it
+alone: press what it names, answer what it asks, Enter skips, `q` quits and
+still saves.
+
+`PushBase.capture_raw` was added for it -- a tap that keeps untranslated
+messages -- so the probe learns what the device really sends instead of trusting
+`translate_midi`. The probe itself is unit-tested by scripting the answers and
+the messages (including a flipped grid, a button on the wrong CC and an inverted
+encoder), and `tests/test_display.py` pins the frame header, the 327,680-byte
+payload, BGR565 packing and the XOR shaping against a fake USB device.
+
+Still open, and only a person with hardware can close it: actually running it,
+then correcting `constants.py` and filling in the README table.
+
 **Problem.** `display.py`, `Push2.program_palette`, the button CC map and the
 `sounddevice` callback have never been exercised against a real Push 2 in this
 repo. The port names, palette SysEx and the 16-byte display frame header come
@@ -736,6 +765,22 @@ ratio; edits survive save/load; the scheduler sees the edited audio.
 **Deps.** `F-03`, `F-04`, `F-09`. Wants `F-08` for the display half.
 
 ### NF-04 — Live quantized triggering and arrangement overdub `size: L`
+
+**Status: shipped.** `Engine.trigger()` schedules a voice on a future frame, the
+callback computes the grid line (so it is exact however late the pad was hit),
+and `_segment_limit` will not step over a pending start. `PerformMode` is a
+transient overlay on `Shift`+`Play`; `Fixed Length` cycles quantize;
+`next_grid_bar()` tells the mode which bar a hit will land in, which is what gets
+written.
+
+Three deviations. Quantize is expressed **in beats** (0/1/2/4) rather than
+fractions of a bar -- the same four choices, simpler arithmetic, and it survives
+a change of time signature. Erase uses the existing armed `Delete` rather than a
+held one, because `Delete` is already a latch everywhere else in this program.
+And erasing **starts at the next bar line** rather than the bar already playing:
+the first version wiped a bar that was nine-tenths over, which felt like erasing
+the past. Velocity still does nothing here; that is `NF-10`, and perform mode is
+what makes it the obvious next feature.
 
 **Problem.** The only way to arrange is to toggle bars while stopped. You cannot
 play the song in, which is how people actually write.
@@ -1465,9 +1510,10 @@ group from §3.8, and rebase on `main` before opening a PR.
 
 ## 12. Open questions (need a human decision)
 
-- **Q1 — Hardware access.** Is there a Push 2 available to run `F-08` against,
-  and on which firmware? Until answered, every hardware-facing constant is
-  "believed correct, unverified", and `F-08` stays at the top of the list.
+- **Q1 — Hardware access.** A Push 2 is expected. `--selftest` is built and
+  waiting; what this project needs back is a `hardware-report.json` from it, plus
+  the firmware version. Until then every hardware-facing constant stays
+  "believed correct, unverified".
 - **Q2 — Primary use.** Is this a studio sketchpad (favour `NF-03`, `NF-05`,
   `NF-06`) or a live instrument (favour `NF-04`, `NH-06`, `IN-05`)? The v1.2/v1.3
   ordering flips depending on the answer. Current plan assumes sketchpad first.

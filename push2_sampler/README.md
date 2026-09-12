@@ -11,6 +11,30 @@ python -m push2sampler my-song           # with a Push 2 plugged in
 python -m push2sampler --sim my-song     # no hardware: terminal simulator
 ```
 
+## When you first plug the Push 2 in
+
+Run the hardware probe before anything else:
+
+```
+python -m push2sampler --selftest
+```
+
+It walks through every hardware guess this program makes -- port names, the note
+each pad sends, what each palette colour looks like, the control change behind
+every button, encoder direction, the touch strip, the display -- and writes down
+what your Push 2 *actually* does. Press or turn what it names; type an answer
+when it asks a question; Enter skips a step and `q` quits early and still saves.
+
+It takes a few minutes and leaves `hardware-report.json` plus a readable
+`hardware-report.md` in the current directory. Commit those (or paste the
+markdown): the `Needs correcting` table at the top of the markdown is everything
+needed to fix whatever turns out to be wrong.
+
+Why this exists: **every hardware constant in this program came from Ableton's
+Push 2 MIDI and Display Interface document, not from a device.** The maps are in
+one table in `constants.py`, and until the probe has run they are educated
+guesses.
+
 ## The workflow
 
 ### 1. Sample Library
@@ -103,6 +127,21 @@ returns with its bars, a tempo nudge returns to the old tempo. A sweep of an
 encoder is one undo step, not forty. The journal is in memory only — it is a
 safety net for your hands, not project history.
 
+### 4. Perform mode -- play the song in
+
+`Shift`+`Play` starts the loop and turns the grid back into the sample library,
+except now the pads **fire**: a press plays that sample, quantised to the next
+grid line so it lands in time even when your hand does not. `Fixed Length`
+cycles the quantize amount (off, 1/4 bar, 1/2 bar, 1 bar).
+
+Press `Record` and what you play is also **written into the arrangement**, at
+the bar it sounded in -- so you can build the song by playing it, pass after
+pass, instead of toggling bars. `Delete` does the opposite: while it is armed,
+bars are wiped as the playhead crosses them, starting from the next bar line.
+Everything you play in or erase is one undo step.
+
+`Session` goes back to the library.
+
 ### Settings
 
 `Setup` opens the settings page and closes it again. The pads stay dark, because
@@ -134,6 +173,8 @@ means resampling every take that is already loaded.
 | --- | --- |
 | 8x8 pads | slot / take length / song bar, depending on the mode |
 | hold a pad | Library: audition the sample instead of opening its page |
+| `Shift`+`Play` | open/close perform mode and start the loop |
+| `Fixed Length` | Perform: quantize amount |
 | `Play` | start or stop the song from bar 1 |
 | `Stop` | stop; in Record mode cancel the take, then back out to the library |
 | `Record` | Library: record into the first free slot · Record mode: go · Sample page: re-record |
@@ -228,18 +269,34 @@ third, `wait S` lets the transport run, `q` quits.
   the current mode, tempo and bar; without them (or with `--no-display`)
   everything else works unchanged.
 
+### Confirmed against real hardware
+
+| what | source | confirmed on a device |
+| --- | --- | --- |
+| pad notes 36-99, bottom-left first | spec | not yet |
+| button control changes | spec | not yet |
+| palette SysEx (set entry + reapply) | spec | not yet |
+| encoder relative values | spec | not yet |
+| touch strip as pitchwheel | spec | not yet |
+| display frame header and BGR565 packing | spec, unit-tested byte for byte | not yet |
+| User/Live port naming | spec | not yet |
+
+`--selftest` fills this in. Until then, treat every row as a guess that the
+program is built to be corrected on.
+
 ## Tests
 
 ```
 python -m pytest tests -q
 ```
 
-173 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+213 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
-restarts), undo/redo, off-grid detection and repair, settings precedence and
-persistence, project save/load, and the full pad-by-pad workflow through the
-simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+restarts, quantised live triggering), undo/redo, off-grid detection and repair,
+settings precedence and persistence, the display's frame format byte for byte,
+the hardware probe driven by a script instead of a person, project save/load, and
+the full pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 

@@ -63,6 +63,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--sim", action="store_true",
         help="run the terminal simulator instead of talking to hardware",
     )
+    parser.add_argument(
+        "--selftest", action="store_true",
+        help="walk through the hardware with a real Push 2 and write a report "
+             "of what it actually does (see --report)",
+    )
+    parser.add_argument(
+        "--report", default="hardware-report.json",
+        help="where --selftest writes its findings (default: ./hardware-report.json)",
+    )
     parser.add_argument("--list-ports", action="store_true", help="list MIDI ports and exit")
     parser.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     return parser
@@ -107,6 +116,10 @@ def _device(value):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    if args.selftest:
+        from .selftest import run_selftest
+
+        return run_selftest(Path(args.report))
     if args.list_ports:
         return _list_ports()
     if args.list_devices:

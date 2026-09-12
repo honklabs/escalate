@@ -17,7 +17,14 @@ from .constants import (
     Btn,
 )
 from .history import Command, History, SetBpm
-from .modes import LibraryMode, Mode, RecordMode, SampleMode, SettingsMode
+from .modes import (
+    LibraryMode,
+    Mode,
+    PerformMode,
+    RecordMode,
+    SampleMode,
+    SettingsMode,
+)
 from .project import Project
 from .settings import ENGINE_SETTINGS, Settings
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
@@ -157,6 +164,14 @@ class App:
     def autosave_delay(self) -> float:
         return float(self.settings.get("autosave_delay_s", AUTOSAVE_DELAY))
 
+    def open_perform(self) -> None:
+        """Open perform mode and start the loop, so pads can be played live."""
+        if self.mode.name == "perform":
+            self.pop_mode()
+            return
+        if self.push_mode(PerformMode(self)) and not self.engine.is_playing:
+            self.engine.play(0)
+
     def open_settings(self) -> None:
         if self.mode.name == "settings":
             self.pop_mode()
@@ -275,6 +290,9 @@ class App:
         if not pressed:
             return
         if cc == Btn.PLAY:
+            if self.shift:
+                self.open_perform()
+                return
             if self.engine.is_playing:
                 self.engine.stop()
                 self.notify("stopped")

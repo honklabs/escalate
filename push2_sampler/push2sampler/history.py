@@ -88,6 +88,31 @@ class ClearTriggers(Command):
 
 
 @dataclass
+class ClearBar(Command):
+    """Remove one bar from every sample, for erase-while-looping."""
+
+    bar: int
+    _removed: list = field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        return f"erased bar {self.bar + 1}"
+
+    def apply(self, project) -> None:
+        self._removed = [
+            sample.slot for sample in project.filled() if self.bar in sample.triggers
+        ]
+        for slot in self._removed:
+            project[slot].set_trigger(self.bar, False)
+
+    def revert(self, project) -> None:
+        for slot in self._removed:
+            sample = project[slot]
+            if sample is not None:
+                sample.set_trigger(self.bar, True)
+
+
+@dataclass
 class SetEnabled(Command):
     """Mute or unmute one sample."""
 

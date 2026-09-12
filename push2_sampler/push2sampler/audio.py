@@ -65,6 +65,9 @@ MONITOR_ON = "on"
 #: Monitor only while a take is running, which is when a player needs to hear it.
 MONITOR_AUTO = "auto"
 
+#: Quantize amounts for live triggering, in beats.  0 means "right now".
+QUANTIZE_BEATS: tuple[float, ...] = (0.0, 1.0, 2.0, 4.0)
+
 #: Engine attributes :meth:`Engine.restart_stream` is allowed to change.
 RESTARTABLE = ("input_device", "output_device", "blocksize", "in_channels", "out_channels")
 
@@ -230,6 +233,8 @@ class Engine:
         )
         self._last_beat: int | None = None
         self._last_bar: int | None = None
+        #: Voices waiting for their quantised start frame: (start, voice).
+        self._pending: list[tuple[float, Voice]] = []
 
         self._rec_state = IDLE
         self._rec_buf: np.ndarray | None = None
@@ -532,6 +537,33 @@ class Engine:
         """Play a one-shot outside the transport (auditioning a sample)."""
         self._post(("voice", Voice(buf, gain, slot=slot)))
 
+    def trigger(self, buf: np.ndarray, gain: float = 1.0, slot: int = -1,
+                quantize_beats: float = 0.0) -> None:
+        """Play a sample now, or on the next grid line if quantised.
+
+        The start frame is worked out by the callback rather than here, so it
+        lands on the exact frame of the grid line no matter when the pad was hit.
+        """
+        voice = Voice(buf, gain, slot=slot)
+        if quantize_beats <= 0 or not self.is_playing:
+            self._post(("voice", voice))
+            return
+        self._post(("trigger", quantize_beats * self.frames_per_beat, voice))
+
+    def next_grid_bar(self, quantize_beats: float) -> int:
+        """The bar a trigger quantised by ``quantize_beats`` would land in.
+
+        What the arrangement should record when a pad is played in live.
+        """
+        pos = max(0.0, self.position_frames)
+        if quantize_beats > 0:
+            grid = quantize_beats * self.frames_per_beat
+            pos = math.ceil(pos / grid) * grid
+        song = self.song_frames
+        if self.loop and song > 0 and pos >= song:
+            pos -= song
+        return int(pos // self.frames_per_bar)
+
     # ------------------------------------------------------------------
     # command application (callback thread only)
     # ------------------------------------------------------------------
@@ -553,6 +585,7 @@ class Engine:
             self._arm_boundaries()
             self._running = True
         elif kind in ("stop", "cancel"):
+            self._pending.clear()
             self._running = False
             self._rec_state = IDLE
             self._rec_buf = None
@@ -575,6 +608,13 @@ class Engine:
             self._reanchor()
         elif kind == "voice":
             self._add_voice(command[1])
+        elif kind == "trigger":
+            grid, voice = command[1], command[2]
+            start = math.ceil(self._pos / grid) * grid if grid > 0 else self._pos
+            if start <= self._pos:
+                self._add_voice(voice)
+            else:
+                self._pending.append((start, voice))
 
     def _arm_boundaries(self) -> None:
         """Force the next processed segment to fire its beat and bar events."""
@@ -599,6 +639,7 @@ class Engine:
         while i < frames:
             if self._running:
                 self._fire_boundaries()
+            self._start_due_voices()
             n = min(frames - i, self._segment_limit(frames - i))
             seg = out[i : i + n]
             self._mix(seg, n)
@@ -620,8 +661,23 @@ class Engine:
             self._intent = None
         self._publish_stats(started, out[:frames])
 
+    def _start_due_voices(self) -> None:
+        if not self._pending:
+            return
+        still_waiting = []
+        for start, voice in self._pending:
+            if start <= self._pos:
+                self._add_voice(voice)
+            else:
+                still_waiting.append((start, voice))
+        self._pending = still_waiting
+
     def _segment_limit(self, remaining: int) -> int:
         """How many frames we may render before the next musical boundary."""
+        if self._pending:
+            soonest = min(start for start, _ in self._pending)
+            if soonest > self._pos:
+                remaining = min(remaining, max(1, int(math.ceil(soonest - self._pos))))
         if not self._running:
             return remaining
         limit = remaining

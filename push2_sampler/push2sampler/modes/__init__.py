@@ -10,6 +10,10 @@ Record
     count-in followed by exactly that many bars of recording, then the take
     lands in its slot and its own page opens.
 
+Perform
+    The pads fire samples, quantised to the grid, and can write what you play
+    into the arrangement as the loop goes round.
+
 Sample
     The 64 pads are now the 64 bars of the song.  Lit pads are the bars where
     this sample plays; they may overlap freely with other samples.  Record
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 from .base import COUNT_IN_BEATS, Mode
 from .library import LibraryMode
+from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
 from .settings import SettingsMode
@@ -32,6 +37,7 @@ __all__ = [
     "COUNT_IN_BEATS",
     "LibraryMode",
     "Mode",
+    "PerformMode",
     "RecordMode",
     "SampleMode",
     "SettingsMode",

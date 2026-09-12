@@ -977,3 +977,167 @@ def test_editable_settings_all_fit_the_button_row(rig):
     lines = app.status_lines()
     assert lines[0].startswith("SETTINGS")
     assert any("count-in" in line for line in lines)
+
+
+# ------------------------------------------------------ perform mode (NF-04)
+def live_rig(rig, slots=(0, 1)):
+    """A rig with a couple of playable samples and the loop running."""
+    app, push, engine, project = rig
+    for slot in slots:
+        project.put(slot, take(engine, bars=1, value=0.5), bars=1)
+    app.rebuild_schedule()
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.PLAY)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    return app, push, engine, project
+
+
+def test_shift_play_opens_perform_mode_and_starts_the_loop(rig):
+    app, push, engine, _ = live_rig(rig)
+    assert app.mode.name == "perform"
+    assert app.depth == 2  # an overlay over the library
+    assert engine.is_playing
+
+
+def test_a_pad_fires_its_sample_on_the_next_grid_line(rig):
+    app, push, engine, _ = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    engine.process_offline(fpbar // 2)  # mid-bar
+
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(fpbar)
+    silence = fpbar - fpbar // 2
+    assert np.all(out[: silence - 1] == 0.0)  # waits for the bar line
+    assert out[silence + FADE, 0] > 0.0
+
+
+def test_an_empty_pad_fires_nothing(rig):
+    app, push, engine, _ = live_rig(rig)
+    push.press_pad(40)
+    pump(app)
+    assert np.all(engine.process_offline(200) == 0.0)
+
+
+def test_quantize_cycles_and_off_means_now(rig):
+    app, push, engine, _ = live_rig(rig)
+    assert app.mode.quantize_beats == 4.0
+    push.press_button(Btn.FIXED_LENGTH)
+    pump(app)
+    assert app.mode.quantize_beats == 0.0
+    assert app.message == "quantize off"
+
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] > 0.0  # no waiting
+
+
+def test_record_writes_what_you_play_into_the_song(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    assert app.mode.writing is True
+
+    engine.process_offline(fpbar + fpbar // 2)  # half way through bar 1
+    push.press_pad(0)
+    pump(app)
+    # Bar-quantised, so it sounds in bar 2 and that is where it is written.
+    assert project[0].triggers == {2}
+    assert len(engine._schedule[2]) == 1
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == set()
+
+
+def test_playing_without_record_changes_nothing(rig):
+    app, push, engine, project = live_rig(rig)
+    push.press_pad(0)
+    pump(app)
+    assert project[0].triggers == set()
+    assert app.history.can_undo is False
+
+
+def test_replaying_a_bar_that_is_already_written_is_not_a_second_edit(rig):
+    app, push, engine, project = live_rig(rig)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.press_pad(0)
+    pump(app)
+    assert project[0].triggers == {0}
+    push.press_pad(0)
+    pump(app)
+    assert "already plays" in app.message
+    assert project[0].triggers == {0}
+
+
+def test_delete_erases_bars_as_the_playhead_passes(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    project[0].triggers.update({0, 1, 2, 3})
+    project[1].triggers.add(1)
+    app.rebuild_schedule()
+
+    push.press_button(Btn.DELETE)
+    pump(app)
+    assert app.delete_armed is True
+
+    engine.process_offline(fpbar + 10)  # into bar 1
+    pump(app)
+    assert project[0].triggers == {0, 2, 3}  # bar 1 wiped, for every sample
+    assert project[1].triggers == set()
+    assert app.message == "erased bar 2"
+
+    engine.process_offline(fpbar)  # into bar 2
+    pump(app)
+    assert project[0].triggers == {0, 3}
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == {0, 2, 3}
+
+
+def test_erasing_stops_when_delete_is_unarmed(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    project[0].triggers.update({1, 2})
+    push.press_button(Btn.DELETE)
+    pump(app)
+    push.press_button(Btn.DELETE)  # unarmed again
+    pump(app)
+    engine.process_offline(fpbar + 10)
+    pump(app)
+    assert project[0].triggers == {1, 2}
+
+
+def test_the_pads_show_what_is_playable_and_what_is_sounding(rig):
+    app, push, engine, project = live_rig(rig)
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[40] == colors.WHITE_DIM.index  # empty: nothing to fire
+
+    push.press_pad(0)
+    pump(app)
+    engine.process_offline(int(engine.frames_per_bar))
+    pump(app)
+    assert push.pad_leds[0] == colors.AMBER.index
+
+
+def test_session_leaves_perform_mode_for_the_library(rig):
+    app, push, _, _ = live_rig(rig)
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "library"
+    assert app.depth == 1
+
+
+def test_shift_play_again_closes_perform_mode(rig):
+    app, push, _, _ = live_rig(rig)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.PLAY)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.mode.name == "library"

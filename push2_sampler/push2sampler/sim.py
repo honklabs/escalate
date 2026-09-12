@@ -55,6 +55,8 @@ BUTTONS = {
     "down": Btn.DOWN,
     "setup": Btn.SETUP,
     "undo": Btn.UNDO,
+    "quantize": Btn.FIXED_LENGTH,
+    "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.
     "repair": DISPLAY_ROW_BOTTOM[0],
     "fit": DISPLAY_ROW_BOTTOM[0],
