@@ -194,7 +194,7 @@ CC is the most likely merge conflict in this project.
 | --- | --- | --- |
 | Play | 85 | **taken** — transport · `Shift`+`Play` opens perform mode |
 | Record | 86 | **taken** — take/re-record · `Shift`+`Record` bounces |
-| Stop | 29 | **taken** — stop / cancel / back out |
+| Stop | 29 | **taken** — stop / cancel / back out · `Shift`+`Stop` stops at the bar line · double-tap disarms everything |
 | Session | 51 | **taken** — back to library |
 | Note | 50 | **taken** — alias of Session |
 | ◀ Left | 44 | **taken** — alias of Session |
@@ -205,13 +205,13 @@ CC is the most likely merge conflict in this project.
 | Repeat | 56 | **taken** — loop |
 | Shift | 49 | **taken** — modifier |
 | Setup | 30 | **taken** — settings page · `Shift`+`Setup` saves the project |
-| Tempo encoder | 14 | **taken** — BPM |
+| Tempo encoder | 14 | **taken** — BPM (±1, ±10 with `Shift`, ±0.1 holding `Tap Tempo`) |
 | Track encoder 1 | 71 | **taken** — take length / sample gain |
 | Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
 | Display row top | 102–109 | **taken** — input level meter (`F-07`) |
 | Display row bottom 1 | 20 | **taken** — Sample page: fit an off-grid take |
 | Solo | 61 | reserved → `NH-01` |
-| Duplicate | 88 | reserved → `NH-05` |
+| Duplicate | 88 | **taken** — `NH-05`: library copies a slot, sample page copies a block of bars |
 | New | 87 | reserved → `NH-04` (new layer / punch-in) |
 | Clip | 113 | reserved → `NF-01` (Song page) |
 | Device | 110 | **taken** — Sample page: editor · `Shift`+`Device` applies |
@@ -223,7 +223,7 @@ CC is the most likely merge conflict in this project.
 | Scale | 58 | reserved → `IN-04` (key/pitch tools) |
 | Automate | 89 | reserved → `IN-03` (generative fills) |
 | Convert | 35 | reserved → `IN-01` (slice a take) |
-| Tap Tempo | 3 | reserved → `NH-07` |
+| Tap Tempo | 3 | **taken** — `NH-07`: four taps set the tempo · held, it makes the tempo encoder ±0.1 |
 | Master | 28 | reserved → `NH-01` master volume |
 | Add Track | 53 | free |
 | Select | 48 | free |
@@ -1084,6 +1084,17 @@ sample's bar length. **Deps:** `F-04`, `F-09`.
 
 ### NH-05 — Copy, paste, duplicate `size: S`
 
+**Status: shipped.**  `Duplicate` *arms* rather than being held, for consistency
+with `Delete` and `Mute` (and because the simulator can then reach it).  In the
+library it copies a slot to the next empty one, wrapping; the copy shares the
+original's audio array, which is safe because every edit path rebinds
+`sample.audio` rather than writing into it.  On a sample page the two presses are
+the block's start and its destination, and the **gap between them is the block
+length** -- the plan's "bars A…A+n" left `n` undefined, and inferring it from the
+gap needs no extra control and matches the common musical gesture (bar 1 then bar
+5 duplicates bars 1-4 onto 5-8).  `Shift` on the second press moves.  Both land as
+one `SetBars`, so a whole block is one undo step.
+
 `Duplicate` (CC 88) held + a pad copies that slot (audio shared copy-on-write,
 arrangement copied) to the next empty slot. On a sample page, `Duplicate` + bar
 A then bar B copies the trigger pattern of bars A…A+n to B. Shift-variants move
@@ -1105,6 +1116,15 @@ never mid-voice; snapshots survive save/load. **Deps:** `F-04`, `NF-07` if banks
 land first.
 
 ### NH-07 — Tap tempo and tempo nudge `size: S`
+
+**Status: shipped**, with one deviation: the fine nudge is **hold `Tap Tempo` +
+tempo encoder**, not `◀/▶`.  The arrows are already the alias of `Session`
+("back"), and `Page ◀/▶` is reserved for `NF-07`/`NF-11`; hanging the nudge off
+the tempo button keeps both free and puts the gesture on the control it is about.
+Holding `Tap` discards the tap series so the held press is not read as a tap.
+`format_bpm` now lives in `project.py` and is used by both the transport readout
+and the undo label, because a 0.1 nudge that the display rounds away is a knob
+that appears to do nothing.
 
 `Tap Tempo` (CC 3): four taps set the BPM from the median inter-tap interval,
 outliers rejected, tempo refused while recording (as today). `Shift`+`Tap`
@@ -1366,6 +1386,16 @@ press and release events separately). **Tests:** a 100 ms press navigates; a
 500 ms press previews and stays in the library.
 
 ### CC-02 — Stop semantics `size: S`
+
+**Status: shipped**, except the "release all voices" half, which was already
+true: `stop` has always called `_release_all()`, so nothing rings after a stop.
+A second `Stop` within 500 ms therefore does the part that was missing -- it
+disarms delete/mute/duplicate, the "get me out of here" gesture.  `Shift`+`Stop`
+defers to the next bar line via a `stop_at_bar` command; `Intent` gained a
+`stop_at_bar` field so `engine.stop_pending` reads true immediately on the UI
+thread, the same trick the other transport getters use.  The deferred stop fires
+in `_fire_boundaries` *before* the new bar is scheduled, so the bar it lands on
+never starts.  Starting playback or arming a take cancels it.
 First `Stop` stops and returns to bar 1 (today). A second `Stop` within 500 ms
 also releases all sounding voices immediately and clears any armed modifier.
 `Shift`+`Stop` stops at the end of the current bar instead of instantly.
@@ -1402,6 +1432,11 @@ Bars 1, 17, 33, 49 (16-bar sections) get a slightly brighter tint. **Code:**
 triggered bar still wins over the grid tint.
 
 ### CC-07 — Playhead everywhere `size: S`
+
+**Status: shipped.**  `Project.slots_at_bar(bar)` (named for what it returns)
+feeds a one-bar look-ahead in the library: a slot that comes in next bar renders
+`AMBER_DIM`.  Suppressed when stopped, for muted samples, and past the last bar
+when the loop is off -- there is no next bar to look ahead to.
 Show the playhead in the library too: during playback, the pad of the slot
 whose bar is currently sounding already goes amber — add a dim amber "about to
 play next bar" hint so you can see what is coming. **Code:** `modes/library.py`,
@@ -1432,6 +1467,11 @@ read-only) instead of the current silent `print` on shutdown. **Code:**
 failure raises a user-visible message and does not crash the loop.
 
 ### CC-11 — Paint a range of bars `size: S`
+
+**Status: shipped.**  The held pad's own press decides the direction, so holding
+an empty bar paints on and holding a playing one paints off.  One `SetBars` for
+the range; the anchor's own toggle stays a separate step, which is why taking a
+painted range back is two undos.
 On the sample page, hold one pad and press another: every bar between them
 toggles to the state of the first press (paint on / paint off). Uses the
 press/release events the surface already sends. **Code:** `modes/sample.py`
@@ -1440,6 +1480,11 @@ an already-on bar paints off; one undo step for the whole range. **Deps:**
 `F-04`.
 
 ### CC-12 — Double-tap a bar to fill the phrase `size: S`
+
+**Status: shipped.**  0.35 s window.  Which way it goes is decided by whether the
+first tap left the bar playing, so "double-tap empty to fill, double-tap full to
+clear" falls out of the toggle that already happened rather than needing its own
+rule.  Clipped at bar 64.
 Double-tapping an empty bar fills the sample's own length across the following
 4 bars (e.g. a 1-bar loop fills bars N…N+3); on a filled bar it clears the
 phrase. Makes "just play it for four bars" one gesture. **Code:**

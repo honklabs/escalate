@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .project import format_bpm
+
 #: How many edits can be taken back.
 DEPTH = 64
 #: Window in which a repeated encoder edit folds into the previous one.
@@ -70,6 +72,86 @@ class ToggleTrigger(Command):
         if sample is None:
             return
         sample.set_trigger(self.bar, self._was_on, self._previous_velocity)
+
+
+@dataclass
+class SetBars(Command):
+    """Set many bars of one sample at once, as one undo step.
+
+    Every gesture that writes a block of bars -- painting a range, filling a
+    phrase, duplicating a block -- is this command with a different set of
+    changes and its own wording, so the restore path is written once.
+
+    ``changes`` maps a bar to the velocity it should play at, or to ``None`` to
+    turn that bar off.
+    """
+
+    slot: int
+    changes: dict
+    display: str = "bars changed"
+    _previous: dict = field(default_factory=dict)
+
+    @property
+    def label(self) -> str:
+        return self.display
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        # Snapshot before touching anything: (was it on, at what velocity).
+        self._previous = {
+            bar: (bar in sample.triggers, sample.velocities.get(bar))
+            for bar in self.changes
+        }
+        for bar, velocity in self.changes.items():
+            sample.set_trigger(bar, velocity is not None, velocity)
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        for bar, (was_on, velocity) in self._previous.items():
+            sample.set_trigger(bar, was_on, velocity)
+
+
+@dataclass
+class CopySlot(Command):
+    """Copy (or move) a whole sample into another slot.
+
+    The copy shares the original's audio array rather than duplicating it:
+    nothing in this program mutates a take's samples in place -- an edit builds a
+    new array -- so the two slots are independent the moment either is edited.
+    """
+
+    src: int
+    dst: int
+    move: bool = False
+    _previous_dst: object = None
+    _previous_src: object = None
+    _installed: object = None
+
+    @property
+    def label(self) -> str:
+        verb = "moved" if self.move else "copied"
+        return f"{verb} slot {self.src + 1} to {self.dst + 1}"
+
+    def apply(self, project) -> None:
+        self._previous_dst = project[self.dst]
+        self._previous_src = project[self.src]
+        if self._previous_src is None:
+            return
+        if self._installed is None:
+            self._installed = project.copy_slot(self.src, self.dst)
+        else:  # redo: put back the very sample we made the first time
+            project.install(self.dst, self._installed)
+        if self.move:
+            project.install(self.src, None)
+
+    def revert(self, project) -> None:
+        project.install(self.dst, self._previous_dst)
+        if self.move:
+            project.install(self.src, self._previous_src)
 
 
 @dataclass
@@ -214,7 +296,7 @@ class SetBpm(Command):
 
     @property
     def label(self) -> str:
-        return f"{self.bpm:.0f} BPM"
+        return f"{format_bpm(self.bpm)} BPM"
 
     def apply(self, project) -> None:
         project.bpm = self.bpm

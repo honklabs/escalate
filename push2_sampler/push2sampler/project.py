@@ -33,6 +33,15 @@ SAMPLES_DIR = "samples"
 FORMAT_VERSION = 4
 
 
+def format_bpm(bpm: float) -> str:
+    """A tempo as it should be read: "120", but "120.3" after a fine nudge.
+
+    One formatter, so the transport readout and the undo label can never
+    disagree about how much of the tempo you are being shown.
+    """
+    return f"{bpm:.1f}" if round(bpm, 3) % 1 else f"{bpm:.0f}"
+
+
 @dataclass
 class Sample:
     """One recorded take, assigned to one of the 64 library slots."""
@@ -267,6 +276,72 @@ class Project:
         self.dirty = True
         return sample
 
+    def next_empty(self, after: int) -> int | None:
+        """The first empty slot after ``after``, wrapping round the grid."""
+        for offset in range(1, PAD_COUNT + 1):
+            candidate = (after + offset) % PAD_COUNT
+            if self.slots[candidate] is None:
+                return candidate
+        return None
+
+    def copy_slot(self, src: int, dst: int) -> Sample | None:
+        """Put a copy of ``src`` in ``dst``, arrangement and all.
+
+        The audio array is shared, not duplicated.  Nothing here mutates a take's
+        samples in place -- an edit or a repair builds a new array and rebinds
+        ``sample.audio`` -- so the two slots behave independently from the start
+        and a 30-second take does not cost 30 seconds of memory to duplicate.
+        """
+        source = self.slots[src]
+        if source is None:
+            return None
+        copy = Sample(
+            slot=dst,
+            bars=source.bars,
+            audio=source.audio,
+            triggers=set(source.triggers),
+            velocities=dict(source.velocities),
+            velocity_sensitivity=source.velocity_sensitivity,
+            enabled=source.enabled,
+            gain=source.gain,
+            name=f"{source.name}+",
+            source_bpm=source.source_bpm,
+            source_samplerate=source.source_samplerate,
+            edits=source.edits,
+        )
+        self.slots[dst] = copy
+        self.dirty = True
+        return copy
+
+    def copy_bar_range(self, slot: int, src_start: int, dst_start: int,
+                       length: int, move: bool = False) -> dict[int, int | None]:
+        """The bar changes that duplicating a block of an arrangement would make.
+
+        Computes rather than applies, so the caller can hand the result to one
+        undoable :class:`~push2sampler.history.SetBars`.  A block that would run
+        past the last bar is clipped, not wrapped: bar 64 is the end of the song,
+        not a join.
+        """
+        sample = self.slots[slot]
+        if sample is None or length <= 0:
+            return {}
+        changes: dict[int, int | None] = {}
+        for offset in range(length):
+            src, dst = src_start + offset, dst_start + offset
+            if not 0 <= dst < self.song_bars:
+                break  # clipped at the end of the song
+            if 0 <= src < self.song_bars and src in sample.triggers:
+                changes[dst] = sample.velocity_at(src)
+            else:
+                changes[dst] = None
+        if move:
+            for offset in range(length):
+                src = src_start + offset
+                # Only clear source bars the copy did not land on.
+                if 0 <= src < self.song_bars and src not in changes:
+                    changes[src] = None
+        return changes
+
     def install(self, slot: int, sample: Sample | None) -> None:
         """Put a sample (or ``None``) straight into a slot.
 
@@ -280,6 +355,12 @@ class Project:
         if self.slots[slot] is not None:
             self.slots[slot] = None
             self.dirty = True
+
+    def slots_at_bar(self, bar: int) -> set[int]:
+        """Slots of the audible samples triggered on ``bar``."""
+        if not 0 <= bar < self.song_bars:
+            return set()
+        return {s.slot for s in self.filled() if s.enabled and bar in s.triggers}
 
     def bars_in_use(self) -> set[int]:
         """Every bar on which some audible sample is triggered."""

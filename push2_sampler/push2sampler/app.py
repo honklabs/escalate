@@ -25,7 +25,7 @@ from .modes import (
     SampleMode,
     SettingsMode,
 )
-from .project import Project
+from .project import Project, format_bpm
 from .render import BounceJob, default_bounce_path
 from .settings import ENGINE_SETTINGS, Settings
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
@@ -42,6 +42,37 @@ MONITOR_CYCLE = (MONITOR_OFF, MONITOR_AUTO, MONITOR_ON)
 #: How deep overlay modes may stack.  Kept shallow on purpose: you should never
 #: be more than a couple of presses from knowing where you are.
 MAX_MODE_DEPTH = 4
+#: Taps further apart than this start a new tempo-tapping series.
+TAP_GAP_S = 2.5
+#: Taps needed before a tempo is set: three intervals, so one can be an outlier.
+TAP_MINIMUM = 4
+#: How far an interval may sit from the median before it is thrown away.
+TAP_OUTLIER = 0.35
+#: BPM per click of the tempo encoder while Tap Tempo is held.
+TEMPO_FINE_STEP = 0.1
+#: A second Stop this soon after the first is the "get me out of here" gesture.
+DOUBLE_STOP_S = 0.5
+
+
+def _bpm_from_taps(taps: list[float]) -> float | None:
+    """BPM from a series of tap times, with outlying intervals thrown away.
+
+    One badly-placed tap in four should not move the tempo, so the median
+    interval decides what "about right" is and anything far from it is dropped
+    before averaging the rest.
+    """
+    intervals = [b - a for a, b in zip(taps, taps[1:]) if b > a]
+    if not intervals:
+        return None
+    ordered = sorted(intervals)
+    median = ordered[len(ordered) // 2]
+    kept = [i for i in intervals if abs(i - median) <= median * TAP_OUTLIER]
+    if not kept:
+        return None
+    mean = sum(kept) / len(kept)
+    if mean <= 0:
+        return None
+    return 60.0 / mean
 
 
 class App:
@@ -67,6 +98,13 @@ class App:
         self.shift = False
         self.delete_armed = False
         self.mute_armed = False
+        self.duplicate_armed = False
+        #: Tempo tapping: press times of the current series, and whether the
+        #: held Tap button has been used as a fine-nudge modifier instead.
+        self._taps: list[float] = []
+        self._tap_held = False
+        #: When Stop was last pressed, for spotting a double press.
+        self._stopped_at = 0.0
         self.running = False
         self.message = ""
         self._message_at = 0.0
@@ -129,6 +167,7 @@ class App:
     def _clear_modifiers(self) -> None:
         self.delete_armed = False
         self.mute_armed = False
+        self.duplicate_armed = False
 
     def goto_library(self) -> None:
         """Unwind every overlay and land on a fresh library."""
@@ -324,6 +363,11 @@ class App:
                 self._global_encoder(event.cc, event.delta)
 
     def _global_button(self, cc: int, pressed: bool) -> None:
+        if cc == Btn.TAP_TEMPO:
+            self._tap_held = pressed
+            if pressed:
+                self.tap_tempo()
+            return
         if not pressed:
             return
         if cc == Btn.PLAY:
@@ -337,8 +381,7 @@ class App:
                 self.engine.play(0)
                 self.notify("playing")
         elif cc == Btn.STOP:
-            self.engine.stop()
-            self.notify("stopped")
+            self._stop(pressed_at=time.monotonic())
         elif cc == Btn.METRONOME:
             if self.shift:
                 self.cycle_monitor()
@@ -367,11 +410,79 @@ class App:
 
     def _global_encoder(self, cc: int, delta: int) -> None:
         if cc == ENCODER_TEMPO:
-            step = 10.0 if self.shift else 1.0
+            if self._tap_held:
+                # Holding Tap turns the encoder into a fine nudge for
+                # beat-matching.  The press that is holding it is no longer part
+                # of a tempo-tapping series, so drop it.
+                self._taps.clear()
+                step = TEMPO_FINE_STEP
+            else:
+                step = 10.0 if self.shift else 1.0
             previous = self.engine.bpm
             self.engine.set_bpm(previous + delta * step)
             if self.engine.bpm != previous:
                 self.do(SetBpm(self.engine.bpm, previous))
+
+    # ------------------------------------------------------------------
+    # tempo tapping
+    # ------------------------------------------------------------------
+    def tap_tempo(self, now: float | None = None) -> float | None:
+        """Record one tap; once there are enough, set the tempo from them.
+
+        Returns the BPM that was set, or None while still collecting (or when
+        the tempo cannot be changed).  ``now`` is injectable so the timing can be
+        tested without sleeping.
+        """
+        if self.shift:
+            self._taps.clear()
+            self.notify("tap tempo reset")
+            return None
+        if self.engine.rec_state != "idle":
+            # The engine refuses a tempo change mid-take; say so rather than
+            # collecting taps that will be silently thrown away.
+            self._taps.clear()
+            self.notify("cannot change tempo during a take")
+            return None
+        now = time.monotonic() if now is None else now
+        if self._taps and now - self._taps[-1] > TAP_GAP_S:
+            self._taps.clear()  # too long a gap: this is a new series
+        self._taps.append(now)
+        if len(self._taps) > TAP_MINIMUM * 2:
+            del self._taps[0]
+        if len(self._taps) < TAP_MINIMUM:
+            self.notify(f"tap {len(self._taps)}/{TAP_MINIMUM}")
+            return None
+        bpm = _bpm_from_taps(self._taps)
+        if bpm is None:
+            self.notify("taps too uneven")
+            return None
+        previous = self.engine.bpm
+        self.engine.set_bpm(bpm)
+        if self.engine.bpm != previous:
+            self.do(SetBpm(self.engine.bpm, previous))
+        return self.engine.bpm
+
+    def _stop(self, pressed_at: float) -> None:
+        """Stop, with two variants the hands can reach without thinking.
+
+        `Shift`+`Stop` lets the bar finish.  A second `Stop` straight after the
+        first is the panic gesture: whatever was armed is disarmed, so you can
+        always get back to a surface that does nothing surprising.
+        """
+        double = pressed_at - self._stopped_at < DOUBLE_STOP_S
+        self._stopped_at = pressed_at
+        if double:
+            armed = self.delete_armed or self.mute_armed or self.duplicate_armed
+            self._clear_modifiers()
+            self.engine.stop()
+            self.notify("all clear" if armed else "stopped")
+            return
+        if self.shift and self.engine.is_playing:
+            self.engine.stop(at_bar_end=True)
+            self.notify("stopping at the end of the bar")
+            return
+        self.engine.stop()
+        self.notify("stopped")
 
     def cycle_monitor(self) -> None:
         current = self.engine.monitor
@@ -415,11 +526,12 @@ class App:
 
     def _global_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.PLAY] = BTN_BRIGHT if self.engine.is_playing else BTN_DIM
-        buttons[Btn.STOP] = BTN_DIM
+        buttons[Btn.STOP] = BTN_BRIGHT if self.engine.stop_pending else BTN_DIM
         buttons[Btn.RECORD] = (
             colors.RED.index if self.input_clipping else colors.RED_DIM.index
         )
         buttons[Btn.METRONOME] = BTN_BRIGHT if self.engine.metronome else BTN_DIM
+        buttons[Btn.TAP_TEMPO] = BTN_BRIGHT if self._taps else BTN_DIM
         self._render_input_meter(buttons)
         buttons[Btn.REPEAT] = BTN_ON if self.engine.loop else BTN_DIM
         buttons[Btn.DELETE] = BTN_BRIGHT if self.delete_armed else BTN_DIM
@@ -444,12 +556,14 @@ class App:
     def status_lines(self) -> list[str]:
         lines = list(self.mode.status_lines())
         transport = "PLAY" if self.engine.is_playing else "STOP"
+        if self.engine.stop_pending:
+            transport = "ENDING"
         state = self.engine.rec_state
         if state != "idle":
             transport = state.upper()
         bar = self.engine.current_bar
         lines.append(
-            f"{transport}  {self.engine.bpm:.0f} BPM  bar "
+            f"{transport}  {format_bpm(self.engine.bpm)} BPM  bar "
             f"{bar + 1 if bar >= 0 else 0}/{self.project.song_bars}"
             f"  {'loop' if self.engine.loop else 'once'}"
         )

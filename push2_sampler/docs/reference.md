@@ -48,7 +48,9 @@ These work in every mode unless that mode says otherwise.
 | --- | --- |
 | **Play** | Start the song from bar 1, or stop it |
 | **Shift**+**Play** | Open or close [Perform mode](#perform-mode), starting the loop |
-| **Stop** | Stop |
+| **Stop** | Stop now |
+| **Shift**+**Stop** | [Stop at the end of the bar](#stopping) |
+| **Stop** twice quickly | Stop, and disarm everything that was armed |
 | **Session**, **Note**, **◀** | Close an overlay, or go home to the Library |
 | **Setup** | Open or close the [Settings page](#settings-page) |
 | **Shift**+**Setup** | Save the project now |
@@ -58,10 +60,13 @@ These work in every mode unless that mode says otherwise.
 | **Undo** | Take back the last edit (64 deep) |
 | **Shift**+**Undo** | Redo |
 | **Delete** | Arm deleting; the next pad press acts (mode-dependent) |
-| Tempo encoder | BPM ±1 per click, ±10 with **Shift** |
+| **Tap Tempo** | [Tap a tempo](#tapping-a-tempo): four taps set it |
+| **Shift**+**Tap Tempo** | Throw away the taps so far |
+| Tempo encoder | BPM ±1 per click, ±10 with **Shift**, ±0.1 holding **Tap Tempo** |
 | The 8 buttons **above** the display | Input level meter (not pressable controls) |
 
-The **Record** button's meaning depends on the mode, and is listed with each.
+The **Record** and **Duplicate** buttons mean different things in different
+modes, and are listed with each.
 
 ---
 
@@ -81,6 +86,8 @@ Home. All 64 pads are sample slots.
 | **Shift** + a filled pad | Auditions it immediately |
 | **Delete** armed, then a pad | Deletes that slot |
 | **Mute** armed, then a pad | Mutes/unmutes that slot |
+| **Duplicate** armed, then a pad | Copies that slot to the next empty one |
+| **Duplicate** armed, then **Shift** + a pad | Moves it instead of copying |
 
 **Buttons**
 
@@ -89,9 +96,17 @@ Home. All 64 pads are sample slots.
 | **Record** | Record into the first free slot |
 | **Shift**+**Record** | [Bounce](#bouncing) the song to a file |
 | **Mute** | Arm mute; the next pad press toggles that slot's audibility |
+| **Duplicate** | Arm duplicate; press again to cancel |
 
 The display lists how many slots are filled and how many are muted, and names
 any slots that have fallen [off the grid](#off-grid-takes).
+
+A duplicated slot carries the original's arrangement, velocities, mute state,
+gain and edits. It **shares the original's audio** rather than copying it, so
+duplicating a long take costs nothing; the two become independent the moment
+either one's edits are applied, because an edit builds a new array rather than
+writing into the old one. "Next empty slot" means the next one in reading order,
+wrapping round the grid.
 
 ### Record mode
 
@@ -130,7 +145,10 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | Control | Action |
 | --- | --- |
 | Any pad | Toggle whether this sample plays on that bar |
+| Hold a pad, press another | [Paint](#painting-a-range) every bar between them |
+| Double-tap a pad | [Fill or clear the 4-bar phrase](#filling-a-phrase) from there |
 | **Delete** armed, then any pad | Clear every bar for this sample |
+| **Duplicate**, then two pads | [Duplicate a block of bars](#duplicating-a-block) |
 | **Record** | Re-record this slot, keeping its arrangement, mute and gain |
 | **Mute** | Whether you hear this sample at all |
 | **Accent** | Velocity response on/off for this sample |
@@ -139,6 +157,46 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
 | First button **below** the display | [Fit an off-grid take](#off-grid-takes) to its bars |
+
+#### Painting a range
+
+Hold one pad and press another: every bar between them, inclusive, is set to
+whatever state the **held** pad's own press produced. So holding an empty bar
+paints the range on, and holding a bar that was playing paints it off. Direction
+does not matter.
+
+The paint is one undo step. The held pad's own toggle is a separate step before
+it, so taking a painted range back is two presses of **Undo**: one for the range,
+one for the bar you started from.
+
+#### Filling a phrase
+
+Double-tap a pad (two presses within 0.35 s) to deal with four bars at once —
+"just play it for the next four bars" as one gesture.
+
+- Double-tap an **empty** bar: the sample is laid out across the next four bars,
+  spaced by its own length. A 1-bar take fills bars N, N+1, N+2, N+3; a 2-bar
+  take fills N and N+2; a 4-bar take already covers the phrase, so nothing is
+  added and the display says so.
+- Double-tap a bar that **was playing**: the sample is cleared from all four.
+
+Clipped at bar 64, never wrapped. Like painting, the fill is its own undo step
+on top of the first tap's toggle.
+
+#### Duplicating a block
+
+Press **Duplicate**, then the **first bar of the block**, then **where it should
+go**. The distance between the two presses is the block's length, which is why no
+separate length control is needed: bar 1 then bar 5 duplicates bars 1–4 onto
+5–8.
+
+Velocities come with it. Destination bars the source does not play on are
+**cleared**, so the copy is what lands there rather than a merge. The block is
+clipped at bar 64, not wrapped. **Shift** on the second press moves the block
+instead of copying it. The whole thing is one undo step.
+
+Pressing an earlier bar second is refused with a reason rather than guessed at,
+and pressing **Duplicate** again cancels.
 
 ### Sample editor
 
@@ -237,10 +295,16 @@ and the display says what went wrong.
 | Green | Filled |
 | Dim green | Filled but muted |
 | Amber | Sounding right now |
+| Dim amber | Comes in on the **next** bar |
 | Yellow | Filled, but [off grid](#off-grid-takes) |
 | Flashing red | **Delete** is armed |
 | Yellow (all filled slots) | **Mute** is armed |
+| Flashing blue (all filled slots) | **Duplicate** is armed |
 | Amber bar filling the grid | A [bounce](#bouncing) is rendering |
+
+The dim amber is a one-bar look-ahead, so you can see what is about to enter
+while the song plays. It only appears while the transport is running, never for a
+muted sample, and not on the last bar unless the loop is on.
 
 ### On a sample page
 
@@ -254,6 +318,7 @@ and the display says what went wrong.
 | Brighter white | Empty bar that starts a 16-bar section |
 | White | The playhead |
 | Amber | The playhead, on a bar where this sample plays |
+| Flashing blue | The first bar of a block being [duplicated](#duplicating-a-block) |
 
 ### In Record mode
 
@@ -309,10 +374,14 @@ audio stream in place.
 64 edits deep, in memory only — a safety net for your hands, not project history,
 and not written to disk.
 
-Everything destructive is covered: bar toggles, clearing an arrangement, erasing
-bars while looping, mute, gain, tempo, velocity response, each editor parameter,
-applying edits, fitting an off-grid take, recording a take, and deleting one. An
-undone delete restores the take itself — audio, arrangement, mute state and gain.
+Everything destructive is covered: bar toggles, painted ranges, filled phrases,
+duplicated blocks and slots, clearing an arrangement, erasing bars while looping,
+mute, gain, tempo (tapped, nudged or turned), velocity response, each editor
+parameter, applying edits, fitting an off-grid take, recording a take, and
+deleting one. An undone delete restores the take itself — audio, arrangement,
+mute state and gain. An undone slot move puts the sample back where it was.
+
+A gesture that writes many bars is **one** step, however many bars it touched.
 
 Edits that arrive in a stream coalesce: one sweep of an encoder is **one** undo
 step, not forty. A new edit clears the redo stack.
@@ -338,6 +407,44 @@ Only the audio callback writes transport state. The UI thread allocates up front
 publishes what it is asking for, and posts a command the callback applies at the
 top of the next block — it never takes a lock, so a slow UI pass cannot become a
 dropout. When the audio system does report a dropout, the display says so.
+
+### Stopping
+
+**Stop** stops immediately and rewinds to bar 1. Voices that were sounding fade
+over 10 ms rather than being cut, so a stop never clicks.
+
+**Shift**+**Stop** stops at the **next bar line** instead, so a loop finishes its
+bar rather than ending mid-phrase. While it waits, the transport keeps running,
+the display reads `ENDING`, and the **Stop** button is lit bright. The bar the
+stop lands on never starts: nothing new is scheduled onto it. Pressing **Play**
+cancels a pending stop, and a take is never deferred — **Stop** during a recording
+cancels it at once, Shift or no Shift.
+
+A **second Stop within half a second** is the panic gesture: it stops and
+disarms whatever was armed (delete, mute, duplicate), so there is always a way
+back to a surface that will not surprise you. The display says `all clear` when
+it actually disarmed something.
+
+### Tapping a tempo
+
+**Tap Tempo** four times sets the tempo from how far apart the taps were. Three
+intervals means one tap can be wrong: the median interval decides what "about
+right" is, and any interval more than 35% away from it is thrown away before the
+rest are averaged.
+
+- Fewer than four taps so far: the display counts them (`tap 2/4`).
+- A gap of more than 2.5 seconds starts a new series.
+- **Shift**+**Tap Tempo** throws the series away.
+- Tapping during a take is refused with a reason — the tempo is locked while
+  recording, and collecting taps that will be discarded would be worse.
+- The result is clamped to 40–240 BPM like any other tempo change, and it is one
+  undo step.
+
+**Holding Tap Tempo** turns the tempo encoder into a **±0.1 BPM** nudge for
+beat-matching against something else. Doing that also discards the tap series, so
+the press that is holding the button is not mistaken for a tap. The transport
+readout grows a decimal when the tempo is not a whole number, so a nudge is
+visible: `121.3 BPM`.
 
 ### Input latency
 
@@ -445,14 +552,17 @@ So you do not go looking:
 - **No time-stretch.** A take from another tempo is detected and can be padded or
   trimmed, not stretched with its pitch preserved.
 - **No sync.** No MIDI clock in or out, no Ableton Link. The program is an island.
+  Tempo tapping and the fine nudge are the manual substitutes.
 - **No importing** audio from disk; you can only record into it.
 - **64 slots and 64 bars**, one bank, one page.
 - **No mixer page**; gain is per sample, on its own page.
 - **No swing**, no per-trigger probability, no choke groups or loop/gate modes —
   every sample is a one-shot that plays to its end.
+- **No scenes or snapshots** of an arrangement; duplicating a block of bars is as
+  close as it gets.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: mode, transport, levels and messages.
   No waveform drawing, no graphics.
 
-`plans.md` in the project root tracks all of it, with 44 of 58 planned items
+`plans.md` in the project root tracks all of it, with 37 of 58 planned items
 still open.

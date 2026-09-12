@@ -1,6 +1,6 @@
 # push2sampler documentation
 
-Four documents, depending on what you need:
+Five documents, depending on what you need:
 
 | | |
 | --- | --- |

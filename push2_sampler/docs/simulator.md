@@ -67,7 +67,11 @@ because there is no input.
 | `rel 12` | release it |
 
 `hold` / `rel` is how you reach anything that cares how long a pad is held — the
-library's hold-to-audition, for one.
+library's hold-to-audition, and painting a range of bars (`hold 3`, `p 11`,
+`rel 3`).
+
+`hold` and `rel` also take a **button** name, for the gestures that need one held
+down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 
 ### Buttons
 
@@ -78,8 +82,9 @@ library's hold-to-audition, for one.
 | `b1` … `b8` | the eight buttons *below* the display, whatever the current mode has put there |
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
-`delete` `session`/`library`/`back` `left` `up` `down` `setup` `undo`
-`quantize`/`fixed` `accent`/`velocity` `device`/`edit` `repair`/`fit`.
+`delete` `duplicate`/`dup` `tap` `session`/`library`/`back` `left` `up` `down`
+`setup` `undo` `quantize`/`fixed` `accent`/`velocity` `device`/`edit`
+`repair`/`fit`.
 
 ### Shift
 
@@ -180,15 +185,29 @@ Every mode, in one script. Run it with `--no-settings` (see above) and read the
 grid after each step:
 
 ```
-# record a 4-bar take into slot 1
+# record a 2-bar take into slot 1
 p 0
-p 3
+p 1
 record
-wait 11
+wait 7
 
 # arrange it on bars 1, 5, 9
 p 0
 p 4
+p 8
+
+# paint bars 17-24 on in one gesture
+hold 16
+p 23
+rel 16
+
+# double-tap bar 33: a 2-bar take fills the phrase as bars 33 and 35
+p 32
+p 32
+
+# duplicate bars 1-8 onto bar 9: the gap between the presses is the length
+dup
+p 0
 p 8
 
 # shape it in the editor
@@ -226,8 +245,24 @@ shift on
 record
 shift off
 wait 2
+
+# tempo: tap it, then nudge it finely
+tap
+tap
+tap
+tap
+hold tap
+t +3
+rel tap
 q
 ```
+
+Leave the tempo block until last, as it is here. The REPL waits only 0.12 s
+between lines, so four scripted taps read as a tempo far above the range and land
+clamped at 240 BPM — which would then make your 4-bar take the wrong length for
+the song and turn it yellow. Tapping is a gesture for hands, not for a script;
+what a script can usefully show is that the taps are counted (`tap 2/4`), that the
+fourth sets a tempo, and that `hold tap` + `t +3` moves it by 0.3.
 
 Two things that script teaches better than prose:
 

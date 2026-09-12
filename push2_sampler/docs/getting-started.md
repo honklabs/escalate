@@ -127,6 +127,28 @@ You may notice faint white pads you did not press. Those are a ruler: a dim mark
 on every bar that starts a 4-bar phrase, a brighter one on every 16-bar section.
 They make it possible to count bars without counting pads.
 
+### Step 6b: three faster ways to fill bars
+
+Pressing one bar at a time is exact, but most arranging is blocks. Three gestures
+cover nearly all of it — try each on your loop:
+
+1. **Hold one pad and press another.** Every bar between them, inclusive, is set
+   at once. Whether it paints *on* or *off* is decided by the pad you are holding:
+   hold an empty bar and the range fills, hold one that was playing and the range
+   empties. Useful for "this runs from bar 9 to bar 24".
+2. **Double-tap an empty pad.** The take is laid across the next four bars, spaced
+   by its own length — a 1-bar loop fills four bars, a 2-bar loop fills two of
+   them. This is "just play it for a phrase" in one gesture. Double-tap a bar that
+   *was* playing and it clears those four instead.
+3. **Press Duplicate, then the start of a block, then where it goes.** The gap
+   between your two presses is how long the block is: press bar 1 then bar 5 and
+   bars 1–4 are copied onto 5–8. Hold **Shift** for the second press to *move* the
+   block rather than copy it.
+
+All three are a single **Undo** each, however many bars they touched — so the
+fast way is not the risky way. (After a paint or a fill you will need a second
+**Undo** for the first press that started it.)
+
 ---
 
 ## Part 3 — Building up
@@ -144,6 +166,13 @@ They make it possible to count bars without counting pads.
 
 Samples overlap freely. A 4-bar loop triggered on bars 1 and 3 will play over
 itself; two different samples on the same bar simply both play.
+
+Two other things to notice while the song runs. Back in the library, a slot that
+is **sounding** is amber and one that comes in on the **next** bar is dim amber —
+so you can see what is about to enter without reading a screen. And if you want a
+variation of a take rather than a new one, press **Duplicate** then its pad in the
+library: you get a copy in the next empty slot, with the same arrangement, which
+you can then re-record, retune or trim independently.
 
 ### Step 8: decide what you hear while you work
 
@@ -235,9 +264,19 @@ The two that matter most early on:
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
+- **Tap Tempo**, four times, sets the tempo by feel instead. The display counts
+  your taps (`tap 2/4`); one badly-placed tap out of four is thrown away rather
+  than believed. **Shift**+**Tap** starts over.
+- **Hold Tap Tempo and turn the tempo encoder** for ±0.1 BPM, which is what you
+  want when matching something playing in the room. The readout grows a decimal
+  so you can see it: `121.3 BPM`.
 - **Metronome** turns the click on and off.
 - **Repeat** turns the 64-bar loop on and off. With it off, the song plays once
   and stops.
+- **Shift**+**Stop** stops at the end of the current bar rather than instantly, so
+  a loop finishes its bar. The display reads `ENDING` until it does. Plain **Stop**
+  stops immediately; pressing **Stop** twice quickly also disarms anything you
+  left armed, which is the fastest way out of a state you did not mean to be in.
 
 One catch worth understanding: a take recorded at 120 BPM is the wrong *length*
 for a song at 140. When that happens the slot turns **yellow** in the library,
@@ -290,11 +329,18 @@ arrangement, a cleared arrangement comes back with its bars, a tempo nudge goes
 back to the old tempo, applied edits come back as edits. The button is lit only
 when there is something to take back.
 
+It also covers the block gestures from [step 6b](#step-6b-three-faster-ways-to-fill-bars):
+a painted range, a filled phrase, a duplicated block or a duplicated slot is one
+step each, and an undone *move* puts the sample back where it was.
+
 Two destructive gestures worth knowing, both undoable:
 
 - **Delete**, then any pad — in the library deletes that slot; on a sample page
   clears all its bars.
 - **Shift**+**Delete** on a sample page deletes the sample outright.
+
+If you ever lose track of what is armed, press **Stop** twice: it stops and
+disarms everything.
 
 ### Step 16: bounce it
 

@@ -8,6 +8,7 @@ Commands::
 
     p 12        press and release pad 12 (or "p 3,4" for col,row)
     hold 12     press pad 12 and keep holding   rel 12   release it
+    hold tap    hold a button down (hold/rel take a button name too)
     b play      press a button by name (or just "play"; see BUTTONS)
     b1 .. b8    press the buttons under the display (claimed per mode)
     b undo      take back the last edit (shift on; b undo = redo)
@@ -59,6 +60,9 @@ BUTTONS = {
     "accent": Btn.ACCENT,
     "device": Btn.DEVICE,
     "edit": Btn.DEVICE,
+    "duplicate": Btn.DUPLICATE,
+    "dup": Btn.DUPLICATE,
+    "tap": Btn.TAP_TEMPO,
     "velocity": Btn.ACCENT,
     "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.
@@ -129,10 +133,16 @@ def _dispatch(line: str, app, push: SimPush) -> bool:
         return False
     if cmd == "p":
         push.press_pad(_pad_index(args[0]))
-    elif cmd == "hold":
-        push.inject_pad_press(_pad_index(args[0]))
-    elif cmd == "rel":
-        push.inject_pad_release(_pad_index(args[0]))
+    elif cmd in ("hold", "rel"):
+        # "hold 12" is a pad, "hold tap" a button -- the gestures that need a
+        # button held down (Tap + tempo encoder) are otherwise unreachable here.
+        name = args[0].lower()
+        if name in BUTTONS:
+            push.hold_button(BUTTONS[name], cmd == "hold")
+        elif cmd == "hold":
+            push.inject_pad_press(_pad_index(args[0]))
+        else:
+            push.inject_pad_release(_pad_index(args[0]))
     elif cmd == "b":
         name = args[0].lower()
         if name not in BUTTONS:

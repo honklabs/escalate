@@ -108,6 +108,8 @@ class Intent:
     rec_state: str
     pos: float
     bpm: float
+    #: A stop waiting for the next bar line.
+    stop_at_bar: bool = False
 
 
 @dataclass(frozen=True)
@@ -235,6 +237,9 @@ class Engine:
         self._last_bar: int | None = None
         #: Voices waiting for their quantised start frame: (start, voice).
         self._pending: list[tuple[float, Voice]] = []
+        #: A stop asked for at the next bar line rather than right now.  Written
+        #: by the callback, read by the UI purely to say so on screen.
+        self._stop_at_bar = False
 
         self._rec_state = IDLE
         self._rec_buf: np.ndarray | None = None
@@ -485,6 +490,7 @@ class Engine:
                 rec_state=self._rec_state,
                 pos=self._pos,
                 bpm=self.transport.bpm,
+                stop_at_bar=self._stop_at_bar,
             )
         return replace(current, **changes)
 
@@ -496,14 +502,36 @@ class Engine:
 
     def play(self, from_bar: int = 0) -> None:
         pos = float(from_bar) * self.frames_per_bar
-        self._post(("play", pos), self._intend(running=True, pos=pos))
+        self._post(
+            ("play", pos),
+            self._intend(running=True, pos=pos, stop_at_bar=False),
+        )
 
-    def stop(self) -> None:
+    def stop(self, at_bar_end: bool = False) -> None:
+        """Stop now, or at the next bar line so the last bar finishes.
+
+        A deferred stop leaves the transport running -- and says so through
+        :attr:`stop_pending` -- until the callback reaches the bar boundary, so
+        the loop ends musically instead of mid-phrase.  It never defers a take:
+        a recording stops when you say so.
+        """
+        if at_bar_end and self.is_playing and self.rec_state == IDLE:
+            self._post(("stop_at_bar",), self._intend(stop_at_bar=True))
+            return
         was_recording = self.rec_state != IDLE
-        self._post(("stop",), self._intend(running=False, rec_state=IDLE, pos=0.0))
+        self._post(
+            ("stop",),
+            self._intend(running=False, rec_state=IDLE, pos=0.0, stop_at_bar=False),
+        )
         if was_recording:
             self.events.put(("record_cancelled",))
         self.events.put(("stopped",))
+
+    @property
+    def stop_pending(self) -> bool:
+        """True while a bar-end stop is waiting for the bar line."""
+        intent = self._intent
+        return intent.stop_at_bar if intent else self._stop_at_bar
 
     def toggle_play(self) -> None:
         if self.is_playing:
@@ -581,17 +609,14 @@ class Engine:
         kind = command[0]
         if kind == "play":
             self._pos = command[1]
+            self._stop_at_bar = False  # starting again cancels a pending stop
             self._release_all(samples_only=True)
             self._arm_boundaries()
             self._running = True
         elif kind in ("stop", "cancel"):
-            self._pending.clear()
-            self._running = False
-            self._rec_state = IDLE
-            self._rec_buf = None
-            self._pos = 0.0
-            self._release_all()
-            self._arm_boundaries()
+            self._stop_now()
+        elif kind == "stop_at_bar":
+            self._stop_at_bar = True
         elif kind == "arm":
             _, bars, keep, buf, pos = command
             self._rec_bars = bars
@@ -599,6 +624,7 @@ class Engine:
             self._rec_buf = buf
             self._rec_written = 0
             self._pos = pos
+            self._stop_at_bar = False
             self._release_all()
             self._arm_boundaries()
             self._rec_state = COUNT_IN if pos < 0 else RECORDING
@@ -615,6 +641,17 @@ class Engine:
                 self._add_voice(voice)
             else:
                 self._pending.append((start, voice))
+
+    def _stop_now(self) -> None:
+        """Everything a stop does, from either a command or a deferred bar line."""
+        self._pending.clear()
+        self._stop_at_bar = False
+        self._running = False
+        self._rec_state = IDLE
+        self._rec_buf = None
+        self._pos = 0.0
+        self._release_all()
+        self._arm_boundaries()
 
     def _arm_boundaries(self) -> None:
         """Force the next processed segment to fire its beat and bar events."""
@@ -718,6 +755,12 @@ class Engine:
         if bar == self._last_bar:
             return
         self._last_bar = bar
+        if self._stop_at_bar and self._rec_state == IDLE:
+            # Asked to stop at the end of the bar: this is that line, so stop
+            # before anything new is scheduled onto it.
+            self._stop_now()
+            self.events.put(("stopped",))
+            return
         if self._rec_state == COUNT_IN:
             self._rec_state = RECORDING
             self.events.put(("record_started", self._rec_bars))

@@ -12,7 +12,9 @@ need it. This is the *what*, for when you have already done that once.
 | Control | Does |
 | --- | --- |
 | **Play** | start the song from bar 1 |
-| **Stop** | stop everything |
+| **Stop** | stop everything now |
+| **Shift**+**Stop** | stop at the end of the bar (display reads `ENDING`) |
+| **Stop**, **Stop** | panic: stop and disarm whatever was armed |
 | **Shift**+**Play** | perform mode (play the arrangement in by hand) |
 | **Metronome** | click on / off |
 | **Shift**+**Metronome** | monitoring: `off` → `auto` → `on` |
@@ -23,8 +25,11 @@ need it. This is the *what*, for when you have already done that once.
 | **Setup** | settings page (open / close) |
 | **Shift**+**Setup** | save the project right now |
 | **Delete** | arm delete, then press a pad |
+| **Tap Tempo** ×4 | set the tempo by tapping it |
+| **Shift**+**Tap Tempo** | throw the taps away |
 | **Tempo encoder** | BPM ±1 per click |
 | **Shift**+**Tempo encoder** | BPM ±10 per click |
+| hold **Tap Tempo** + **Tempo encoder** | BPM ±0.1 per click (beat-matching) |
 | **Row above the display** | input level meter (not buttons) |
 
 A lit **Undo** means there is something to take back. A dark one means there
@@ -45,6 +50,8 @@ The page you start on, and the one **Session** always returns you to.
 | **Record** | record into the first empty slot |
 | **Shift**+**Record** | bounce the song to `bounces/<timestamp>.wav` |
 | **Mute** then a pad | mute / unmute that slot |
+| **Duplicate** then a pad | copy that slot to the next empty one |
+| **Duplicate** then **Shift** + a pad | move it instead of copying |
 
 | Pad colour | Means |
 | --- | --- |
@@ -52,9 +59,11 @@ The page you start on, and the one **Session** always returns you to.
 | green | filled |
 | dim green | filled, muted |
 | amber | sounding right now — auditioned, or playing in the song |
+| dim amber | comes in on the next bar |
 | yellow | filled, but the wrong length for this tempo |
 | flashing red | **Delete** is armed; the next pad you press is deleted |
 | every filled pad yellow | **Mute** is armed; the next pad you press is muted |
+| every filled pad flashing blue | **Duplicate** is armed |
 | amber bar filling the grid | a bounce is rendering |
 
 ---
@@ -91,6 +100,11 @@ is bar 9, bottom-right is bar 64.
 | Control | Does |
 | --- | --- |
 | any pad | this sample plays on that bar / stops playing there |
+| hold a pad, press another | paint every bar between them |
+| double-tap an empty pad | lay the take across the next 4 bars |
+| double-tap a playing pad | clear it from those 4 bars |
+| **Duplicate**, bar A, bar B | copy the block A…B-1 onto B (the gap is its length) |
+| **Duplicate**, bar A, **Shift**+bar B | move it instead of copying |
 | **Mute** | mute this sample (`MUTED` on the display) |
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
 | **Device** | open the editor |
@@ -109,6 +123,7 @@ is bar 9, bottom-right is bar 64.
 | dim blue | another sample plays here |
 | amber | the playhead, on a bar where this sample plays |
 | white | the playhead, anywhere else |
+| flashing blue | the first bar of a block you are duplicating |
 | faint white | 4-bar phrase mark; brighter every 16 bars |
 
 ---

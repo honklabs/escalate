@@ -60,6 +60,7 @@ All 64 pads are sample slots.
 | **green** | filled slot |
 | dim green | filled, but muted (you won't hear it) |
 | amber | that sample is sounding right now |
+| dim amber | it comes in on the **next** bar |
 | yellow | filled, but the take no longer fits its bars — see below |
 
 * Press a **blank** pad → **Record mode** for that slot.
@@ -67,6 +68,10 @@ All 64 pads are sample slots.
 * **Hold** a filled pad (about half a second) → audition it instead, without
   leaving the library. The pad turns amber while it plays. `Shift` + a filled
   pad does the same thing immediately.
+* **Duplicate** then a pad copies that slot to the next empty one, arrangement
+  and all; `Shift` on the pad press moves it instead. The copy shares the
+  original's audio until either one's edits are applied, so duplicating a long
+  take is free.
 
 ### 2. Record mode
 
@@ -99,6 +104,7 @@ disable this sample on that bar:
 | brighter white | an empty bar that starts a 16-bar section |
 | white | the playhead, while the song is playing |
 | amber | the playhead, on a bar where this sample plays |
+| flashing blue | the first bar of a block being duplicated |
 
 The two faint tints are a ruler: they fall on columns 1 and 5 of every row, with
 the brighter mark every other row, so you can count phrases without counting
@@ -106,6 +112,14 @@ pads.
 
 Samples may overlap freely — a 4-bar sample triggered on bars 0 and 2 will
 simply play over itself, and other samples layer on top.
+
+Three gestures arrange blocks rather than single bars: **hold one pad and press
+another** paints every bar between them (on or off, whichever the held pad's own
+press produced); **double-tap** an empty bar lays the take across the next four
+bars, spaced by its own length, and double-tapping a playing bar clears those
+four; **Duplicate** then the start of a block then where it goes copies it, with
+the gap between the two presses deciding how long the block is. Each is one undo
+step however many bars it wrote.
 
 * **Record** re-records the take into the same slot, keeping its arrangement.
 * **Mute** decides whether you hear *this* sample while designing the song —
@@ -233,6 +247,8 @@ means resampling every take that is already loaded.
 | --- | --- |
 | 8x8 pads | slot / take length / song bar, depending on the mode |
 | hold a pad | Library: audition the sample instead of opening its page |
+| hold a pad, press another | Sample page: paint every bar between them |
+| double-tap a pad | Sample page: fill or clear the 4-bar phrase from there |
 | `Shift`+`Play` | open/close perform mode and start the loop |
 | `Shift`+`Record` | Library: bounce the song to a file |
 | `Accent` | Sample page: velocity response on/off |
@@ -240,9 +256,12 @@ means resampling every take that is already loaded.
 | `Fixed Length` | Perform: quantize amount |
 | `Play` | start or stop the song from bar 1 |
 | `Stop` | stop; in Record mode cancel the take, then back out to the library |
+| `Shift`+`Stop` | stop at the end of the current bar (`ENDING` on the display) |
+| `Stop` twice quickly | stop, and disarm whatever was armed |
 | `Record` | Library: record into the first free slot · Record mode: go · Sample page: re-record |
 | `Session`, `Note`, `◀` | back to the Sample Library |
 | `Mute` | Sample page: hear / don't hear this sample |
+| `Duplicate` | arm duplicate: Library copies a slot, Sample page copies a block of bars |
 | `Delete` | arm delete (then press a pad) · `Shift`+`Delete` on a sample page deletes it |
 | `Undo` | take back the last edit · `Shift`+`Undo` redoes it |
 | `Metronome` | click on/off · `Shift`+`Metronome` cycles input monitoring |
@@ -250,7 +269,8 @@ means resampling every take that is already loaded.
 | the 8 buttons above the display | input level meter |
 | `Repeat` | loop the 64-bar song on/off |
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
-| Tempo encoder | BPM (hold `Shift` for ±10) |
+| `Tap Tempo` | four taps set the tempo · `Shift`+`Tap` discards them |
+| Tempo encoder | BPM (hold `Shift` for ±10, hold `Tap Tempo` for ±0.1) |
 | Track encoder 1 | Record mode: take length · Sample page: gain |
 | `Setup` | open/close the settings page · `Shift`+`Setup` saves the project |
 
@@ -305,7 +325,9 @@ differs from the session rate.
 
 `--sim` runs the complete program — modes, transport, recorder — against a fake
 control surface, printing the pad grid as letters after every command. Useful
-for trying the workflow, and for demos without hardware:
+for trying the workflow, and for demos without hardware. `hold` and `rel` take
+a pad index or a button name, so gestures that need something held down (painting
+a range of bars, `Tap Tempo` + the tempo encoder) work here too:
 
 ```
 $ python -m push2sampler --sim --bpm 240 my-song
@@ -355,7 +377,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-298 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+358 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -363,11 +385,13 @@ restarts, quantised live triggering, velocity), the non-destructive edits
 and repair, settings precedence and persistence, command-line resolution, offline
 bouncing and stems, the display's frame format byte for byte, the hardware probe
 driven by a script instead of a person, project save/load, and the full
-pad-by-pad workflow through the simulated surface. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+pad-by-pad workflow through the simulated surface, the block-arranging gestures
+(paint, phrase fill, block and slot duplication) and tempo tapping. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
 `plans.md` is the product plan: 58 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once.
+several people work on it at once. 21 are shipped; each carries a status note
+saying what was built and where it deviated from the plan.

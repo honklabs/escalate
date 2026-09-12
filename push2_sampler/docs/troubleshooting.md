@@ -265,6 +265,58 @@ bar you are hearing when you press **Delete** survives. That is deliberate: it
 means arming erase never damages the bar you were listening to. Hold it through a
 pass of the loop to clear more.
 
+### Holding a pad and pressing another did not paint the range
+
+Check which pad you held. The **held** pad's own press decides the direction: hold
+an empty bar and the range paints on, hold one that was already playing and it
+paints off. If nothing happened at all, the whole range was already in that state.
+
+### A double-tap toggled the bar twice instead of filling the phrase
+
+The two presses have to be within about a third of a second. A slower pair is two
+ordinary toggles, which is deliberate — a fill should not happen by accident.
+
+If the fill did nothing and the display said `nothing to fill`, the take is four
+bars or longer, so it already covers the phrase; there is nothing to add.
+
+### Duplicate did not copy what I expected
+
+On a **sample page**, the two presses are *the start of the block* and *where it
+goes*, and the **gap between them is the block's length** — bar 1 then bar 5
+copies bars 1–4 onto 5–8, not bar 1 alone onto bar 5. Pressing an earlier bar
+second is refused (`press a later bar`) rather than guessed at.
+
+Destination bars that the source does not play on are **cleared**: the copy
+replaces what was there rather than merging into it. That is one undo step if it
+was not what you wanted.
+
+In the **library**, Duplicate copies to the *next empty slot*, wrapping round the
+grid — not to a slot you choose. If every slot is full it says so.
+
+### Shift+Stop did not stop
+
+It is waiting for the bar line; the display reads `ENDING` and the **Stop** button
+is lit bright. At 120 BPM that is up to two seconds. Press **Stop** on its own to
+stop immediately, or **Play** to cancel the pending stop.
+
+During a take, **Stop** always cancels at once — a recording is never deferred.
+
+### Tap Tempo did nothing
+
+- Fewer than four taps so far: the display is counting them (`tap 2/4`).
+- More than 2.5 seconds between taps starts a new series, so slow tapping never
+  accumulates.
+- `taps too uneven` means no three intervals agreed closely enough to trust.
+- `cannot change tempo during a take` is exactly that: the tempo is locked while
+  recording, because it decides how long the take must be.
+- The result is clamped to 40–240 BPM.
+
+### The tempo will not move in small steps
+
+Hold **Tap Tempo** while turning the tempo encoder: that is the ±0.1 nudge.
+Without it the encoder moves in whole BPM, or tens with **Shift**. When the tempo
+is not a whole number the readout shows a decimal, so you can tell which you got.
+
 ### Undo will not go back far enough
 
 The journal is 64 edits deep. Also, runs of similar edits made within about a
