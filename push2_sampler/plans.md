@@ -645,11 +645,19 @@ arrives:
 | 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes |
 | 4 | The palette was the likely culprit | **Not the palette.** `--led-test` reported nothing in *either* direction: no input from any pad, no light from factory indices, none from ours, no button LEDs, no channel. The ports still opened without error | **Open.** Rules out `program_palette`, `index_to_note`, the colour map and the channel in one go — none of them can matter when no traffic passes at all. `--midi-probe` (`midiprobe.py`) was written to measure rather than ask |
 | 5 | The surface reports on the **User** port | **No.** Input arrives only on the **Live** port (465 messages by callback, 262 by polling); the User port sent nothing at all. Output reached the device. The Push routes its controls to whichever port matches its mode | **Fixed.** `Push2` now opens *every* Push input port, so the program works in either mode without being told which — only one port sends, so listening to both costs nothing. `--midi-port live\|user` pins either direction. README table row corrected from "assumed User" |
+| 7 | — | `--midi-probe` left the pads and buttons lit after it finished | **Fixed.** Mine, not the device's: the probe lit everything to ask about it and never turned it off, and the port was closed before the question so nothing could. It now blanks each port after that port's question is answered. Exposed a real gap behind it — `clear()` only turns off LEDs the *current process* lit, so a crash or an early Ctrl-C left the surface lit with nothing able to reach it. `PushBase.all_off` sends an explicit off to every pad and every known button CC, `open()` uses it, and `--lights-off` does it on its own |
 | 6 | — | `pyusb` is installed but has no `libusb` underneath (`No backend available`), so the bus check reports nothing either way | **Noted, not fatal.** It is also why the colour display cannot work on this machine: `brew install libusb`. `--midi-probe` now names this separately rather than letting it read as "the Push is not on the bus" |
 
 Finding 1 is one shape to expect: a **documentation** assumption built on a spec
 value, where the code was indifferent all along. Check that distinction before
 changing anything — the correction is often to prose, not to `constants.py`.
+
+Finding 7 is a reminder that **LED state lives in the device, not in the
+program**. Every `set_pad` is a message the Push remembers after we exit, so any
+tool that lights something owns turning it off — and the dedupe cache that makes
+a 30 Hz refresh cheap is precisely what makes a fresh process unable to clean up
+after the last one. `all_off` exists for that seam. Anything added that lights
+the surface outside the normal render loop needs the same treatment.
 
 Finding 5 is the one that was worth all of it, and it is the most interesting
 correction in the project so far: the program had a *hidden assumption it never

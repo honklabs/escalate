@@ -12,6 +12,27 @@ plan.
 
 ## Unreleased
 
+### Stuck LEDs after a diagnostic (`F-08` finding 7)
+
+`--midi-probe` left the pads and buttons lit when it finished. Mine, not the
+device's: it lights everything in order to ask about it, and never turned any
+of it off — and it closed each port *before* asking, so nothing could have.
+
+- **The probe blanks each port** after that port's question is answered, so you
+  still see the lights while answering.
+- Behind it was a real gap. LED state lives in the *device*, so it outlives the
+  process that set it, and `clear()` only turns off LEDs the current process lit
+  — which in a fresh process is none of them. A crash or a Ctrl-C therefore
+  left a lit surface that nothing could reach. **`PushBase.all_off`** sends an
+  explicit off to every pad and every button control change in the map, and
+  **`open()` now uses it**, so starting the program always gives a clean
+  surface.
+- **New `--lights-off`** blanks the surface and exits, for when you want the
+  Push dark without opening a project.
+- `ALL_BUTTON_CCS` in `constants.py` derives from `Btn` plus both display rows,
+  with a test asserting every named button is in it — so a control added later
+  cannot be left un-blankable.
+
 ### The surface was on the other port (`F-08` findings 5 and 6)
 
 `--midi-probe` found it. Input arrives **only on the Live port** — 465 messages

@@ -285,6 +285,7 @@ the display says why.
 | `--led-test` | the pads are dark: which layer is at fault, writes `led-report.json` |
 | `--midi-probe` | nothing in either direction: facts about the MIDI link, writes `midi-report.json` |
 | `--calibrate` | measure input latency and store it |
+| `--lights-off` | blank every pad and button LED and exit |
 | `--midi-port NAME` | force the Push port (`live`, `user`, any substring) |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |

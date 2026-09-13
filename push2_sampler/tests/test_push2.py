@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from push2sampler import colors
-from push2sampler.constants import Btn, index_to_note
+from push2sampler.constants import PAD_COUNT, Btn, index_to_note
 from push2sampler.push2 import (
     ButtonEvent,
     EncoderEvent,
@@ -356,3 +356,54 @@ def test_close_closes_every_input_port(monkeypatch):
     assert all(port.closed for port in opened.values())
     assert out.closed
     assert push.chosen_inputs == list(push.chosen_inputs)  # untouched by close
+
+
+def test_all_off_reaches_buttons_this_process_never_lit(monkeypatch):
+    """clear() only knows what it lit, which in a fresh process is nothing.
+
+    A previous run that crashed, or a diagnostic that exited, leaves LEDs on
+    that nothing else can reach -- so starting up has to send an explicit off.
+    """
+    from push2sampler.constants import ALL_BUTTON_CCS
+
+    push = SimPush()
+    push.sent.clear()
+    push.clear()
+    assert [s for s in push.sent if s[0] == "button"] == []   # knows of none
+
+    push.sent.clear()
+    push.all_off()
+    buttons = {cc: v for kind, cc, v in push.sent if kind == "button"}
+    assert set(buttons) == set(ALL_BUTTON_CCS)
+    assert set(buttons.values()) == {0}
+    pads = {i: v for kind, i, v in push.sent if kind == "pad"}
+    assert len(pads) == PAD_COUNT and set(pads.values()) == {0}
+
+
+def test_open_blanks_the_whole_surface(monkeypatch):
+    from push2sampler.constants import ALL_BUTTON_CCS
+
+    _, out = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    zeroed = {m.control for m in out.sent
+              if m.type == "control_change" and m.value == 0}
+    assert zeroed == set(ALL_BUTTON_CCS)
+    notes = {m.note: m.velocity for m in out.sent if m.type == "note_on"}
+    assert len(notes) == PAD_COUNT and set(notes.values()) == {0}
+
+
+def test_every_button_in_the_map_is_in_all_button_ccs():
+    """So a control added to Btn cannot be left un-blankable."""
+    from push2sampler.constants import (
+        ALL_BUTTON_CCS,
+        DISPLAY_ROW_BOTTOM,
+        DISPLAY_ROW_TOP,
+        Btn,
+    )
+
+    named = {v for k, v in vars(Btn).items()
+             if not k.startswith("_") and isinstance(v, int)}
+    assert named <= set(ALL_BUTTON_CCS)
+    assert set(DISPLAY_ROW_TOP) <= set(ALL_BUTTON_CCS)
+    assert set(DISPLAY_ROW_BOTTOM) <= set(ALL_BUTTON_CCS)

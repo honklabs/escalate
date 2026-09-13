@@ -102,6 +102,23 @@ a background process that outlives quitting it), Push's firmware updater, or
 another DAW with a control-surface script. On macOS a second process can open
 the same port, get no error, and receive nothing at all.
 
+### LEDs are stuck on from something that already finished
+
+```
+python -m push2sampler --lights-off
+```
+
+Turns every pad and button LED off and exits. Starting the program normally does
+this too, so opening a project fixes it as well — but wanting the Push dark is
+not the same as wanting to open a project.
+
+Why it can happen: LED state lives in the device, not in the program, so it
+outlives whatever set it. A run that crashed, a diagnostic stopped with Ctrl-C,
+or `--midi-probe` before this was fixed all leave the surface lit with nothing
+tracking it. The program's own `clear()` could not help — it only knows about
+LEDs *it* lit, which in a fresh process is none of them. Startup now sends an
+explicit off to every pad and every button control change it knows.
+
 ### Pads and buttons do nothing, but the lights work (or vice versa)
 
 The Push 2 routes its surface to **one of its two MIDI ports** depending on the

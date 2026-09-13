@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from . import colors
 from .constants import (
+    ALL_BUTTON_CCS,
     ENCODER_CCS,
     ENCODER_TOUCH_NOTES,
     PAD_COUNT,
@@ -170,6 +171,21 @@ class PushBase:
         for cc in list(self.button_leds):
             self.set_button(cc, 0)
 
+    def all_off(self) -> None:
+        """Blank the whole surface, including LEDs this process never lit.
+
+        :meth:`clear` can only turn off buttons it has a record of lighting,
+        which in a fresh process is none of them.  So a run that crashed, or a
+        diagnostic that lit things and exited, left LEDs on that nothing could
+        reach.  This sends an explicit off to every pad and every button CC we
+        know about, so starting the program always gives a clean surface.
+        """
+        self.invalidate_leds()
+        for i in range(PAD_COUNT):
+            self.set_pad(i, colors.OFF)
+        for cc in ALL_BUTTON_CCS:
+            self.set_button(cc, 0)
+
     # -- input -------------------------------------------------------------
     def poll_events(self) -> list[PadEvent | ButtonEvent | EncoderEvent]:
         """Drain and return every event received since the last call."""
@@ -286,7 +302,9 @@ class Push2(PushBase):
             raise RuntimeError(f"could not open any Push 2 MIDI input port from {names}")
         if program_palette:
             self.program_palette()
-        self.clear()
+        # all_off, not clear: whatever lit the surface last may have been a
+        # different process, and its LEDs are still on.
+        self.all_off()
 
     def close(self) -> None:
         try:

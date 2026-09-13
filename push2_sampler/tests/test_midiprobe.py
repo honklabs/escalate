@@ -17,7 +17,7 @@ import types
 import pytest
 
 from push2sampler import midiprobe
-from push2sampler.constants import PAD_COUNT
+from push2sampler.constants import ALL_BUTTON_CCS, PAD_COUNT
 
 
 class FakeMessage:
@@ -464,3 +464,69 @@ def test_a_silent_usb_check_does_not_become_a_verdict(monkeypatch, tmp_path):
     install_split_mido(monkeypatch)
     _, report, _ = run(tmp_path, answers=("n", "y"))
     assert "the surface is on ONE port" in report["verdict"]
+
+
+# -- cleaning up after itself ----------------------------------------------
+def test_the_blast_is_turned_off_again_on_every_port(monkeypatch, tmp_path):
+    """A diagnostic that leaves the surface lit has broken something.
+
+    Those LEDs outlive the process and nothing else knows they are on -- which
+    is exactly what the first version of this tool did.
+    """
+    outputs = install_mido(monkeypatch, names=PORTS)
+    install_usb(monkeypatch)
+    _, report, _ = run(tmp_path)
+
+    assert all(a["lights_off"] for a in report["output_attempts"])
+    for port in outputs:
+        notes = [m for m in port.sent if m.type == "note_on"]
+        # every pad ends on velocity 0
+        last = {}
+        for m in notes:
+            last[m.note] = m.velocity
+        assert set(last.values()) == {0}
+        assert len(last) == PAD_COUNT
+        # and every button we know about is explicitly zeroed
+        ccs = {m.control for m in port.sent
+               if m.type == "control_change" and m.value == 0}
+        assert ccs == set(ALL_BUTTON_CCS)
+
+
+def test_lights_are_turned_off_after_the_question_not_before(monkeypatch, tmp_path):
+    """The whole point is that you can see them while answering."""
+    order: list[str] = []
+    outputs = install_mido(monkeypatch, names=PORTS)
+    install_usb(monkeypatch)
+
+    original = midiprobe._lights_off
+
+    def watched(port):
+        order.append("off")
+        return original(port)
+
+    monkeypatch.setattr(midiprobe, "_lights_off", watched)
+    path = tmp_path / "r.json"
+    midiprobe.run_midi_probe(
+        path,
+        ask=lambda _p: (order.append("asked"), "n")[1],
+        say=lambda *_: None,
+    )
+    assert order[:2] == ["asked", "off"]
+
+
+def test_blank_surface_turns_everything_off():
+    from push2sampler.push2 import SimPush
+
+    push = SimPush()
+    push.open()
+    push.set_pad(0, 66)
+    push.set_button(85, 127)
+    push.sent.clear()
+    said: list[str] = []
+    assert midiprobe.blank_surface(push=push, say=said.append) == 0
+
+    pads = {i: v for kind, i, v in push.sent if kind == "pad"}
+    buttons = {cc: v for kind, cc, v in push.sent if kind == "button"}
+    assert len(pads) == PAD_COUNT and set(pads.values()) == {0}
+    assert set(buttons) == set(ALL_BUTTON_CCS) and set(buttons.values()) == {0}
+    assert "blanked" in said[0]

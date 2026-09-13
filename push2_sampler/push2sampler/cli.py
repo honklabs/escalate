@@ -137,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
              "midi-report.json",
     )
     parser.add_argument(
+        "--lights-off", action="store_true",
+        help="turn every pad and button LED off and exit; use it after a "
+             "diagnostic or a crash left the surface lit",
+    )
+    parser.add_argument(
         "--midi-port", default=None, metavar="NAME",
         help="force the Push MIDI port to the one whose name contains NAME "
              "(e.g. 'live' or 'user'); by default the User port is preferred "
@@ -226,6 +231,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bounce or args.stems:
         return _render(args)
+    if args.lights_off:
+        from .midiprobe import blank_surface
+
+        return blank_surface()
     if args.midi_probe:
         from .midiprobe import run_midi_probe
 

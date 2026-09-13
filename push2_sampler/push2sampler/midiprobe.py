@@ -31,7 +31,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .constants import PAD_COUNT, USB_PRODUCT_ID, USB_VENDOR_ID, Btn, index_to_note
+from .constants import (
+    ALL_BUTTON_CCS,
+    PAD_COUNT,
+    USB_PRODUCT_ID,
+    USB_VENDOR_ID,
+    Btn,
+    index_to_note,
+)
 
 #: Seconds spent listening on each input port.
 LISTEN_S = 8.0
@@ -168,6 +175,10 @@ def _push_ports(names: list[str]) -> list[str]:
     return sorted(push, key=lambda n: (0 if "user" in n.lower() else 1, n))
 
 
+#: Buttons lit during the blast.  Turned off again by :func:`_lights_off`.
+BLAST_BUTTONS: tuple[int, ...] = (Btn.PLAY, Btn.RECORD, Btn.SESSION)
+
+
 def _blast(port, say) -> dict:
     """Light everything, every way, on one output port."""
     import mido
@@ -181,10 +192,28 @@ def _blast(port, say) -> dict:
             )
             sent += 1
         time.sleep(BLAST_PAUSE_S)
-    for cc in (Btn.PLAY, Btn.RECORD, Btn.SESSION):
+    for cc in BLAST_BUTTONS:
         port.send(mido.Message("control_change", channel=0, control=cc, value=127))
         sent += 1
     return {"messages_sent": sent, "velocities": list(BLAST_VELOCITIES)}
+
+
+def _lights_off(port) -> None:
+    """Undo the blast.
+
+    A diagnostic that leaves the surface lit is a diagnostic that broke
+    something: those LEDs outlive the process, and nothing else knows they are
+    on.  Every port we light gets turned off again, after the question about it
+    has been answered.
+    """
+    import mido
+
+    for index in range(PAD_COUNT):
+        port.send(
+            mido.Message("note_on", channel=0, note=index_to_note(index), velocity=0)
+        )
+    for cc in ALL_BUTTON_CCS:
+        port.send(mido.Message("control_change", channel=0, control=cc, value=0))
 
 
 def _try_outputs(report: MidiReport, names: list[str], ask, say) -> None:
@@ -209,11 +238,6 @@ def _try_outputs(report: MidiReport, names: list[str], ask, say) -> None:
         except Exception as exc:
             attempt["error"] = f"{type(exc).__name__}: {exc}"
             say(f"    send failed: {exc}")
-        finally:
-            try:
-                port.close()
-            except Exception as exc:  # pragma: no cover
-                attempt["close_error"] = str(exc)
         # Asked per port, not once at the end: a single question after blasting
         # every port cannot say WHICH port lit anything, and that is the whole
         # thing we are trying to find out.  The first version of this tool got
@@ -222,6 +246,15 @@ def _try_outputs(report: MidiReport, names: list[str], ask, say) -> None:
         attempt["lit"] = {"y": "yes", "yes": "yes", "s": "some"}.get(answer, "no")
         if attempt["lit"] != "no":
             report.lit = attempt["lit"]
+        try:
+            _lights_off(port)
+            attempt["lights_off"] = True
+        except Exception as exc:  # pragma: no cover - the port just worked
+            attempt["lights_off_error"] = str(exc)
+        try:
+            port.close()
+        except Exception as exc:  # pragma: no cover
+            attempt["close_error"] = str(exc)
         report.output_attempts.append(attempt)
 
 
@@ -377,6 +410,33 @@ def _verdict(report: MidiReport) -> str:
         "environment.mido_backend, usb.found, and the callback vs polled counts "
         "per port."
     )
+
+
+def blank_surface(push=None, say=print) -> int:
+    """``--lights-off``: turn the whole surface off and exit.
+
+    Wanted after a diagnostic that exited early, or a run that crashed: those
+    LEDs outlive the process and nothing else knows they are on.  Starting the
+    program does this too, but wanting the Push dark is not the same as wanting
+    to open a project.
+    """
+    from .push2 import Push2
+
+    owns = push is None
+    if push is None:
+        push = Push2()
+        try:
+            push.open(program_palette=False)
+        except Exception as exc:
+            say(f"could not open the Push 2: {exc}")
+            return 2
+    try:
+        push.all_off()
+        say(f"surface blanked via {getattr(push, 'chosen_output', '?')}")
+    finally:
+        if owns:
+            push.close()
+    return 0
 
 
 def run_midi_probe(report_path: Path | str = "midi-report.json",

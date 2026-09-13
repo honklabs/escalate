@@ -85,6 +85,18 @@ DISPLAY_ROW_TOP = tuple(range(102, 110))
 #: The eight buttons below the display, left to right.
 DISPLAY_ROW_BOTTOM = tuple(range(20, 28))
 
+#: Every button LED this program can light.
+#:
+#: Used to blank the surface on startup and after a diagnostic.  ``clear()``
+#: only knows about buttons it has lit itself, which is nothing at all in a
+#: fresh process -- so a run that crashed, or a probe that lit things and
+#: exited, would leave LEDs on with no way to reach them.
+ALL_BUTTON_CCS: tuple[int, ...] = tuple(sorted(
+    {value for name, value in vars(Btn).items()
+     if not name.startswith("_") and isinstance(value, int)}
+    | set(DISPLAY_ROW_TOP) | set(DISPLAY_ROW_BOTTOM)
+))
+
 #: Relative encoders.  Value 1..63 is clockwise, 127..65 counter-clockwise.
 ENCODER_TEMPO = 14
 ENCODER_SWING = 15
