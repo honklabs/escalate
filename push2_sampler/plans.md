@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **42 of the 58 items below are shipped**, which completes the `v1.1`,
-`v1.2` and `v1.3` trains; `v1.4` is next. One of the 42 (`CC-13`) shipped only
+Status: **45 of the 61 items below are shipped**, which completes the `v1.1`,
+`v1.2` and `v1.3` trains; `v1.4` is three items from done. One of the 42 (`CC-13`) shipped only
 the half that does not need unverified hardware. Each shipped item carries a status note saying
 what was built and where it deviated from this plan and why.
 
@@ -301,7 +301,7 @@ one owner at a time.** Across groups, fan out freely.
 | **B — mode shell** | `app.py`, `modes/__init__.py` | `F-02`, `F-03`, `F-04`, `CC-04`, `CC-05` |
 | **C — data model** | `project.py`, `wavio.py` | `F-09`, `NF-03`, `NF-07`, `NF-11`, `NH-05`, `NH-06` |
 | **D — new modes** | one new file each under `modes/` | `NF-01`, `NF-03`, `NF-06`, `NH-01`, `F-06` |
-| **E — surface/IO** | `push2.py`, `display.py`, `constants.py` | `F-07`, `F-08`, `CC-13`, `CC-14` |
+| **E — surface/IO** | `push2.py`, `display.py`, `constants.py` | `F-07`, `F-08`, `CC-13`, `CC-14`, `CC-20` |
 | **F — offline/DSP** | new `analysis.py`, `render.py` | `NF-05`, `IN-01`, `IN-02`, `IN-04` |
 | **G — CLI/sim** | `cli.py`, `sim.py` | `CC-09`, `CC-15`, `CC-16` |
 
@@ -331,7 +331,7 @@ to be wrong.
 
 ## 4. Release trains
 
-Every one of the 58 items below is scheduled here. Creature comforts are
+Every one of the 61 items below is scheduled here. Creature comforts are
 deliberately spread across all five trains: each release should contain
 something that makes the instrument nicer to touch, not only bigger.
 
@@ -341,6 +341,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ `NH-02` `NH-11` `NH-12` |
+| **v1.5 — Watch it play** | the song as a performance, not an edit | `NF-12` `CC-19` `CC-20` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
@@ -1333,6 +1334,68 @@ single page; a trigger beyond the last page is dropped on load with a warning.
 
 Valuable, not load-bearing. Each is independently shippable.
 
+### NF-12 — Master playback mode `size: M`
+
+**Problem.** There is nowhere to just *watch the song play*. The library grid
+shows what exists, a sample page shows where one take plays, and the song page
+(`NF-01`) shows the arrangement as a heat map — but none of them is the view you
+want while the whole thing runs and you are listening rather than editing. You
+currently have to pick a sample page and watch one row of the truth.
+
+**Idea.** A mode whose whole job is playback: the **library grid**, all 64
+slots where they always are, and each pad **flashes as its sample fires**. One
+glance tells you what is sounding, what is about to come in, and which slots are
+silent through this section. It is the arrangement seen from the samples' side
+rather than the bars' side.
+
+**Spec.**
+
+- New `modes/master.py`, `MasterMode`, reached by `Shift`+`Session` (free —
+  `Session` alone is "back", and this is the one page you do not go "back"
+  from). `Session` leaves, like everywhere else.
+- The grid is the library's, honouring the current **bank** so all four banks'
+  worth is reachable with `Page ◀/▶`. A slot's own colour (`CC-18`) is its
+  resting colour, dimmed.
+- **The flash is the feature, so it has to be right.** A pad goes to full
+  brightness on the frame its sample is *triggered*, and decays back to its
+  resting colour over a fixed time rather than staying lit for the sample's
+  whole length — a 4-bar pad that stayed bright for four bars would tell you
+  nothing, and 64 pads at full brightness is the glare `CC-13` exists to avoid.
+  Suggested 180 ms of decay in three steps (bright → on → dim → resting), which
+  at 120 BPM reads as a clear hit on every 8th note without smearing.
+- Decay is driven from `App.blink`'s existing clock rather than a new timer, so
+  the whole surface stays on one heartbeat.
+- `Engine.sounding` already reports which slots have a live voice, and
+  `slot_peaks` already reports their levels. Neither is a *trigger* signal: a
+  sample sounding for four bars is in `sounding` for all of it. **The engine
+  needs a "fired this block" set** — cheap, since `_start_scheduled` already
+  knows — published the same way `sounding` is.
+- Transport controls work as everywhere (`Play`, `Stop`, `Shift`+`Stop`), and
+  `Delete`/`Mute`/`Duplicate` are deliberately **not** armed here: this is the
+  one page where a stray press should do nothing destructive. Pressing a filled
+  pad auditions it (`CC-01`'s gesture) rather than opening its page.
+- The display names it and shows the bar, the loop scope, and how many slots
+  fired in the last bar — a number that tells you whether a section is as busy
+  as it feels.
+
+**Code.** `audio.py` (a `fired` set published per block, alongside `sounding`),
+`app.py` (`open_master`, `Shift`+`Session` dispatch), new `modes/master.py`,
+`sim.py` (a name for the gesture — see `CC-15`'s standing rule).
+
+**Tests.** A slot triggered on bar 1 flashes on bar 1 and has decayed by bar 2;
+a 4-bar sample flashes once rather than staying lit; two samples on the same bar
+both flash; the resting colour is the slot's own colour dimmed; nothing
+destructive is reachable from the mode; the bank window moves with `Page ◀/▶`;
+`fired` is empty in a block with no bar line in it.
+
+**Deps.** `NF-02` (the engine already distinguishes starting from sounding),
+`CC-18` (slot colours), `NF-07` (banks). Wants `CC-13`'s dim library so the
+flash has somewhere to flash *from*.
+
+**Open question for the first hardware session.** Whether 180 ms reads as a
+flash or a flicker is a thing to judge with eyes, not tests. Make the decay
+length a constant with a comment, and expect to change it once.
+
 ### NH-01 — Mixer page `size: M`
 
 **Status: shipped.**  `Mix` opens `modes/mixer.py`: eight strips at a time, an
@@ -2019,6 +2082,114 @@ muted, amber for sounding) so a 64-slot library becomes readable at a glance.
 sounding states still override; unset colour falls back to green.
 
 ---
+
+
+### CC-19 — Swap two samples `size: S`
+
+**Problem.** `Duplicate` copies a slot and `Shift`+`Duplicate` moves it, but
+there is no way to **exchange** two. Getting the kick and the snare the wrong
+way round currently takes three gestures and a spare slot — move A somewhere
+empty, move B to A, move the spare to B — and if the library is full there is
+nowhere to put the spare at all.
+
+**Idea.** Pick two pads; they trade places. Arrangement, audio, name, colour,
+gain, edits, play mode, choke group — the whole slot, both ways.
+
+**Spec.**
+
+- `Shift`+`Duplicate` already means "move" *during* a duplicate gesture. Swap
+  is its own arming instead: hold **Duplicate** and press **Select** to arm
+  swap (or a second press of `Duplicate` cycles `copy → move → swap → off`,
+  which is fewer things to remember and shows in the display). Decide this by
+  writing both lines in the display and seeing which reads better; the plan does
+  not get to settle it from here.
+- Armed, the grid flashes; the first pad pressed lights steadily as "A"; the
+  second performs the swap. `Duplicate` again cancels, as it does now.
+- **Both slots keep their slot number**, which is the whole point: a slot number
+  is identity everywhere else in this program — the schedule, the velocity map,
+  the WAV filename, every undo entry — so the swap moves *contents*, and each
+  `Sample.slot` is rewritten to match its new home. `Project.copy_slot` already
+  does that rewriting for a copy; swap needs the same care in both directions.
+- One `SwapSlots` command in `history.py`, so it is one undo step. Reverting is
+  applying it again, which makes it the rare command whose `revert` can just
+  call `apply` — worth a comment saying so rather than looking like a mistake.
+- Swapping with an **empty** slot is legal and is exactly a move; say so in the
+  display rather than refusing, since the gesture is the same to the hands.
+- A sounding voice keeps its own buffer (`NH-06`'s finding), so a swap while
+  playing does not cut anything. The *next* bar line picks up the new
+  arrangement. Worth a test: that is the behaviour, not an accident.
+
+**Code.** `project.py` (`swap_slots`), `history.py` (`SwapSlots`),
+`modes/library.py` (the arming and the two presses), `app.py` (arm state beside
+`duplicate_armed`), `sim.py` (a name).
+
+**Tests.** Every field of both samples ends up in the other slot, `Sample.slot`
+included; the arrangement follows; one undo restores both; undo twice and redo
+twice land in the same place; swapping a filled slot with an empty one empties
+the first; swapping a slot with itself is a no-op that does not consume an undo
+step; audio files are rewritten so a save/load round-trip keeps the swap.
+
+**Deps.** `NF-04` (the duplicate gesture it shares arming with).
+
+### CC-20 — The mode you are in, on the big display `size: S`
+
+**Problem.** The display's five text lines are dense, and the mode you are in is
+implied by what they say rather than stated. When you look up mid-take, "which
+page am I on" is the question you actually have, and answering it means reading
+a line of prose. `CC-08` gave the bottom of the screen to bar/beat/tempo
+because those are the glanceable facts; the mode belongs in that same category
+and did not get in.
+
+**Idea.** Put the mode name where it cannot be missed: large, at the top, always
+the same place, always the same words.
+
+**Spec.**
+
+- `Push2Display.draw` takes a third piece: a **mode banner** drawn large along
+  the **top**, with the existing text lines between it and `CC-08`'s bottom
+  readout. The mode name comes from the mode itself, not from parsing its first
+  status line — `Mode.name` exists and is already unique, so it wants a
+  `Mode.title` beside it for the human-facing form (`SAMPLE 7 "kick"`,
+  `RECORD 2 BARS`, `IMPORT`, `MIXER`, `MASTER`).
+- **A transient overlay says so.** Perform mode, the settings page and the
+  editor are pushed *on top of* another mode (`App._modes`), and knowing you
+  will come back to a sample page is exactly what people get wrong — the
+  banner should read `SETUP · over SAMPLE 7`, so leaving it is not a surprise.
+  That is the same confusion the simulator guide already warns about in prose.
+- Colour carries state cheaply where it is unambiguous: red while recording,
+  amber while armed for something destructive, white otherwise. **Only** those
+  three, and only where the word already says the same thing — colour as
+  emphasis, never as the sole carrier, because a display that has never been
+  verified is a bad place to put information that exists nowhere else.
+- Vertical space is the real constraint: 160 px, currently one big line at the
+  bottom plus four text lines. A banner costs one of those four. Check whether
+  the modes that use five lines still read with three; where they do not, the
+  fix is shorter status lines, not a smaller banner.
+- Degrade the same way `CC-08` does: with no scalable font available the banner
+  is the same size as the rest rather than absent.
+
+**Code.** `display.py` (a third region and a third font size), `modes/base.py`
+(`Mode.title`, defaulting to `name.upper()` so no mode has to opt in),
+`app.py` (`mode_banner()`, including the `over …` form for a transient), every
+mode that wants a better title than its name.
+
+**Tests.** The banner string for each mode at known state, including the
+transient `over` form; a mode with no explicit title falls back to its name
+upper-cased; the recording colour is chosen on `rec_state` rather than on the
+text; `draw` still works given only lines, so anything holding a display keeps
+working; the banner is absent from `status_lines` so the terminal simulator does
+not print it twice.
+
+**Deps.** `CC-08` (the display's second font and region), `F-07` (the display
+itself).
+
+**Worth stating plainly:** the colour display has **never** rendered on real
+hardware in this project, and on the one machine that has run against a real
+Push it cannot, because `pyusb` has no `libusb` underneath there (`F-08`
+finding 6). Everything in `display.py` is pinned byte-for-byte by unit tests
+against a fake USB device and is still unproven end to end. This item makes the
+display more useful and does nothing to make it more *verified* — do not let it
+be the reason a mode's state is only visible there.
 
 ## 10. Dependency graph and fan-out waves
 
