@@ -127,9 +127,20 @@ all** — the pads and buttons report on the Live port instead. This is the
 device telling you which port it is using; it is not a fault, and there is
 nothing to press to change it.
 
-The program handles this by itself: it **listens to every Push port** for
-input, so it does not need to know which mode the device is in. If input still
-does not arrive, or if the *lights* are going to the wrong port, pin it:
+The program handles this by itself, in both directions. It **listens to every
+Push port** for input, and because input is the only signal for which port the
+device is on, **output follows it**: the first message from a port we are not
+sending to moves the lights there and repaints the grid. So on a device in Live
+mode, the grid may stay dark until you press one pad, and then light up.
+
+Startup prints what it opened:
+
+```
+Push 2 out: Ableton Push 2 User Port
+Push 2 in:  Ableton Push 2 User Port, Ableton Push 2 Live Port
+```
+
+To pin both directions by hand instead:
 
 ```
 python -m push2sampler --midi-port live my-song

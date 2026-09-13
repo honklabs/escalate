@@ -298,6 +298,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"could not open the Push 2: {exc}", file=sys.stderr)
         print("(run with --sim to use the terminal simulator)", file=sys.stderr)
         return 2
+
+    if not args.sim:
+        # Say which ports were opened.  When the grid stays dark, this is the
+        # first thing worth knowing, and until now it was invisible.
+        listening = getattr(push, "chosen_inputs", None) or [push.chosen_input]
+        print(f"Push 2 out: {push.chosen_output}")
+        print(f"Push 2 in:  {', '.join(str(n) for n in listening)}")
+        if getattr(push, "follow_input", False):
+            print("(output follows whichever port the surface turns out to be "
+                  "on; --midi-port pins it)")
     try:
         engine.start()
     except Exception as exc:

@@ -407,3 +407,106 @@ def test_every_button_in_the_map_is_in_all_button_ccs():
     assert named <= set(ALL_BUTTON_CCS)
     assert set(DISPLAY_ROW_TOP) <= set(ALL_BUTTON_CCS)
     assert set(DISPLAY_ROW_BOTTOM) <= set(ALL_BUTTON_CCS)
+
+
+# -- following the surface to whichever port it is on ----------------------
+def test_output_follows_the_port_the_input_arrived_on(monkeypatch):
+    """Input says which port the device uses; output has no such signal.
+
+    Guessing wrong means a surface that receives fine and stays dark, which is
+    exactly what happened on the first real device (F-08 finding 8).
+    """
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    assert push.chosen_output == "Ableton Push 2 User Port"
+
+    live = opened["Ableton Push 2 Live Port"]
+    live.callback(FakeMessage("note_on", note=index_to_note(0), velocity=100))
+    # Applied on the polling thread, not the callback thread.
+    assert push.chosen_output == "Ableton Push 2 User Port"
+    push.poll_events()
+    assert push.chosen_output == "Ableton Push 2 Live Port"
+    assert push.followed_output == "Ableton Push 2 Live Port"
+
+
+def test_following_repaints_everything(monkeypatch):
+    """The new port has never had our palette and knows nothing of our state."""
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    push.set_pad(0, colors.GREEN)
+    assert push.pad_leds[0] == colors.GREEN.index
+
+    opened["Ableton Push 2 Live Port"].callback(
+        FakeMessage("control_change", control=Btn.PLAY, value=127)
+    )
+    push.poll_events()
+    assert push.pad_leds == [-1] * PAD_COUNT       # cache dropped: resend all
+    assert push.palette_programmed
+
+
+def test_input_on_the_port_we_already_send_to_changes_nothing(monkeypatch):
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    user = opened["Ableton Push 2 User Port"]
+    user.callback(FakeMessage("note_on", note=index_to_note(0), velocity=100))
+    push.poll_events()
+    assert push.chosen_output == "Ableton Push 2 User Port"
+    assert push.followed_output is None
+
+
+def test_an_explicit_midi_port_is_never_second_guessed(monkeypatch):
+    """--midi-port is a decision, not a hint."""
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2(port_name="user")
+    push.open()
+    assert push.follow_input is False
+    opened["Ableton Push 2 Live Port"].callback(
+        FakeMessage("note_on", note=index_to_note(0), velocity=100)
+    )
+    push.poll_events()
+    assert push.chosen_output == "Ableton Push 2 User Port"
+
+
+def test_events_still_arrive_on_the_switch(monkeypatch):
+    """Following a port must not eat the message that triggered it."""
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    opened["Ableton Push 2 Live Port"].callback(
+        FakeMessage("note_on", note=index_to_note(5), velocity=100)
+    )
+    assert push.poll_events() == [PadEvent(5, True, 100)]
+
+
+def test_input_is_counted_per_port(monkeypatch):
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    for _ in range(3):
+        opened["Ableton Push 2 Live Port"].callback(
+            FakeMessage("note_on", note=index_to_note(0), velocity=1)
+        )
+    assert push.input_seen == {"Ableton Push 2 Live Port": 3}
+
+
+def test_a_failed_switch_keeps_the_working_port(monkeypatch):
+    import sys
+    import types
+
+    opened, out = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    mido = sys.modules["mido"]
+    monkeypatch.setattr(
+        mido, "open_output",
+        lambda name: (_ for _ in ()).throw(OSError("busy")),
+    )
+    opened["Ableton Push 2 Live Port"].callback(
+        FakeMessage("note_on", note=index_to_note(0), velocity=100)
+    )
+    push.poll_events()
+    assert push.chosen_output == "Ableton Push 2 User Port"
+    assert push._outport is out          # still usable

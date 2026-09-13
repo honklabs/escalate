@@ -12,6 +12,25 @@ plan.
 
 ## Unreleased
 
+### Output follows the surface (`F-08` finding 8)
+
+With input fixed, a normal run *still* showed nothing: this device is on the
+**Live** port in both directions, not just for input. The earlier "did anything
+light?" yes had been asked after blasting both ports, so it never meant what it
+appeared to.
+
+- **Output now follows the input port.** Input is the only signal for which port
+  the device is actually using — output has none — so when a message arrives on
+  a port we are not sending to, output moves there, the palette is re-uploaded
+  and the surface repaints. No flag needed, and it works whichever mode the
+  Push is in.
+- `--midi-port` turns the following **off**: an explicit choice should not be
+  second-guessed.
+- A failed switch keeps the port already open, so following can never leave
+  things worse than not following.
+- **Startup now prints the ports it opened.** Two rounds of this were spent
+  unable to see the most basic fact about the run.
+
 ### Stuck LEDs after a diagnostic (`F-08` finding 7)
 
 `--midi-probe` left the pads and buttons lit when it finished. Mine, not the

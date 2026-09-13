@@ -247,6 +247,19 @@ class Push2(PushBase):
         #: Substring that forces one port, from ``--midi-port``.  Overrides the
         #: User-port preference in both directions.
         self.port_name = port_name
+        #: Move output to whichever port the surface turns out to be on.
+        #:
+        #: Input tells us which port the device is using; output has no such
+        #: signal, and guessing wrong means a surface that receives fine and
+        #: stays dark (F-08 finding 8).  So when input arrives on a port we are
+        #: not sending to, we follow it.  Off when ``port_name`` pins a port by
+        #: hand -- an explicit choice is not something to second-guess.
+        self.follow_input = port_name is None
+        #: Count of messages seen per input port, for the reports.
+        self.input_seen: dict[str, int] = {}
+        self._pending_output: str | None = None
+        #: Set when output has followed the input port, so it can be reported.
+        self.followed_output: str | None = None
         #: Read from *every* Push input port rather than only the chosen one.
         #:
         #: A Push 2 routes its surface to one port or the other depending on
@@ -292,7 +305,15 @@ class Push2(PushBase):
         self.chosen_inputs = []
         for name in names:
             try:
-                self._inports.append(mido.open_input(name, callback=self._on_midi))
+                self._inports.append(
+                    mido.open_input(
+                        name,
+                        # Bind the port name so we know where a message came
+                        # from, which is the only signal for which port the
+                        # surface is on.
+                        callback=lambda msg, port=name: self._on_midi_from(port, msg),
+                    )
+                )
             except Exception:
                 # One unopenable port is not a reason to fail: the other may be
                 # the one carrying the surface.
@@ -385,6 +406,48 @@ class Push2(PushBase):
             mido.Message("sysex", data=[*SYSEX_PREFIX, SYSEX_REAPPLY_PALETTE])
         )
         self.palette_programmed = True
+
+    def _on_midi_from(self, port_name: str, msg) -> None:
+        """Inbound message, tagged with the port it arrived on."""
+        self.input_seen[port_name] = self.input_seen.get(port_name, 0) + 1
+        if self.follow_input and port_name != self.chosen_output:
+            # Requested here, applied in poll_events: this runs on the MIDI
+            # callback thread, and swapping the output port under the renderer
+            # would race with it.
+            self._pending_output = port_name
+        self._on_midi(msg)
+
+    def poll_events(self):
+        """Apply any pending output switch, then drain as usual.
+
+        Done here because this is called from the same thread as the rendering,
+        so the swap cannot race with a write in progress.
+        """
+        pending, self._pending_output = self._pending_output, None
+        if pending and pending != self.chosen_output:
+            self._switch_output(pending)
+        return super().poll_events()
+
+    def _switch_output(self, name: str) -> None:
+        """Send to ``name`` from now on, and repaint everything."""
+        import mido
+
+        try:
+            port = mido.open_output(name)
+        except Exception:
+            return  # keep the one we have; it is no worse than before
+        old, self._outport = self._outport, port
+        if old is not None:
+            try:
+                old.close()
+            except Exception:  # pragma: no cover
+                pass
+        self.chosen_output = name
+        self.followed_output = name
+        # A port we have never sent to has never had our palette, and knows
+        # nothing of what we think is lit.
+        self.program_palette()
+        self.invalidate_leds()
 
     # -- input -------------------------------------------------------------
     def _on_midi(self, msg) -> None:

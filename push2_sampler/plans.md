@@ -645,12 +645,26 @@ arrives:
 | 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes |
 | 4 | The palette was the likely culprit | **Not the palette.** `--led-test` reported nothing in *either* direction: no input from any pad, no light from factory indices, none from ours, no button LEDs, no channel. The ports still opened without error | **Open.** Rules out `program_palette`, `index_to_note`, the colour map and the channel in one go — none of them can matter when no traffic passes at all. `--midi-probe` (`midiprobe.py`) was written to measure rather than ask |
 | 5 | The surface reports on the **User** port | **No.** Input arrives only on the **Live** port (465 messages by callback, 262 by polling); the User port sent nothing at all. Output reached the device. The Push routes its controls to whichever port matches its mode | **Fixed.** `Push2` now opens *every* Push input port, so the program works in either mode without being told which — only one port sends, so listening to both costs nothing. `--midi-port live\|user` pins either direction. README table row corrected from "assumed User" |
+| 8 | Output on the User port reaches the device (the probe's one "yes") | **No.** With input fixed, a normal run still showed nothing: the surface is on the **Live** port in *both* directions. The probe's single "did anything light" question had been asked after blasting both ports, so its yes was unattributable — the fix for that landed too late to help | **Fixed.** Output now *follows the input port*: input is the only signal for which port the device is on, so when a message arrives on a port we are not sending to, output moves there and the surface repaints. `--midi-port` disables the following, since an explicit choice should not be second-guessed. Startup also prints the ports it opened |
 | 7 | — | `--midi-probe` left the pads and buttons lit after it finished | **Fixed.** Mine, not the device's: the probe lit everything to ask about it and never turned it off, and the port was closed before the question so nothing could. It now blanks each port after that port's question is answered. Exposed a real gap behind it — `clear()` only turns off LEDs the *current process* lit, so a crash or an early Ctrl-C left the surface lit with nothing able to reach it. `PushBase.all_off` sends an explicit off to every pad and every known button CC, `open()` uses it, and `--lights-off` does it on its own |
 | 6 | — | `pyusb` is installed but has no `libusb` underneath (`No backend available`), so the bus check reports nothing either way | **Noted, not fatal.** It is also why the colour display cannot work on this machine: `brew install libusb`. `--midi-probe` now names this separately rather than letting it read as "the Push is not on the bus" |
 
 Finding 1 is one shape to expect: a **documentation** assumption built on a spec
 value, where the code was indifferent all along. Check that distinction before
 changing anything — the correction is often to prose, not to `constants.py`.
+
+Finding 8 is the cost of finding 4's tooling bug: the unattributable "yes"
+sent us on to fix input while leaving output pointed at a port that was never
+answering. Two lessons, both cheap to apply next time. **A diagnostic question
+must be scoped to one variable** — asking "did anything light?" after exercising
+two ports measures nothing, and the fix arrived one round too late to help.
+And **asymmetric signals need asymmetric handling**: input carries its own
+source port, output carries nothing, so the only sound design is to derive the
+output port from the input rather than picking one and hoping. That is what
+`follow_input` does.
+
+Also worth noting: `App` never printed which ports it opened, so two rounds were
+spent unable to see the most basic fact about the run. Startup now says.
 
 Finding 7 is a reminder that **LED state lives in the device, not in the
 program**. Every `set_pad` is a message the Push remembers after we exit, so any
