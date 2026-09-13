@@ -6,7 +6,7 @@ kept two versions of the arrangement, fixed a mistake, and bounced the result to
 a file you can play anywhere — using every feature the program currently has.
 
 You need: a Push 2, a USB cable, **headphones** (see
-[step 4](#step-4-decide-how-you-will-hear-yourself)), and something to record —
+[hearing yourself](#monitoring)), and something to record —
 a microphone, a guitar through an interface, or your own voice.
 
 No prior knowledge of the program is assumed. Where a step says *press* something
@@ -101,6 +101,8 @@ If the pads stay dark, see
 Nothing here needs a button pressed on the Push first: the program opens the
 User port and starts sending, and it never asks the Push to change mode.
 
+<a id="monitoring"></a>
+
 ### Step 4: decide how you will hear yourself
 
 Monitoring is **off** by default, deliberately: on speakers it feeds back and
@@ -113,7 +115,7 @@ and cannot get feedback from a loop that is not playing.
 
 The eight buttons **above** the display are an input level meter. Make a noise;
 they should light. If they do not, your input device is wrong — see
-[step 21](#step-22-the-settings-worth-knowing).
+[the settings step](#settings).
 
 ---
 
@@ -154,6 +156,8 @@ below it is bar 9, the bottom-right pad is bar 64.
 You may notice faint white pads you did not press. Those are a ruler: a dim mark
 on every bar that starts a 4-bar phrase, a brighter one on every 16-bar section.
 They make it possible to count bars without counting pads.
+
+<a id="block-gestures"></a>
 
 ### Step 7: three faster ways to fill bars
 
@@ -374,7 +378,35 @@ for.
 
 All of it is per sample, saved with the song, and one **Undo** each.
 
-### Step 18: bring in a sample you already have
+### Step 18: make it breathe
+
+A sequencer that starts everything exactly on the bar line sounds like a
+sequencer. Two controls fix that, and they work in different places.
+
+**On a sample page, turn encoder 2.** The sample now starts a few milliseconds
+*after* the bar line, in 5 ms steps up to 120, and the second status line says
+`+20ms`. Put a clap over a kick, lay the clap back 15–25 ms, and press **Play**:
+it stops sounding like a machine. Every layer can have its own amount, so one
+part can lay back while the rest stay square.
+
+It only goes **late**. To push a sample *ahead* of the beat, lay everything else
+back instead — the feel is relative, and a bar line is the earliest moment the
+program knows about. The nudge is applied on the way to the speakers, so it
+changes what you hear and what you bounce but never re-cuts the recording, and
+one **Undo** takes it back.
+
+**For what you play by hand, there is swing.** Go into perform mode
+(**Shift**+**Play**), press **Fixed Length** until the quantize reads `1/8 bar`,
+and turn the **swing encoder** (second from the left, above the display) up to
+about 30 %. Now the eighths between the downbeats land late and a hat pattern
+you tap in shuffles.
+
+Swing needs that **sub-beat quantize** to do anything: everything in the
+arrangement sits on a bar line, and bar lines do not swing. At a `1 bar`
+quantize the page tells you so — `(swing needs a sub-beat quantize)` — rather
+than leaving you wondering. Swing is saved with the song.
+
+### Step 19: bring in a sample you already have
 
 Not everything has to be recorded. **Shift**+**Browse** opens a file browser on
 the pads.
@@ -411,7 +443,7 @@ And from the terminal, when a browser is more trouble than it is worth:
 python -m push2sampler --import ~/Music/samples/kick.wav my-first-song
 ```
 
-### Step 19: watch it play
+### Step 20: watch it play
 
 Everything so far has been editing. Now just listen.
 
@@ -428,7 +460,7 @@ The flash marks the moment a sample *starts*, not how long it lasts: a 4-bar pad
 blinks once rather than staying lit for four bars. The display counts how many
 slots fired in the bar you are in.
 
-### Step 20: put the grid on a screen
+### Step 21: put the grid on a screen
 
 Master playback is best watched, and there is only one Push in the room. Quit the
 program and start it again with one extra flag:
@@ -457,7 +489,7 @@ If the dim pads look black on your screen, tick **brighten dim pads** at the top
 The pads carry the colours the Push is actually told, and an LED at 14 % looks a
 lot brighter in a dark room than the same number does on a lit monitor.
 
-### Step 21: put two samples in the wrong order, then fix it
+### Step 22: put two samples in the wrong order, then fix it
 
 Say your kick is on pad 1 and your snare on pad 2, and you would rather it was
 the other way round.
@@ -472,7 +504,9 @@ gains, play modes. One **Undo** puts it back.
 Picking an *empty* pad second moves the sample there instead, which is the same
 gesture and does what you would expect.
 
-### Step 22: the settings worth knowing
+<a id="settings"></a>
+
+### Step 23: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -507,7 +541,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 23: tempo, click, loop
+### Step 24: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -543,7 +577,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 24: shape a take
+### Step 25: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -573,7 +607,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 25: name it, colour it
+### Step 26: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -589,7 +623,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 26: keep two versions of the arrangement
+### Step 27: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -603,7 +637,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 27: start another song, without a terminal
+### Step 28: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -619,7 +653,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 28: undo
+### Step 29: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -628,7 +662,7 @@ arrangement, a cleared arrangement comes back with its bars, a tempo nudge goes
 back to the old tempo, applied edits come back as edits. The button is lit only
 when there is something to take back.
 
-It also covers the block gestures from [step 7](#step-7-three-faster-ways-to-fill-bars):
+It also covers the [block gestures](#block-gestures):
 a painted range, a filled phrase, a duplicated block or a duplicated slot is one
 step each, and an undone *move* puts the sample back where it was.
 
@@ -641,7 +675,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 29: bounce it
+### Step 30: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

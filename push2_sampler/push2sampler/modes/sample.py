@@ -18,6 +18,7 @@ from ..constants import (
     CHOKE_GROUPS,
     DISPLAY_ROW_BOTTOM,
     ENCODER_TRACK,
+    NUDGE_MAX_MS,
     PAD_COUNT,
     PLAY_MODE_LABELS,
     PLAY_MODES,
@@ -34,10 +35,14 @@ from ..history import (
     SetPlayMode,
     SetEnabled,
     SetGain,
+    SetNudge,
     SetVelocitySensitivity,
     ToggleTrigger,
 )
 from ..project import FULL_VELOCITY, PAGE_BARS
+
+#: Milliseconds per click of the nudge encoder (NH-02).
+NUDGE_STEP_MS = 5.0
 from .base import Mode
 from .sample_edit import SampleEditMode
 from .tag import TagMode
@@ -306,12 +311,33 @@ class SampleMode(Mode):
 
     def on_encoder(self, cc: int, delta: int) -> bool:
         sample = self.sample
-        if sample is not None and cc == ENCODER_TRACK[0]:
+        if sample is None:
+            return False
+        if cc == ENCODER_TRACK[0]:
             gain = max(0.0, min(2.0, sample.gain + delta * 0.02))
             if gain != sample.gain:
                 self.app.do(SetGain(self.slot, gain, sample.gain))
             return True
+        if cc == ENCODER_TRACK[1]:
+            self._nudge(sample, delta)
+            return True
         return False
+
+    def _nudge(self, sample, delta: int) -> None:
+        """Lay this sample back behind the beat, in milliseconds (NH-02).
+
+        Late only.  Pushing one sample *ahead* of the beat would need the
+        engine to know about a bar line before it arrives, and the feel is
+        relative anyway: laying everything else back is how you push one thing
+        forward.
+        """
+        wanted = max(0.0, min(NUDGE_MAX_MS, sample.nudge_ms + delta * NUDGE_STEP_MS))
+        if wanted == sample.nudge_ms:
+            return
+        self.app.do(SetNudge(self.slot, wanted, sample.nudge_ms))
+        self.app.notify(
+            "on the beat" if not wanted else f"{wanted:.0f}ms behind the beat"
+        )
 
     # -- output ------------------------------------------------------------
     def render_pads(self, pads: list[int]) -> None:
@@ -420,11 +446,13 @@ class SampleMode(Mode):
         lines = [
             f"SLOT {self.slot + 1} {sample.name}  {sample.bars} bar(s)  "
             f"{state}{layers}   page {self.app.page_letter}",
-            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
+            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}"
+            + (f"  +{sample.nudge_ms:.0f}ms" if sample.nudge_ms else ""),
             f"{PLAY_MODE_LABELS[sample.play_mode]}"
             + (f"  choke {sample.choke_group}" if sample.choke_group else "")
             + "   buttons 2-5: mode   8: choke group",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
+            "encoder 1: gain   encoder 2: lay it back behind the beat",
             "Record: re-record   New: layer   Mute: hear   Device: edit"
             + ("   (edited)" if not sample.edits.is_default else ""),
         ]

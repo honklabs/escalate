@@ -14,12 +14,14 @@ from .constants import (
     BTN_OFF,
     BTN_ON,
     DISPLAY_ROW_TOP,
+    ENCODER_SWING,
     ENCODER_TEMPO,
     PAD_COUNT,
+    SWING_MAX,
     Btn,
     button_name,
 )
-from .history import Command, History, SetBpm
+from .history import Command, History, SetBpm, SetSwing
 from .monitor_http import Monitor
 from .modes import (
     BrowserMode,
@@ -71,6 +73,8 @@ TAP_MINIMUM = 4
 TAP_OUTLIER = 0.35
 #: BPM per click of the tempo encoder while Tap Tempo is held.
 TEMPO_FINE_STEP = 0.1
+#: Swing per click of the swing encoder, as a fraction of the grid (NH-02).
+SWING_STEP = 0.02
 #: A second Stop this soon after the first is the "get me out of here" gesture.
 DOUBLE_STOP_S = 0.5
 #: How long `Delete` stays armed before disarming itself.  Every other armed
@@ -207,6 +211,7 @@ class App:
         self._modes: list[Mode] = [LibraryMode(self)]
         self.engine.set_bpm(project.bpm)
         self.engine.master_gain = project.master_gain
+        self.engine.swing = project.swing
         self.apply_loop_scope()
         self.rebuild_schedule()
         self.mode.on_enter()
@@ -584,6 +589,7 @@ class App:
         self.bank = self.page = 0
         self.engine.set_bpm(project.bpm)
         self.engine.master_gain = project.master_gain
+        self.engine.swing = project.swing
         self.apply_loop_scope()
         self.rebuild_schedule()
         if project.warning:
@@ -758,6 +764,7 @@ class App:
     def _after_undo(self, message: str) -> None:
         self.engine.set_bpm(self.project.bpm)
         self.engine.master_gain = self.project.master_gain
+        self.engine.swing = self.project.swing
         self.rebuild_schedule()
         self.save_soon()
         self.notify(message)
@@ -907,6 +914,8 @@ class App:
             self.engine.set_bpm(previous + delta * step)
             if self.engine.bpm != previous:
                 self.do(SetBpm(self.engine.bpm, previous))
+        elif cc == ENCODER_SWING:
+            self.set_swing(self.project.swing + delta * SWING_STEP)
 
     # ------------------------------------------------------------------
     # tempo tapping
@@ -969,6 +978,28 @@ class App:
             return
         self.engine.stop()
         self.notify("stopped")
+
+    def set_swing(self, swing: float) -> None:
+        """Set the song's swing, clamped, and tell the engine (NH-02).
+
+        Swing only reaches what you play **by hand** in perform mode, because
+        that is the only place sub-beat time exists in this program: every
+        trigger in the arrangement is on a bar line, and swinging bar lines is
+        not swing.  So the message says what it will and will not affect rather
+        than leaving you turning a knob that seems to do nothing.
+        """
+        wanted = max(0.0, min(SWING_MAX, swing))
+        previous = self.project.swing
+        if wanted == previous:
+            return
+        self.do(SetSwing(wanted, previous))
+        self.engine.swing = wanted
+        if not wanted:
+            self.notify("straight")
+        else:
+            self.notify(
+                f"swing {wanted * 100:.0f}% - perform mode, on a sub-beat quantize"
+            )
 
     def cycle_monitor(self) -> None:
         current = self.engine.monitor

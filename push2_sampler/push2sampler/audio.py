@@ -49,7 +49,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .constants import GATE, LOOP, ONE_SHOT, RETRIGGER
+from .constants import GATE, LOOP, ONE_SHOT, RETRIGGER, SWING_MAX
 
 #: How many times a looping voice may wrap inside one segment.  A bound, not a
 #: budget: segments are split at beat lines, so a sane loop wraps once at most.
@@ -74,7 +74,12 @@ MONITOR_ON = "on"
 MONITOR_AUTO = "auto"
 
 #: Quantize amounts for live triggering, in beats.  0 means "right now".
-QUANTIZE_BEATS: tuple[float, ...] = (0.0, 1.0, 2.0, 4.0)
+#:
+#: The two finest divisions exist so :data:`Engine.swing` has something to
+#: swing (NH-02): every trigger in the *arrangement* lands on a bar line, and
+#: swinging bar lines is not swing.  Sub-beat time exists only here, in what
+#: you play by hand in perform mode.
+QUANTIZE_BEATS: tuple[float, ...] = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0)
 
 #: Engine attributes :meth:`Engine.restart_stream` is allowed to change.
 RESTARTABLE = ("input_device", "output_device", "blocksize", "in_channels", "out_channels")
@@ -116,6 +121,9 @@ class ScheduledSample:
     choke_group: int | None = None
     #: First output channel, or None for the main mix (NH-11).
     channel: int | None = None
+    #: Frames to start *after* the bar line, for a sample that should lay back
+    #: behind the beat (NH-02).  Always >= 0: see `Sample.nudge_ms`.
+    nudge: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -285,8 +293,16 @@ class Engine:
         )
         self._last_beat: int | None = None
         self._last_bar: int | None = None
-        #: Voices waiting for their quantised start frame: (start, voice).
-        self._pending: list[tuple[float, Voice]] = []
+        #: Waiting to start, as ``(start_frame, what)``.  `what` is a
+        #: :class:`Voice` for a quantised live trigger, or a
+        #: ``(ScheduledSample, bar)`` pair for a nudged arrangement trigger --
+        #: those resolve their play mode and choke group when they *start*, not
+        #: when their bar line passed, or a nudged retrigger would cut the
+        #: previous voice before its replacement had begun.
+        self._pending: list[tuple[float, object]] = []
+        #: Fraction of the quantize grid that offbeats are pushed late, for
+        #: live triggering only (NH-02).  0 is straight.
+        self.swing = 0.0
         #: A stop asked for at the next bar line rather than right now.  Written
         #: by the callback, read by the UI purely to say so on screen.
         self._stop_at_bar = False
@@ -799,7 +815,7 @@ class Engine:
             self._add_voice(command[1])
         elif kind == "trigger":
             grid, voice = command[1], command[2]
-            start = math.ceil(self._pos / grid) * grid if grid > 0 else self._pos
+            start = self._grid_start(grid)
             if start <= self._pos:
                 self._add_voice(voice)
             else:
@@ -869,15 +885,42 @@ class Engine:
             self._intent = None
         self._publish_stats(started, out[:frames])
 
+    def _grid_start(self, grid: float) -> float:
+        """The frame a trigger quantised to `grid` should start on.
+
+        Swing pushes the **odd** grid lines late: with a half-beat grid the
+        downbeats stay put and the 8ths between them move, which is what swing
+        is.  It is a no-op at a grid of a whole beat or more, because pushing
+        every other beat back is not a groove, and a no-op for a trigger that
+        is already late -- correcting a late hit by making it later would be
+        the opposite of quantizing.
+
+        The grid lines are counted from the start of the song, and bars and
+        beats are whole multiples of any division we offer, so "odd" means the
+        same thing in bar 200 as in bar 1.
+        """
+        if grid <= 0:
+            return self._pos
+        line = math.ceil(self._pos / grid)
+        start = line * grid
+        if self.swing > 0 and grid < self.transport.frames_per_beat and line % 2:
+            start += grid * min(self.swing, SWING_MAX)
+        return start
+
     def _start_due_voices(self) -> None:
         if not self._pending:
             return
         still_waiting = []
-        for start, voice in self._pending:
-            if start <= self._pos:
-                self._add_voice(voice)
+        for start, what in self._pending:
+            if start > self._pos:
+                still_waiting.append((start, what))
+            elif isinstance(what, Voice):
+                self._add_voice(what)
             else:
-                still_waiting.append((start, voice))
+                # A nudged arrangement entry: its play mode and choke group are
+                # resolved now, at the moment it actually sounds.
+                entry, bar = what
+                self._start_now(entry, bar)
         self._pending = still_waiting
 
     def _segment_limit(self, remaining: int) -> int:
@@ -972,6 +1015,19 @@ class Engine:
                 voice.releasing = 0
 
     def _start_scheduled(self, entry, bar: int) -> None:
+        """Start one scheduled sample at its bar line, or after its nudge.
+
+        A nudge defers the whole decision rather than just the audio: whether a
+        loop renews, whether a retrigger cuts, whether a choke group fires are
+        all questions about the moment the sample sounds, not about the bar line
+        it was scheduled on.
+        """
+        if entry.nudge > 0:
+            self._pending.append((self._pos + entry.nudge, (entry, bar)))
+            return
+        self._start_now(entry, bar)
+
+    def _start_now(self, entry, bar: int) -> None:
         """Start one scheduled sample, honouring its play mode and choke group."""
         mode = entry.play_mode
         if mode == LOOP and self._slot_sounding(entry.slot):

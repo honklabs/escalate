@@ -352,6 +352,70 @@ class SetOutput(Command):
 
 
 @dataclass
+class SetNudge(Command):
+    """Lay a sample back behind the beat, or straighten it up (NH-02).
+
+    Encoder steps coalesce the way gain and tempo do: turning a knob is one
+    decision, not thirty.
+    """
+
+    slot: int
+    nudge_ms: float
+    previous: float
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        if not self.nudge_ms:
+            return f"slot {self.slot + 1} on the beat"
+        return f"slot {self.slot + 1} +{self.nudge_ms:.0f}ms"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.nudge_ms = self.nudge_ms
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.nudge_ms = self.previous
+
+    def merge(self, newer: Command) -> bool:
+        if (not isinstance(newer, SetNudge) or newer.slot != self.slot
+                or newer.at - self.at > MERGE_WINDOW_S):
+            return False
+        self.nudge_ms = newer.nudge_ms
+        self.at = newer.at
+        return True
+
+
+@dataclass
+class SetSwing(Command):
+    """Change the song's swing; consecutive encoder steps coalesce (NH-02)."""
+
+    swing: float
+    previous: float
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        return "straight" if not self.swing else f"swing {self.swing * 100:.0f}%"
+
+    def apply(self, project) -> None:
+        project.swing = self.swing
+
+    def revert(self, project) -> None:
+        project.swing = self.previous
+
+    def merge(self, newer: Command) -> bool:
+        if not isinstance(newer, SetSwing) or newer.at - self.at > MERGE_WINDOW_S:
+            return False
+        self.swing = newer.swing
+        self.at = newer.at
+        return True
+
+
+@dataclass
 class SetPlayMode(Command):
     """Change how a sample ends when it is triggered (NF-02)."""
 

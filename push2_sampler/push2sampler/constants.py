@@ -121,6 +121,15 @@ CHOKE_GROUPS = 8
 #: cue pairs, which the main mix -- and therefore a bounce -- never carries.
 OUTPUT_PAIRS = 4
 
+#: How far swing may push an offbeat, as a fraction of the grid division
+#: (NH-02).  1/3 is the usual triplet feel; past about 2/3 it stops being a
+#: groove and starts being a flam, so that is where it stops.
+SWING_MAX = 0.66
+#: How far behind the beat one sample may be laid, in milliseconds.  Past about
+#: an eighth of a second it stops being feel and starts being a mistake, and at
+#: 120 BPM this is already a quarter of a beat.
+NUDGE_MAX_MS = 120.0
+
 
 def pair_first_channel(pair: int) -> int | None:
     """First output channel of ``pair``, or None for the main mix.

@@ -1,10 +1,12 @@
 # push2sampler — product plan
 
-Status: **50 of the 61 items below are shipped**, which completes the `v1.1`,
-`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has one item left (`NH-02`, swing). One of the 50
-(`CC-13`) shipped only the half that does not need unverified hardware, and
-`NF-09` shipped MIDI clock but left Link a seam. Each shipped item carries a
-status note saying what was built and where it deviated from this plan and why.
+Status: **51 of the 61 items below are shipped** — every train up to and
+including `v1.5`, leaving only the ten `v2.0` ideas. Three of those 51 shipped
+in part or in a different shape, and each says so in its own note: `CC-13`
+shipped only the half that needs no unverified hardware, `NF-09` shipped MIDI
+clock and left Link a seam, and `NH-02` shipped as two features because the one
+it specified was a no-op. Every shipped item carries a status note saying what
+was built and where it deviated from this plan and why.
 
 An earlier version of this line claimed "v1.1 shipped and most of v1.2" while
 seven of `v1.1`'s own items were still open — a reminder to count against
@@ -341,9 +343,9 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-11`~~ ~~`NH-12`~~ `NH-02` |
+| ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← next | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -352,6 +354,12 @@ do for itself.
 † `CC-13` shipped its dimmer-library half only. Its global-brightness SysEx
 needs a command byte verified against Ableton's manual, which cannot be done
 here, so it waits for `F-08` — see the item.
+
+† `NH-02` shipped as swing **and** a per-sample nudge. Swing as specified (8th
+notes) cannot act on a bar-addressed arrangement at all, so swing went where
+sub-beat time actually exists — live triggering — and the nudge is the bar-grid
+equivalent. See the item for the reasoning; it is the one place in this plan
+where the spec was judged wrong rather than incomplete.
 
 ---
 
@@ -1464,6 +1472,62 @@ never by moving the transport, or recording alignment breaks. Per-sample
 **Tests:** at 50 % swing the second 8th's trigger frame is exactly
 `fpb × (1 + 0.5)/2` later; swing does not shift bar-aligned triggers; recording
 is unaffected while swing is non-zero. **Deps:** `F-01`, `NF-02`.
+
+**Status: shipped as two halves, because the spec as written was a no-op.**
+This item was flagged for a decision three times and never answered, so the
+product call was made here: read the plan's own test list again --- "swing does
+not shift bar-aligned triggers". *Every* trigger in this program is
+bar-aligned. In a bar-addressed sequencer that line does not describe an edge
+case, it describes the whole feature doing nothing. There are no 8th notes in
+the arrangement to swing.
+
+So the item ships as the two things it was actually reaching for:
+
+1. **Swing, where sub-beat time exists.** `QUANTIZE_BEATS` gained `0.25` and
+   `0.5` (`1/16 bar` and `1/8 bar`), and `Engine.swing` pushes the **odd** grid
+   lines late by 0--66 % of the division. At a half-beat grid the downbeats stay
+   put and the eighths between them move, which is what swing is. On the swing
+   encoder (CC 15, previously unbound), per song, one undo step.
+2. **A per-sample nudge**, which is what groove means when your grid is bars:
+   `Sample.nudge_ms`, 0--120 ms, on encoder 2 of a sample page. A clap laid
+   20 ms behind the kick stops sounding like a machine. Format 9, one undo step,
+   and it affects playback and bounces because it is a property of the song
+   rather than a monitoring choice.
+
+Four decisions inside that:
+
+- **Swing is a no-op at a whole beat or coarser**, and a no-op on an already
+  late hit. Pushing every other beat back is not a groove, it is a wrong tempo;
+  and making a late hit later is the opposite of quantizing.
+- **Both places say whether swing is reaching them.** The encoder's message
+  names perform mode, and the perform page reads either `swing 30%` or
+  `(swing needs a sub-beat quantize)`. A knob that appears to do nothing is
+  worse than no knob, and this one does nothing in five of its six positions.
+- **The nudge is late only.** Starting *before* a bar line needs the engine to
+  know about that line before it arrives --- lookahead across loop wraps, page
+  boundaries and tempo changes --- for a control that is relative anyway:
+  laying everything else back is how you push one thing forward. At the 240 BPM
+  clamp a bar is still a full second, so 120 ms can never spill past its own
+  bar line, which is what makes the deferred start safe with no wrap handling
+  at all. There is a test asserting exactly that.
+- **A nudge defers the whole decision, not just the audio.** `_pending` now
+  holds either a `Voice` or a `(ScheduledSample, bar)` pair, and a nudged entry
+  resolves its play mode and choke group when it *sounds*. Deciding at the bar
+  line would cut a retriggered voice up to 120 ms before its replacement began
+  --- an audible hole where a retrigger should be seamless. `_start_scheduled`
+  now defers; `_start_now` is the old body.
+
+**The plan's own numbers were right about the mechanism** --- a phase offset on
+the start frame, never a move of the transport --- and that part went in exactly
+as specified. Recording is untouched in both halves: swing offsets a live
+trigger's start, and a nudge is applied on the way to the speakers like the
+edits are, so neither can change where a take was captured.
+
+**Per-sample `groove_enabled` was not built.** With swing confined to live
+triggering, "which samples swing" is answered by which pad you are hitting, and
+a per-sample flag for a feature that only applies while your finger is on the
+pad would be a setting with nowhere to matter. The per-sample control that
+*does* matter is the nudge, and it is per sample by construction.
 
 ### NH-03 — Metronome and count-in options `size: S`
 

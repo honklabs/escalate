@@ -19,8 +19,16 @@ from ..history import ClearBar, ToggleTrigger
 from ..project import FULL_VELOCITY
 from .base import Mode
 
-#: Labels for the quantize amounts, matching audio.QUANTIZE_BEATS.
-QUANTIZE_LABELS = ("off", "1/4 bar", "1/2 bar", "1 bar")
+#: Labels for the quantize amounts, matching audio.QUANTIZE_BEATS.  Bar
+#: fractions, like the rest of this program, which reads as note values in 4/4.
+QUANTIZE_LABELS = ("off", "1/16 bar", "1/8 bar", "1/4 bar", "1/2 bar", "1 bar")
+#: Index of "1 bar", where a fresh perform page starts: the coarsest grid, so
+#: your first press lands on a downbeat rather than wherever your hand was.
+DEFAULT_QUANTIZE = len(QUANTIZE_LABELS) - 1
+#: Divisions finer than a beat, which are the only ones swing applies to.
+SWINGABLE = tuple(
+    i for i, beats in enumerate(QUANTIZE_BEATS) if 0 < beats < 1.0
+)
 
 
 def _velocity_scale(sensitivity: float, velocity: int) -> float:
@@ -39,7 +47,7 @@ class PerformMode(Mode):
         return "PERFORM"
     transient = True
 
-    def __init__(self, app, quantize_index: int = 3) -> None:
+    def __init__(self, app, quantize_index: int = DEFAULT_QUANTIZE) -> None:
         super().__init__(app)
         self.quantize_index = quantize_index % len(QUANTIZE_BEATS)
         self.writing = False
@@ -91,7 +99,8 @@ class PerformMode(Mode):
             return True
         if cc == Btn.FIXED_LENGTH:
             self.quantize_index = (self.quantize_index + 1) % len(QUANTIZE_BEATS)
-            self.app.notify(f"quantize {QUANTIZE_LABELS[self.quantize_index]}")
+            self.app.notify(f"quantize {QUANTIZE_LABELS[self.quantize_index]}"
+                            + self._swing_note())
             return True
         if cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT):
             self.app.pop_mode()
@@ -142,12 +151,30 @@ class PerformMode(Mode):
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.DELETE] = BTN_BRIGHT if self.app.delete_armed else BTN_DIM
 
+    @property
+    def swinging(self) -> bool:
+        """Whether swing is actually doing anything at this quantize (NH-02)."""
+        return bool(self.project.swing) and self.quantize_index in SWINGABLE
+
+    def _swing_note(self) -> str:
+        """Why swing is or is not reaching what you play, in a few words.
+
+        Silence here would leave you turning the swing encoder at a one-bar
+        quantize and concluding the feature is broken.
+        """
+        if not self.project.swing:
+            return ""
+        if self.quantize_index in SWINGABLE:
+            return f"  swing {self.project.swing * 100:.0f}%"
+        return "  (swing needs a sub-beat quantize)"
+
     def status_lines(self) -> list[str]:
         mode = "WRITING" if self.writing else "playing"
         erase = "   ERASING" if self.app.delete_armed else ""
         return [
             f"PERFORM {self.app.bank_letter}  {mode}  "
-            f"quantize {QUANTIZE_LABELS[self.quantize_index]}{erase}",
+            f"quantize {QUANTIZE_LABELS[self.quantize_index]}"
+            f"{self._swing_note()}{erase}",
             "pads fire samples   Record: write them in   Fixed Length: quantize",
             "Delete: erase bars as they pass   Session: back",
         ]

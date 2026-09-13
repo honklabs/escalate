@@ -173,7 +173,17 @@ step however many bars it wrote.
 * **Delete** then any pad clears every bar for this sample;
   `Shift` + **Delete** deletes the sample and returns to the library.
   Both are undoable, as is everything else below.
-* The first track encoder sets this sample's gain.
+* The first track encoder sets this sample's gain; the **second lays the sample
+  back behind the beat**, 0-120 ms in 5 ms steps. That is what groove means when
+  your grid is bars: a clap a hair behind the kick stops sounding like a
+  machine. Late only -- a bar line is the earliest moment the engine knows
+  about, so to push one sample *ahead* you lay everything else back, and the
+  feel is relative anyway. The nudge defers the whole decision rather than just
+  the audio: whether a `loop` renews, whether a `retrig` cuts, whether a choke
+  fires are questions about the moment a sample *sounds*, and deciding at the
+  bar line would cut a retriggered voice up to 120 ms before its replacement
+  began. Saved with the project (format 9), one undo step, and applied on the
+  way to the speakers so a take is never re-cut.
 * **Accent** decides whether this sample responds to how hard you hit a pad.
   With it off (the default) every bar plays at the sample's own level, which is
   what a take toggled in by hand should do. With it on, the green of each bar
@@ -275,7 +285,18 @@ instantly.
 `Shift`+`Play` starts the loop and turns the grid back into the sample library,
 except now the pads **fire**: a press plays that sample, quantised to the next
 grid line so it lands in time even when your hand does not. `Fixed Length`
-cycles the quantize amount (off, 1/4 bar, 1/2 bar, 1 bar).
+cycles the quantize amount, as fractions of a bar: off, 1/16, 1/8, 1/4, 1/2, and
+1 bar, which is where a fresh page starts so your first press lands on a
+downbeat.
+
+The **swing encoder** pushes every odd grid line late, by 0-66 % of the
+division: at a 1/8 quantize the downbeats stay put and the eighths between them
+move, which is what swing is. It needs a quantize **finer than a beat** to do
+anything, because sub-beat time exists nowhere else in this program -- every
+arrangement trigger is on a bar line, and swinging bar lines is not swing. So
+both the encoder and the page say which of those you are in rather than leaving
+you turning a knob with no effect. For the arrangement, the bar-grid equivalent
+is the per-sample nudge above.
 
 Press `Record` and what you play is also **written into the arrangement**, at
 the bar it sounded in -- so you can build the song by playing it, pass after
@@ -554,7 +575,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-933 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+973 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -572,21 +593,23 @@ release's widening: bank and page windowing, loop ranges, the song heat map and
 its zoom, scenes, click routing and pre-roll, the project browser's metadata-only
 scan, the MIDI clock PLL against a synthetic sender, importing from disk, play
 modes and choke groups, master playback, swapping two slots, per-slot output
-routing, and every older project format still loading. No hardware, PortAudio or
-MIDI stack is needed — only `numpy`.
+routing, swing and per-sample nudges measured in frames, the monitor page's
+refusals, every internal doc link, and every older project format still loading.
+No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **50 are shipped, completing the v1.1, v1.2,
-v1.3 and v1.5 trains**; each carries a status note saying what was built and
+several people work on it at once. **51 are shipped, completing every train up
+to v1.5**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v1.4 — Plays with others` has one item left: swing. MIDI clock, importing from
-disk, per-sample playback behaviour, output routing, the monitor page and the
-hardware probe have all shipped. The one thing this project cannot do
-for itself is the human hardware pass — the display protocol and most of the
-button map are still taken from Ableton's document rather than from a device.
+`v1.4 — Plays with others` is complete, so `v2.0 — Instrument` is next: slicing
+a take across the pads, local analysis that can tell you something about what
+you played, and the rest of the ideas in `plans.md` §8. The one thing this
+project cannot do for itself is the human hardware pass — the display protocol
+and most of the button map are still taken from Ableton's document rather than
+from a device.

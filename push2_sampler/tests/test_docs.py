@@ -53,8 +53,17 @@ def slug(heading: str) -> str:
     return re.sub(r"\s", "-", text.strip())
 
 
+#: An explicit `<a id="x">` (or `name="x"`) target.  The tutorial uses these for
+#: the handful of steps it links to internally: a heading's own slug carries its
+#: step number, so inserting a step silently breaks every link into the ones
+#: after it -- which is exactly the bug that started this file.
+EXPLICIT = re.compile(r"""<a\s+(?:id|name)=["\']([^"\']+)["\']""")
+
+
 def anchors(path: Path) -> set[str]:
-    return {slug(m.group(2)) for m in HEADING.finditer(path.read_text())}
+    text = path.read_text()
+    return ({slug(m.group(2)) for m in HEADING.finditer(text)}
+            | {m.group(1) for m in EXPLICIT.finditer(text)})
 
 
 def links(path: Path) -> list[str]:

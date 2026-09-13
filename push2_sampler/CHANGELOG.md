@@ -12,6 +12,70 @@ plan.
 
 ## Unreleased
 
+### Swing, and laying a sample behind the beat (`NH-02`)
+
+The last item in `v1.4`, and the one place in this project where the plan was
+judged **wrong** rather than incomplete.
+
+The spec was "the swing encoder delays every second 8th note", with a test
+reading "swing does not shift bar-aligned triggers". Every trigger in this
+program is bar-aligned. In a bar-addressed sequencer that second line does not
+describe an edge case — it describes the feature doing nothing at all. There
+are no 8th notes in the arrangement to swing.
+
+So it shipped as the two things it was reaching for.
+
+#### Swing, where sub-beat time actually exists
+
+Perform mode's quantize gained `1/16 bar` and `1/8 bar`, and the **swing
+encoder** (previously unbound) pushes every **odd** grid line late by 0–66 % of
+the division. At an eighth-note grid the downbeats stay put and the eighths
+between them move, which is what swing is. Per song, saved, one undo step.
+
+It is a no-op at a whole beat or coarser — pushing every other beat back is not
+a groove, it is a wrong tempo — and a no-op on a hit that is already late,
+because making a late hit later is the opposite of quantizing. Grid lines are
+counted from the start of the song, so "odd" means the same thing in bar 200 as
+in bar 1.
+
+**Both places say whether swing is reaching them**, because this knob does
+nothing in most of its positions: the encoder's message names perform mode, and
+the perform page reads either `swing 30%` or `(swing needs a sub-beat
+quantize)`. A knob that appears to do nothing is worse than no knob.
+
+#### Groove: a per-sample nudge
+
+What groove means when your grid is bars. **Encoder 2** on a sample page moves
+that sample 0–120 ms later than the bar line it fires on, in 5 ms steps, shown
+as `+20ms`. A clap laid 20 ms behind the kick stops sounding like a machine, and
+every layer can have its own amount. Format 9, one undo step, and it affects
+playback and bounces because it is a property of the song rather than a
+listening choice.
+
+**Late only.** Starting *before* a bar line needs the engine to know about that
+line before it arrives — lookahead across loop wraps, page boundaries and tempo
+changes — for a control that is relative anyway: laying everything else back is
+how you push one thing forward. At the 240 BPM clamp a bar is still a full
+second, so 120 ms can never spill past its own bar line, which is what makes
+the deferred start safe with no wrap handling at all. There is a test asserting
+exactly that, so the day someone raises the tempo clamp it fails loudly.
+
+**A nudge defers the whole decision, not just the audio.** The engine's pending
+list now holds either a voice or a scheduled entry, and a nudged entry resolves
+its play mode and choke group at the moment it *sounds*. Deciding at the bar
+line would cut a retriggered voice up to 120 ms before its replacement began —
+an audible hole where a retrigger should be seamless.
+
+Recording is untouched by both halves. Swing offsets a live trigger's start, and
+a nudge is applied on the way to the speakers like the edits are, so neither can
+change where a take was captured.
+
+**Per-sample `groove_enabled` was not built.** With swing confined to live
+triggering, "which samples swing" is answered by which pad you are hitting, and
+a flag for a feature that only applies while your finger is on the pad would be
+a setting with nowhere to matter. The per-sample control that does matter is the
+nudge, and it is per sample by construction.
+
 ### The surface, in a browser (`NH-12`)
 
 `--monitor-port` serves a small read-only page mirroring the whole surface: the

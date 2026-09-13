@@ -328,6 +328,37 @@ Both settings are per sample, saved with the project (format 7), and each change
 is one undo step. Pressing the mode that is already set says so and does not
 consume an undo step.
 
+#### Groove — laying a sample back behind the beat
+
+**Encoder 2** on a sample page moves that sample **0–120 ms later** than the bar
+line it is triggered on, in 5 ms steps, and the second status line says
+`+20ms` when it is not zero. This is what groove means when your grid is bars:
+a clap that lands a hair behind the kick stops sounding like a machine.
+
+| | |
+| --- | --- |
+| Per sample | so one layer can lay back while the rest stay square |
+| Late only | 0 to +120 ms, never negative |
+| Frame-accurate | the engine splits the block at the nudged start, so it does not drift with the buffer size |
+| Saved with the project | format 9, and every older format loads straight |
+| One undo step | consecutive encoder clicks coalesce, like gain and tempo |
+
+**Why late only.** A bar line is the earliest moment the engine knows about, so
+starting *before* one would mean looking a bar ahead — across loop wraps, page
+boundaries and tempo changes — for a control that is relative anyway. Laying
+everything **else** back is how you push one thing forward, and it needs no
+lookahead at all. At the fastest tempo the program allows (240 BPM) a bar is
+still a full second, so 120 ms can never spill past the bar line it belongs to.
+
+**The nudge defers the whole decision, not just the audio.** Whether a `loop`
+renews, whether a `retrig` cuts, whether a choke group fires are questions about
+the moment a sample *sounds*, so they are answered then — deciding at the bar
+line would cut a retriggered voice up to 120 ms before its replacement began,
+which is an audible hole where a retrigger should be seamless.
+
+Recording is untouched: a nudge is applied on the way to the speakers, like
+[the edits](#sample-editor), so it never changes where a take was captured.
+
 ### Master playback mode
 
 **Shift**+**Session** opens the page whose only job is playback. It is the
@@ -453,13 +484,18 @@ navigating.
 | --- | --- |
 | A filled pad | Fire that sample, quantised to the next grid line |
 | **Record** | Toggle *writing*: fired pads are also written into the arrangement |
-| **Fixed Length** | Cycle quantize: 1 bar → off → 1/4 bar → 1/2 bar → 1 bar |
+| **Fixed Length** | Cycle quantize: 1 bar → off → 1/16 → 1/8 → 1/4 → 1/2 → 1 bar |
 | **Delete** | Arm erasing: bars are wiped as the playhead crosses them |
 | **Session**, **Note**, **◀** | Leave |
 | **Shift**+**Play** | Also leaves |
 
-Quantize defaults to **1 bar**. With quantize off, a pad sounds immediately. A
-pad pressed while the transport is stopped always sounds immediately.
+Quantize defaults to **1 bar**, the coarsest, so your first press lands on a
+downbeat rather than wherever your hand was. With quantize off, a pad sounds
+immediately. A pad pressed while the transport is stopped always sounds
+immediately.
+
+The divisions are **fractions of a bar**, which read as note values in 4/4:
+`1/16 bar` is a sixteenth, `1/8 bar` an eighth, `1/4 bar` a quarter note.
 
 With **Record** on, a fired pad is written at the bar where it *sounded*, not
 where you pressed — so a late hit still lands on the bar. Firing a pad on a bar
@@ -471,6 +507,33 @@ Erasing removes that bar for **every** sample, as one undo step.
 
 If the sample has velocity response on ([Accent](#sample-page)), how hard you hit
 the pad sets the level, and a written trigger keeps that velocity.
+
+#### Swing
+
+The **swing encoder** (second from the left, above the display) pushes every
+**odd** grid line late, by 0–66 % of the division. At a `1/8 bar` quantize the
+downbeats stay put and the eighths between them move, which is what swing is.
+
+**Swing reaches only what you play by hand, here.** Every trigger in the
+arrangement is on a bar line, and swinging bar lines is not swing — so swing
+needs a quantize **finer than a beat** (`1/16 bar` or `1/8 bar`) to do anything
+at all. Rather than leave you turning a knob with no effect, both the encoder
+and this page's first line say so:
+
+```
+PERFORM A  playing  quantize 1 bar  (swing needs a sub-beat quantize)
+PERFORM A  playing  quantize 1/8 bar  swing 30%
+```
+
+It is a no-op at a whole beat or coarser (pushing every other beat back is not
+a groove, it is a wrong tempo) and a no-op on an already-late hit, because
+making a late hit later is the opposite of quantizing. Grid lines are counted
+from the start of the song, so "odd" means the same thing in bar 200 as in bar 1.
+
+Swing is saved with the project and is one undo step. To move a sample in the
+**arrangement**, use [groove](#groove--laying-a-sample-back-behind-the-beat) on
+its own page instead — that is the bar-grid equivalent, and it is the one that
+affects playback and bounces.
 
 ### Song page
 
@@ -1399,8 +1462,9 @@ So you do not go looking:
   both directions; Link is a seam with nothing behind it, because the native
   library has never been available here. `--clock link` says so rather than
   pretending.
-- **No swing** and **no per-trigger probability**. Play modes and choke groups
-  did ship — see [Play modes](#play-modes--how-a-sample-ends).
+- **No per-trigger probability**, and no randomisation of anything.
+  [Swing](#swing) and [groove](#groove--laying-a-sample-back-behind-the-beat)
+  did ship, in the two places a bar grid can carry them.
 - **No per-layer editing** of an overdub: layers can be added and removed, not
   soloed or re-balanced against each other.
 - **No slicing** a take across the pads, and nothing that listens to your audio
@@ -1410,6 +1474,7 @@ So you do not go looking:
   messages. No waveform drawing, no graphics — and it has never rendered on
   real hardware.
 
-`plans.md` in the project root tracks all of it: 50 of the 61 planned items are
-shipped, which completes the `v1.1`, `v1.2`, `v1.3` and `v1.5` release trains.
+`plans.md` in the project root tracks all of it: 51 of the 61 planned items are
+shipped, which completes every release train up to `v1.5` and leaves the ten
+`v2.0` ideas.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

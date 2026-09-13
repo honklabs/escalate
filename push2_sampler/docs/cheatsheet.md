@@ -131,6 +131,7 @@ to another page of 64.
 | **Shift**+**Delete** | delete the sample itself |
 | **Up** / **Down** | previous / next filled slot |
 | **encoder 1** | this sample's gain (0 – 2.0) |
+| **encoder 2** | lay it back behind the beat, 0 – 120 ms |
 | **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
 | **buttons 2-5 below** | play mode: one shot / loop / gate / retrig |
 | **button 8 below** | choke group: off → 1…8 → off |
@@ -198,6 +199,20 @@ open one. A sample never chokes itself; that is what **retrig** is for.
 
 ---
 
+## Groove — laying a take behind the beat
+
+**Encoder 2** on a sample page, 0–120 ms in 5 ms steps, shown as `+20ms` on the
+display. Per sample, saved with the song, one undo step. This is what groove
+means when your grid is bars: a clap a hair behind the kick.
+
+**Late only.** To push one sample *ahead*, lay everything else back — a bar line
+is the earliest moment the engine knows about.
+
+Recording is untouched: the nudge is applied on the way to the speakers, so it
+affects playback and bounces but never where a take was captured.
+
+---
+
 ## Editor — shape a take (**Device** on a sample page)
 
 The grid becomes the audio: 64 slices, bright where it is loud. **Press a pad to
@@ -229,9 +244,15 @@ The library grid again, but the pads *fire*.
 | --- | --- |
 | any filled pad | fire that sample at the next quantize point |
 | **Record** | also write what you play into the arrangement (`WRITING`) |
-| **Fixed Length** | quantize: `1 bar` → `1/2 bar` → `1/4 bar` → `off` |
+| **Fixed Length** | quantize: `1 bar` → `off` → `1/16` → `1/8` → `1/4` → `1/2` → `1 bar` (bar fractions) |
+| **swing encoder** | swing 0–66 %: pushes the odd grid lines late |
 | **Delete** | erase bars as the playhead crosses them; press again to stop |
 | **Session** | leave |
+
+**Swing needs a sub-beat quantize** (`1/16 bar` or `1/8 bar`). Everything in the
+arrangement is on a bar line, and bar lines never swing — so the display says
+`(swing needs a sub-beat quantize)` rather than leaving you turning a knob with
+no effect. For the arrangement, use **groove** on a sample's own page.
 
 Hit harder for more level on any sample set to `velocity` (**Accent** on its
 page).
