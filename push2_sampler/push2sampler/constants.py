@@ -85,6 +85,35 @@ DISPLAY_ROW_TOP = tuple(range(102, 110))
 #: The eight buttons below the display, left to right.
 DISPLAY_ROW_BOTTOM = tuple(range(20, 28))
 
+# --------------------------------------------------------------------------
+# How a sample behaves when it is triggered (NF-02)
+# --------------------------------------------------------------------------
+#: Play to the end of the recording, whatever else happens.  The original
+#: behaviour, and still the right one for a drum hit or a full-bar loop.
+ONE_SHOT = "one_shot"
+#: Repeat until a bar where this sample is *not* triggered, then release.
+#: Lets one take hold a section without a trigger on every bar.
+LOOP = "loop"
+#: Stop at the end of the bar it started in, however long the audio is.
+#: What a 4-bar pad needs when the next chord arrives.
+GATE = "gate"
+#: A new trigger cuts the previous voice of the same slot instead of layering.
+RETRIGGER = "retrigger"
+
+PLAY_MODES: tuple[str, ...] = (ONE_SHOT, LOOP, GATE, RETRIGGER)
+
+#: Short labels for the display, in ``PLAY_MODES`` order.
+PLAY_MODE_LABELS: dict[str, str] = {
+    ONE_SHOT: "one shot",
+    LOOP: "loop",
+    GATE: "gate",
+    RETRIGGER: "retrig",
+}
+
+#: Choke groups a sample can belong to: 1-8, or None for "chokes nothing".
+#: Samples sharing a group cut each other, the way a closed hat cuts an open one.
+CHOKE_GROUPS = 8
+
 #: Every button LED this program can light.
 #:
 #: Used to blank the surface on startup and after a diagnostic.  ``clear()``

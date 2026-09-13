@@ -18,7 +18,7 @@ from push2sampler.constants import (
 )
 from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
-from push2sampler.project import PAGE_BARS, Project
+from push2sampler.project import PAGE_BARS, Project, Sample
 from push2sampler.push2 import PadEvent, SimPush
 from push2sampler.settings import EDITABLE, EDITABLE_PAGES, Settings
 
@@ -1494,3 +1494,130 @@ def test_the_editor_refuses_to_open_on_an_empty_slot(rig):
     app.push_mode(SampleEditMode(app, 9))  # slot 10 is empty
     assert app.mode.name == "library"  # it closed itself again
     assert app.depth == 1
+
+
+# ============================================== NF-02: play modes and chokes
+def a_sample(rig, slot=0, bars=1):
+    """Put a take in a slot and open its page, the way recording would."""
+    app, push, engine, project = rig
+    project.install(slot, Sample(slot=slot, bars=bars, audio=take(engine, bars)))
+    app.goto_sample(slot)
+    pump(app)
+    return project[slot]
+
+
+def test_a_button_below_the_display_sets_each_play_mode(rig):
+    from push2sampler.constants import ONE_SHOT, PLAY_MODES
+
+    app, push, engine, project = rig
+    sample = a_sample(rig)
+    assert sample.play_mode == ONE_SHOT
+
+    for index, mode in enumerate(PLAY_MODES):
+        push.press_button(DISPLAY_ROW_BOTTOM[1 + index])
+        pump(app)
+        assert sample.play_mode == mode, mode
+
+
+def test_the_current_play_mode_is_the_lit_button(rig):
+    from push2sampler.constants import BTN_BRIGHT, BTN_DIM, GATE
+
+    app, push, engine, project = rig
+    a_sample(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[3])       # third mode: gate
+    settle(app)
+    assert project[0].play_mode == GATE
+    lit = {cc: push.button_leds.get(cc) for cc in DISPLAY_ROW_BOTTOM[1:5]}
+    assert lit[DISPLAY_ROW_BOTTOM[3]] == BTN_BRIGHT
+    assert [v for cc, v in lit.items() if cc != DISPLAY_ROW_BOTTOM[3]] == [BTN_DIM] * 3
+
+
+def test_setting_a_play_mode_is_one_undo_step(rig):
+    from push2sampler.constants import LOOP, ONE_SHOT
+
+    app, push, engine, project = rig
+    a_sample(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[2])       # loop
+    pump(app)
+    assert project[0].play_mode == LOOP
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].play_mode == ONE_SHOT
+
+
+def test_pressing_the_mode_already_set_says_so_and_does_not_stack_undo(rig):
+    """A no-op should not consume an undo step someone may need."""
+    app, push, engine, project = rig
+    a_sample(rig)
+    assert not app.history.can_undo
+    push.press_button(DISPLAY_ROW_BOTTOM[1])       # one_shot, already set
+    pump(app)
+    assert not app.history.can_undo
+    assert "already one shot" in " ".join(app.status_lines())
+
+
+def test_the_last_button_cycles_the_choke_group(rig):
+    from push2sampler.constants import CHOKE_GROUPS
+
+    app, push, engine, project = rig
+    sample = a_sample(rig)
+    assert sample.choke_group is None
+    for expected in range(1, CHOKE_GROUPS + 1):
+        push.press_button(DISPLAY_ROW_BOTTOM[7])
+        pump(app)
+        assert sample.choke_group == expected
+    push.press_button(DISPLAY_ROW_BOTTOM[7])       # past 8 wraps to off
+    pump(app)
+    assert sample.choke_group is None
+
+
+def test_the_choke_group_is_undoable(rig):
+    app, push, engine, project = rig
+    a_sample(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[7])
+    pump(app)
+    assert project[0].choke_group == 1
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].choke_group is None
+
+
+def test_the_display_names_the_mode_and_the_group(rig):
+    app, push, engine, project = rig
+    a_sample(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[3])       # gate
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[7])       # choke 1
+    pump(app)
+    lines = " ".join(app.mode.status_lines())
+    assert "gate" in lines
+    assert "choke 1" in lines
+
+
+def test_play_mode_survives_a_save_and_load(rig, tmp_path):
+    from push2sampler.constants import RETRIGGER
+
+    app, push, engine, project = rig
+    a_sample(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[4])       # retrigger
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[7])
+    pump(app)
+    project.save(tmp_path / "saved")
+
+    reloaded = Project.load(tmp_path / "saved", samplerate=SR)
+    assert reloaded[0].play_mode == RETRIGGER
+    assert reloaded[0].choke_group == 1
+
+
+def test_the_schedule_carries_the_mode_and_group(rig):
+    from push2sampler.constants import GATE
+
+    app, push, engine, project = rig
+    sample = a_sample(rig)
+    sample.play_mode = GATE
+    sample.choke_group = 3
+    sample.set_trigger(0, True)
+    entry = project.build_schedule()[0][0]
+    assert entry.play_mode == GATE
+    assert entry.choke_group == 3

@@ -49,7 +49,13 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from .constants import GATE, LOOP, ONE_SHOT, RETRIGGER
+
 #: Maximum simultaneously sounding voices; the oldest is faded out beyond this.
+#: How many times a looping voice may wrap inside one segment.  A bound, not a
+#: budget: segments are split at beat lines, so a sane loop wraps once at most.
+MAX_LOOP_WRAPS = 64
+
 MAX_VOICES = 96
 #: Extra voice slots reserved for voices that are fading out.
 MAX_RELEASING = 16
@@ -91,6 +97,12 @@ class Voice:
     #: First output channel to mix into, for a click on its own pair.  None
     #: means the whole output, which is what every sample wants.
     channel: int | None = None
+    #: How this voice ends: one of ``PLAY_MODES`` (NF-02).
+    play_mode: str = ONE_SHOT
+    #: 1-8, or None.  A new voice in a group releases the others in it.
+    choke_group: int | None = None
+    #: Bar this voice started on, so a gate knows which bar line is "its" end.
+    start_bar: int = -1
 
 
 @dataclass
@@ -100,6 +112,8 @@ class ScheduledSample:
     slot: int
     buf: np.ndarray
     gain: float = 1.0
+    play_mode: str = ONE_SHOT
+    choke_group: int | None = None
 
 
 @dataclass(frozen=True)
@@ -888,9 +902,68 @@ class Engine:
             self.events.put(("record_started", self._rec_bars))
         if self._rec_state != IDLE and not self.play_while_recording:
             return
-        if bar < len(self._schedule):
-            for entry in self._schedule[bar]:
-                self._add_voice(Voice(entry.buf, entry.gain, entry.slot))
+        entries = self._schedule[bar] if bar < len(self._schedule) else ()
+        # Ends before starts: a gate that finishes on this line, and a loop the
+        # new bar does not renew, are released before anything new sounds --
+        # otherwise a retrigger or a choke would cut the voice it just started.
+        self._end_voices(bar, entries)
+        for entry in entries:
+            self._start_scheduled(entry, bar)
+
+    def _end_voices(self, bar: int, entries) -> None:
+        """Release the voices this bar line ends.
+
+        Called only at a bar line, which is always a segment boundary, so a
+        release starts on the exact frame of the line rather than whenever a
+        block happens to land -- the difference between a gate and a gate that
+        sometimes runs 10 ms long.
+        """
+        renewed = {entry.slot for entry in entries}
+        for voice in self._voices:
+            if voice.releasing is not None or voice.slot < 0:
+                continue
+            if voice.play_mode == GATE and voice.start_bar != bar:
+                voice.releasing = 0
+            elif voice.play_mode == LOOP and voice.slot not in renewed:
+                voice.releasing = 0
+
+    def _start_scheduled(self, entry, bar: int) -> None:
+        """Start one scheduled sample, honouring its play mode and choke group."""
+        mode = entry.play_mode
+        if mode == LOOP and self._slot_sounding(entry.slot):
+            # Already looping: a trigger on a later bar renews it rather than
+            # stacking a second copy on top of the first.
+            return
+        if mode == RETRIGGER:
+            self._release_slot(entry.slot)
+        if entry.choke_group is not None:
+            self._release_choke(entry.choke_group, entry.slot)
+        self._add_voice(Voice(
+            entry.buf, entry.gain, entry.slot,
+            play_mode=mode, choke_group=entry.choke_group, start_bar=bar,
+        ))
+
+    def _slot_sounding(self, slot: int) -> bool:
+        return any(
+            v.slot == slot and v.releasing is None for v in self._voices
+        )
+
+    def _release_slot(self, slot: int) -> None:
+        for voice in self._voices:
+            if voice.slot == slot and voice.releasing is None:
+                voice.releasing = 0
+
+    def _release_choke(self, group: int, slot: int) -> None:
+        """Release every other slot in ``group``.
+
+        A sample's relationship with *itself* is ``play_mode``'s business, so a
+        slot never chokes its own voices -- otherwise ``one_shot`` in a group
+        would silently behave like ``retrigger``.
+        """
+        for voice in self._voices:
+            if (voice.choke_group == group and voice.slot != slot
+                    and voice.releasing is None):
+                voice.releasing = 0
 
     def _wrap_song(self) -> None:
         end = self.end_frames
@@ -946,6 +1019,11 @@ class Engine:
         for voice in self._voices:
             buf = voice.buf
             total = buf.shape[0]
+            if voice.play_mode == LOOP and voice.releasing is None:
+                filled = self._mix_looping(seg, voice, n, total, sounding, peaks)
+                if filled or voice.releasing is None:
+                    keep.append(voice)
+                continue
             k = min(n, total - voice.pos)
             if voice.releasing is not None:
                 k = min(k, self._release_frames - voice.releasing)
@@ -980,6 +1058,49 @@ class Engine:
         self._voices = keep
         self.sounding = tuple(sorted(sounding))
         self._decay_slot_peaks(peaks)
+
+    def _mix_looping(self, seg, voice: Voice, n: int, total: int,
+                     sounding: set, peaks: dict) -> int:
+        """Fill up to ``n`` frames from a looping voice, wrapping as needed.
+
+        A loop point that falls mid-segment would otherwise leave the rest of
+        the segment silent, so the fill continues from the top of the buffer.
+        For an on-grid take the loop point *is* a bar line, and segments are
+        already split there, so this wraps once and fills exactly one buffer's
+        worth -- the general path only earns its keep on trimmed or odd-length
+        takes.
+
+        The buffer's own 3 ms head and tail fades still apply at the seam. That
+        is a hair of a dip rather than the click a hard splice would give, and
+        it is the same trade the rest of the declicking makes (F-05).
+        """
+        filled = 0
+        for _ in range(MAX_LOOP_WRAPS):
+            if filled >= n:
+                break
+            if voice.pos >= total:
+                voice.pos = 0
+            k = min(n - filled, total - voice.pos)
+            if k <= 0:
+                break
+            chunk = voice.buf[voice.pos : voice.pos + k]
+            if chunk.shape[1] > self.out_channels:
+                chunk = chunk[:, : self.out_channels]
+            env = self._envelope(voice, k, total)
+            if voice.channel is not None:
+                self._mix_routed(seg[filled:], chunk, voice, k, env)
+            elif env is None:
+                seg[filled : filled + k] += chunk * voice.gain
+            else:
+                seg[filled : filled + k] += chunk * (voice.gain * env[:, None])
+            if voice.slot >= 0 and voice.channel is None:
+                sounding.add(voice.slot)
+                if voice.slot < MAX_SLOTS:
+                    level = float(np.max(np.abs(chunk))) * abs(voice.gain)
+                    peaks[voice.slot] = max(peaks.get(voice.slot, 0.0), level)
+            voice.pos += k
+            filled += k
+        return filled
 
     def _decay_slot_peaks(self, peaks) -> None:
         """Hold the loudest reading, then let it fall, so a meter can be read."""

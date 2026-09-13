@@ -129,6 +129,8 @@ to another page of 64.
 | **Up** / **Down** | previous / next filled slot |
 | **encoder 1** | this sample's gain (0 – 2.0) |
 | **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
+| **buttons 2-5 below** | play mode: one shot / loop / gate / retrig |
+| **button 8 below** | choke group: off → 1…8 → off |
 
 | Pad colour | Means |
 | --- | --- |
@@ -140,6 +142,20 @@ to another page of 64.
 | white | the playhead, anywhere else |
 | flashing blue | the first bar of a block you are duplicating |
 | faint white | 4-bar phrase mark; brighter every 16 bars |
+
+---
+
+## Play modes and chokes — how a sample ends
+
+| Play mode | What it does |
+| --- | --- |
+| **one shot** | plays to the end of the recording, whatever else happens |
+| **loop** | repeats until a bar where it is *not* triggered, then releases |
+| **gate** | stops at the end of the bar it started in, however long the audio |
+| **retrig** | a new trigger cuts the previous voice instead of layering it |
+
+A **choke group** (1–8) makes samples cut each other — a closed hat silencing an
+open one. A sample never chokes itself; that is what **retrig** is for.
 
 ---
 

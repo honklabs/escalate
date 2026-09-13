@@ -12,6 +12,43 @@ plan.
 
 ## Unreleased
 
+### Play modes and choke groups (`NF-02`)
+
+A sample used to play to the end of its recording no matter what else happened.
+Right for a drum hit; wrong for anything sustained — trigger a 4-bar chord on
+bar 1 and again on bar 3 and the first played straight over the second. Each
+sample now has a **play mode**, on buttons 2–5 below the display:
+
+| Mode | Ends when |
+| --- | --- |
+| `one shot` | the recording runs out (the original behaviour) |
+| `loop` | a bar arrives it is *not* triggered on — one trigger holds a section |
+| `gate` | the bar it started in ends, however long the audio |
+| `retrig` | a new trigger arrives; it cuts the previous voice instead of layering |
+
+Button 8 cycles a **choke group** (1–8): samples in a group cut each other, the
+way a closed hat silences an open one. Both are per sample, saved with the
+project (format 7, and every older format still loads), and one undo step each.
+
+Three things worth knowing about where the decision is made:
+
+- **Ends happen at bar lines, never by polling.** The engine already splits
+  every block at each bar line, so a gate's release begins on the exact frame of
+  the line whatever the audio block size is — pinned by a test across three
+  block sizes.
+- **Ends run before starts.** Voices finishing on a line are released before
+  anything new is scheduled onto it, or a retrigger would cut the voice it had
+  just started.
+- **A slot never chokes itself.** Otherwise `one shot` in a group would
+  silently behave like `retrig`, with no way to ask for anything else.
+
+The mixer gained a second fill path for it: a loop point that lands mid-segment
+would leave the rest of that segment silent, so a looping voice continues from
+the top of its buffer. The seam keeps the 3 ms fades every take has, so it dips
+rather than clicks — measured and bounded by a test, which is also what would
+catch the wrapping fill breaking.
+
+
 ### Output follows the surface (`F-08` finding 8)
 
 With input fixed, a normal run *still* showed nothing: this device is on the

@@ -141,6 +141,16 @@ four; **Duplicate** then the start of a block then where it goes copies it, with
 the gap between the two presses deciding how long the block is. Each is one undo
 step however many bars it wrote.
 
+* **Play mode** decides how the sample *ends*, on buttons 2-5 below the display:
+  `one shot` plays to the end of the recording (the original behaviour);
+  `loop` repeats until a bar where it is not triggered, so one take can hold a
+  section without a trigger on every bar; `gate` stops at the end of the bar it
+  started in, which is what a 4-bar pad needs when the next chord arrives; and
+  `retrig` cuts the previous voice of that slot instead of layering. Button 8
+  cycles a **choke group** (1-8): samples in a group cut each other, the way a
+  closed hat cuts an open one. A sample never chokes itself -- that is
+  `retrig`'s job, and conflating the two would make `one shot` in a group
+  silently behave like `retrig`.
 * **Record** re-records the take into the same slot, keeping its arrangement.
 * **Mute** decides whether you hear *this* sample while designing the song —
   this is the per-sample enable/disable.

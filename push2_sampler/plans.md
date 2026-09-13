@@ -340,7 +340,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
@@ -820,6 +820,37 @@ without leaving the page.
 **Deps.** `F-02`, `F-03`, `F-04`. Pairs with `NF-11`.
 
 ### NF-02 — Per-sample playback behaviour `size: M`
+
+**Status: shipped.** `Sample.play_mode` and `Sample.choke_group` ride through
+`ScheduledSample` into `Voice`, and every ending is decided at a bar line --
+which the engine already splits every block at, so a gate's release starts on
+the exact frame of the line whatever the block size is. `_end_voices` runs
+*before* `_start_scheduled` on each line, because otherwise a retrigger or a
+choke cuts the voice it has just started. A renewed loop is one voice rather
+than two: `_start_scheduled` skips a loop whose slot is already sounding.
+
+Deviations, all small and all forced:
+
+- **Button layout.** The plan wanted display-row buttons 1-4 for the modes and
+  5-8 for the group. Button 1 is already the off-grid repair, and eight groups
+  plus "off" do not fit in four buttons -- so the modes sit on 2-5 and the group
+  cycles on 8, where the display names the value.
+- **A slot never chokes its own voices.** The plan did not say either way.
+  Choking its own would make `one_shot` inside a group behave exactly like
+  `retrigger` with no way to ask for anything else, so the group's business is
+  with *other* samples and a sample's business with itself is `play_mode`.
+- **The loop seam keeps its fades.** A looping voice wraps through the buffer's
+  own 3 ms head and tail fades, so the seam is a small dip rather than the click
+  a hard splice gives. `test_the_loop_seam_is_a_fade_not_a_gap` measures it and
+  bounds it at two fades, which is also what would catch the wrapping fill
+  breaking and leaving the rest of a block silent.
+
+One thing fell out of building it: the mixer needed a second fill path. A loop
+point that lands mid-segment would otherwise leave the remainder of the segment
+silent, so `_mix_looping` continues from the top of the buffer. For an on-grid
+take the loop point *is* a bar line and the segment is already cut there, so the
+general path only earns its keep on trimmed or odd-length takes -- but those are
+exactly what the editor produces.
 
 **Problem.** Every sample is a one-shot that plays to its end. Real looping
 instruments need gates, loops and chokes — a 4-bar pad that should stop when

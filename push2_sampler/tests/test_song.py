@@ -323,7 +323,9 @@ def test_a_slot_outside_the_library_is_dropped(tmp_path, rig):
 
 
 def test_the_format_version_moved_for_pages():
-    assert FORMAT_VERSION == 6
+    # 6 added pages; 7 added play modes and choke groups (NF-02).  Both are
+    # additive, and every older format still loads -- see the loader tests.
+    assert FORMAT_VERSION == 7
 
 
 # ====================================================== NF-01: song overview

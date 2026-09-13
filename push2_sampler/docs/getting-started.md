@@ -334,6 +334,36 @@ loud.
 
 Muting here changes the bounce too. The master gain is saved with the project.
 
+### Step 11b: decide how each sample ends
+
+Everything so far has played to the end of its recording. That is right for a
+drum hit and wrong for a pad: trigger a 4-bar chord on bar 1 and again on bar 3,
+and the first one plays straight over the second.
+
+On a sample page, the four buttons **2–5** below the display set that:
+
+1. Open a sample page for a take of a bar or more.
+2. Press **button 4** — `gate`. The display names it.
+3. Put the sample on bars 1 and 2, and press **Play**.
+
+Now it re-strikes cleanly on each bar instead of overlapping itself, because a
+gate stops at the end of the bar it started in however long the audio is.
+
+The other two are worth knowing by ear:
+
+- **`loop`** (button 3) repeats until a bar it is *not* triggered on. Put a
+  1-bar take on bar 1 only, set it to `loop`, and then turn on bars 2–8: it
+  plays continuously and lets go at bar 9. One trigger holds a section.
+- **`retrig`** (button 5) cuts the previous voice of that slot instead of
+  layering. For a bass or a lead, where two notes at once is a mistake.
+
+**Button 8** cycles a **choke group**, 1 to 8. Put two samples in the same group
+and they cut each other — an open hat and a closed one, or two vocal takes that
+should never overlap. A sample never chokes itself; that is what `retrig` is
+for.
+
+All of it is per sample, saved with the song, and one **Undo** each.
+
 ### Step 12: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of

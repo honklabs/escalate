@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from . import wavio
+from .constants import CHOKE_GROUPS, ONE_SHOT, PLAY_MODES
 from .edits import DEFAULT_EDITS, Edits, render_edits
 
 #: Bars on one song page, and slots in one library bank: both are one gridful.
@@ -48,7 +49,7 @@ LENGTH_TOLERANCE = 0.01
 FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 6
+FORMAT_VERSION = 7
 #: How many scene snapshots a project keeps.
 SCENE_COUNT = 8
 #: User colours a slot can be tagged with, as palette indices; see colors.py.
@@ -60,6 +61,23 @@ def _load_color(value) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if 0 <= value < SLOT_COLORS else None
+
+
+def _load_play_mode(value) -> str:
+    """A play mode from a project file, defaulting rather than raising.
+
+    Per-field coercion, for the same reason ``Edits.from_dict`` does it: a
+    hand-edited project file should not crash inside the audio callback.
+    """
+    return value if value in PLAY_MODES else ONE_SHOT
+
+
+def _load_choke_group(value) -> int | None:
+    try:
+        group = int(value)
+    except (TypeError, ValueError):
+        return None
+    return group if 1 <= group <= CHOKE_GROUPS else None
 
 
 def _load_scenes(value) -> list[dict | None]:
@@ -132,6 +150,10 @@ class Sample:
     edits: Edits = DEFAULT_EDITS
     #: One of the eight user colours, or None for the default green (CC-18).
     color: int | None = None
+    #: How this sample behaves when triggered: one of ``PLAY_MODES`` (NF-02).
+    play_mode: str = ONE_SHOT
+    #: 1-8, or None.  Samples sharing a group cut each other.
+    choke_group: int | None = None
     #: Sound-on-sound layers, kept individually so the last one can be removed.
     #: Empty means "the take is just ``audio``"; otherwise ``audio`` is their
     #: sum and that invariant is maintained by :meth:`set_layers`.
@@ -294,6 +316,8 @@ class Sample:
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
             "color": self.color,
+            "play_mode": self.play_mode,
+            "choke_group": self.choke_group,
             "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
             "edits": self.edits.as_dict(),
             "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
@@ -657,6 +681,8 @@ class Project:
                             sample.slot,
                             audio,
                             sample.gain * sample.velocity_scale(bar),
+                            play_mode=sample.play_mode,
+                            choke_group=sample.choke_group,
                         )
                     )
         return [tuple(entries) for entries in schedule]
@@ -788,6 +814,8 @@ class Project:
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),
                 color=_load_color(entry.get("color")),
+                play_mode=_load_play_mode(entry.get("play_mode")),
+                choke_group=_load_choke_group(entry.get("choke_group")),
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
                 layers=layers,

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .constants import PLAY_MODE_LABELS
 from .project import format_bpm
 
 #: How many edits can be taken back.
@@ -275,6 +276,52 @@ class SetEnabled(Command):
         sample = project[self.slot]
         if sample is not None:
             sample.enabled = not self.enabled
+
+
+@dataclass
+class SetPlayMode(Command):
+    """Change how a sample ends when it is triggered (NF-02)."""
+
+    slot: int
+    mode: str
+    previous: str
+
+    @property
+    def label(self) -> str:
+        return f"play mode {PLAY_MODE_LABELS.get(self.mode, self.mode)}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.play_mode = self.mode
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.play_mode = self.previous
+
+
+@dataclass
+class SetChokeGroup(Command):
+    """Put a sample in a choke group, or take it out of one."""
+
+    slot: int
+    group: int | None
+    previous: int | None
+
+    @property
+    def label(self) -> str:
+        return f"choke {self.group}" if self.group else "choke off"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.choke_group = self.group
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.choke_group = self.previous
 
 
 @dataclass

@@ -280,6 +280,50 @@ instead of copying it. The whole thing is one undo step.
 Pressing an earlier bar second is refused with a reason rather than guessed at,
 and pressing **Duplicate** again cancels.
 
+#### Play modes — how a sample ends
+
+A sample used to play to the end of its recording no matter what else happened,
+which is right for a drum hit and wrong for almost everything sustained: a
+4-bar pad bled straight over the chord that replaced it. The **play mode** is
+one of four, on buttons **2–5** below the display, lit to show which is set:
+
+| Mode | Ends when |
+| --- | --- |
+| `one shot` | the recording runs out. The original behaviour, and still right for a hit or a loop that exactly fills its bars |
+| `loop` | a bar arrives that this sample is *not* triggered on. One take can then hold a whole section from a single trigger |
+| `gate` | the bar it started in ends, however long the audio is |
+| `retrig` | a new trigger on this slot arrives — it cuts the previous voice instead of layering on top of it |
+
+Three details that follow from where the decision is made:
+
+- **Ends happen at bar lines, never by polling.** The engine already splits
+  every block at each bar line, so a gate's release starts on the exact frame
+  of the line whatever the audio block size is. Nothing drifts with the buffer.
+- **Ends run before starts.** At a bar line, voices that finish there are
+  released *before* anything new is scheduled onto it — otherwise a retrigger
+  or a choke would cut the voice it had just started.
+- **A renewed loop is one voice, not two.** Triggering a looping sample on
+  consecutive bars does not stack a second copy; the existing voice keeps
+  running and the new trigger simply renews it.
+
+A loop's seam keeps the 3 ms head and tail fades every take has, so looping
+gives a hair of a dip at the loop point rather than the click a hard splice
+would give. Same trade as everywhere else the program declicks.
+
+#### Choke groups
+
+Button **8** below the display cycles this sample's **choke group**: off, then
+1 through 8, then off again. Samples in the same group cut each other — the way
+a closed hat silences an open one.
+
+A sample never chokes **itself**. A sample's relationship with its own voices is
+what the play mode is for, and conflating the two would make `one shot` inside a
+group behave like `retrig` with no way to say otherwise.
+
+Both settings are per sample, saved with the project (format 7), and each change
+is one undo step. Pressing the mode that is already set says so and does not
+consume an undo step.
+
 ### Sample editor
 
 **Device** from a sample page. Non-destructive: the recording is untouched until

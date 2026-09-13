@@ -15,9 +15,12 @@ from ..constants import (
     BTN_BRIGHT,
     BTN_DIM,
     BTN_ON,
+    CHOKE_GROUPS,
     DISPLAY_ROW_BOTTOM,
     ENCODER_TRACK,
     PAD_COUNT,
+    PLAY_MODE_LABELS,
+    PLAY_MODES,
     Btn,
 )
 from ..history import (
@@ -27,6 +30,8 @@ from ..history import (
     RemoveLayer,
     RepairLength,
     SetBars,
+    SetChokeGroup,
+    SetPlayMode,
     SetEnabled,
     SetGain,
     SetVelocitySensitivity,
@@ -39,6 +44,16 @@ from .tag import TagMode
 
 #: Bottom display-row button that fits an off-grid take to its bars.
 REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
+
+#: Buttons 2-5 below the display pick the play mode, one each (NF-02).
+#:
+#: The plan wanted 1-4 for the modes and 5-8 for the choke group, but button 1
+#: is already the off-grid repair, and eight choke groups plus "off" do not fit
+#: in four buttons.  So the modes shift one right and the group cycles on the
+#: last button, where the display names the value.
+PLAY_MODE_BUTTONS: dict[int, str] = dict(zip(DISPLAY_ROW_BOTTOM[1:5], PLAY_MODES))
+#: Button 8 cycles the choke group: off, 1..8, off.
+CHOKE_BUTTON = DISPLAY_ROW_BOTTOM[7]
 
 #: Bars every this many get a faint tint when empty, so phrases are countable.
 PHRASE_BARS = 4
@@ -218,6 +233,19 @@ class SampleMode(Mode):
                 if self.app.duplicate_armed else "duplicate off"
             )
             return True
+        if cc in PLAY_MODE_BUTTONS and sample is not None:
+            wanted = PLAY_MODE_BUTTONS[cc]
+            if wanted == sample.play_mode:
+                self.app.notify(f"already {PLAY_MODE_LABELS[wanted]}")
+            else:
+                self.app.do(SetPlayMode(self.slot, wanted, sample.play_mode))
+            return True
+        if cc == CHOKE_BUTTON and sample is not None:
+            # off -> 1 -> ... -> 8 -> off
+            current = sample.choke_group or 0
+            group = None if current >= CHOKE_GROUPS else current + 1
+            self.app.do(SetChokeGroup(self.slot, group, sample.choke_group))
+            return True
         if cc == REPAIR_BUTTON and sample is not None:
             if self.project.mismatched(sample):
                 self.app.do(RepairLength(self.slot))
@@ -346,6 +374,10 @@ class SampleMode(Mode):
         buttons[Btn.NEW] = (
             colors.RED.index if self._layering and self.app.blink else BTN_DIM
         )
+        if sample is not None:
+            for cc, mode in PLAY_MODE_BUTTONS.items():
+                buttons[cc] = BTN_BRIGHT if sample.play_mode == mode else BTN_DIM
+            buttons[CHOKE_BUTTON] = BTN_ON if sample.choke_group else BTN_DIM
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -383,6 +415,9 @@ class SampleMode(Mode):
             f"SLOT {self.slot + 1} {sample.name}  {sample.bars} bar(s)  "
             f"{state}{layers}   page {self.app.page_letter}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
+            f"{PLAY_MODE_LABELS[sample.play_mode]}"
+            + (f"  choke {sample.choke_group}" if sample.choke_group else "")
+            + "   buttons 2-5: mode   8: choke group",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "Record: re-record   New: layer   Mute: hear   Device: edit"
             + ("   (edited)" if not sample.edits.is_default else ""),
