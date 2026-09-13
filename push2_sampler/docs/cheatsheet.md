@@ -394,7 +394,9 @@ the display says why.
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |
 | `--stems DIR SONG` | one WAV per filled slot |
 | `--bpm N` | tempo for this run |
-| `--monitor off\|auto\|on` | hear the input |
+| `--monitor-port [N]` | serve the read-only monitor page (default 8765, `0` off) |
+| `--monitor-host HOST` | what it binds to; loopback by default |
+| `--monitor off\|auto\|on` | hear the input — *audio* monitoring, nothing to do with the page |
 | `--rec-latency-ms N` | trim N ms off the front of each take |
 | `--count-in N` | count-in beats (default 4) |
 | `--no-play-while-recording` | silence the song during a take |
@@ -406,6 +408,24 @@ the display says why.
 
 Command-line values win for that run and are **not** written back to the
 settings file.
+
+---
+
+## Monitor page
+
+`--monitor-port` mirrors the surface in a browser: the pads in their colours,
+the banner, the transport, the display text and every lit button.
+
+| | |
+| --- | --- |
+| `/` | the page (`http://localhost:8765/`) |
+| `/events` | one message per frame, server-sent |
+| `/snapshot.json` | the latest frame, for a script |
+
+**Read-only**: every verb but `GET` and `HEAD` is refused. **Loopback only**
+unless `--monitor-host` says otherwise — read-only is not private, and the page
+carries your slot names and your song's shape. Works with `--sim`, which is how
+you watch the LEDs with no hardware at all.
 
 ---
 

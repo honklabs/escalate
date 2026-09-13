@@ -17,8 +17,10 @@ from .constants import (
     ENCODER_TEMPO,
     PAD_COUNT,
     Btn,
+    button_name,
 )
 from .history import Command, History, SetBpm
+from .monitor_http import Monitor
 from .modes import (
     BrowserMode,
     LibraryMode,
@@ -47,6 +49,13 @@ FRAME_INTERVAL = 1.0 / 30.0
 #: Quiet period after a change before the project is written to disk, when the
 #: settings do not say otherwise.
 AUTOSAVE_DELAY = 2.0
+#: Seconds between colour-display redraws.  The screen is not a meter; ten a
+#: second is faster than anyone reads and a tenth of the LED work.
+DISPLAY_INTERVAL = 0.1
+#: Seconds between monitor-page snapshots (NH-12).  The same cadence as the
+#: display, for the same reason -- and it is skipped entirely when nobody has
+#: the page open.
+MONITOR_INTERVAL = 0.1
 #: How long a clipped input stays flagged on the surface.
 CLIP_WARNING_S = 1.5
 #: Monitoring cycles through these in order.
@@ -78,6 +87,19 @@ DEFAULT_PROJECT_ROOT = "~/push2sampler"
 #: What `Repeat` cycles through: this page, the whole song, or no looping.
 LOOP_PAGE, LOOP_SONG, LOOP_OFF = "page", "song", "off"
 LOOP_SCOPES = (LOOP_PAGE, LOOP_SONG, LOOP_OFF)
+
+
+def _css(index: int) -> str:
+    """A palette index as a CSS colour, for the monitor page (NH-12).
+
+    An index the palette does not know about renders black rather than raising:
+    a colour nobody defined is exactly an unlit pad, and the page is not the
+    place to discover it.
+    """
+    color = colors.BY_INDEX.get(index)
+    if color is None:
+        return "#000000"
+    return "#%02x%02x%02x" % color.rgb
 
 
 def _bpm_from_taps(taps: list[float]) -> float | None:
@@ -166,7 +188,20 @@ class App:
         self.bounce: BounceJob | None = None
         self._last_frame = 0.0
         self._last_display = 0.0
+        self._last_monitor = 0.0
         self._rendered_buttons: set[int] = set()
+        #: The last frame render() drew, for the monitor page to mirror.
+        self._drawn_pads: list[int] = [colors.OFF.index] * PAD_COUNT
+        self._drawn_buttons: dict[int, int] = {}
+        #: The read-only monitor page (NH-12), when the settings ask for one.
+        #: Built here, started by start_monitor() -- opening a socket is not
+        #: something constructing an App should do, and the tests construct
+        #: thousands of them.  Named for the page rather than `monitor`, which
+        #: in this program has meant *input* monitoring since v1.0.
+        self.monitor_page: Monitor | None = (
+            Monitor(self.settings["monitor_port"], self.settings["monitor_host"])
+            if self.settings["monitor_port"] else None
+        )
 
         #: Mode stack; the root is always the library, overlays sit on top.
         self._modes: list[Mode] = [LibraryMode(self)]
@@ -977,6 +1012,12 @@ class App:
         # Flashed buttons the mode does not own are recorded as rendered, which
         # is exactly what makes a later frame turn them back off.
         self._rendered_buttons = set(buttons) | flashing
+        # What the surface is showing, kept for the monitor page (NH-12) so it
+        # mirrors this frame rather than rendering the modes a second time --
+        # a second render could disagree with the first, and a monitor that
+        # disagrees with the instrument is worse than no monitor.
+        self._drawn_pads = pads
+        self._drawn_buttons = buttons
 
     def _apply_press_flash(self, buttons: dict[int, int]) -> set[int]:
         """Force recently-pressed buttons bright.  Returns which ones."""
@@ -1086,6 +1127,81 @@ class App:
             lines.append(self.message)
         return lines
 
+    # ------------------------------------------------------------------
+    # the remote monitor page (NH-12)
+    # ------------------------------------------------------------------
+    def start_monitor(self) -> bool:
+        """Open the monitor's port, if one was asked for.  Says what happened.
+
+        Failing to bind is a message and nothing more: the page is a
+        convenience, and an instrument that will not start because port 8765
+        was busy would be an absurd thing to have built.
+        """
+        page = self.monitor_page
+        if page is None:
+            return False
+        if not page.start():
+            self.notify(page.error or "monitor could not start")
+            self.monitor_page = None
+            return False
+        if page.exposed:
+            # Saying it once, plainly: the page carries your slot names, your
+            # tempo and the shape of your song, and you have just put it on a
+            # network.  It is still read-only, which is not the same as private.
+            self.notify(f"monitor on {page.url} - reachable from the network")
+        else:
+            self.notify(f"monitor on {page.url}")
+        return True
+
+    def monitor_snapshot(self) -> dict:
+        """Everything the monitor page draws, as plain JSON-able values.
+
+        Built from the frame :meth:`render` last drew rather than by asking the
+        modes again, so the page and the surface can never disagree.  Pads come
+        out as CSS colours because a palette index means nothing in a browser --
+        the mapping lives in `colors`, which is where the device's own mapping
+        lives too.
+        """
+        banner, banner_state = self.mode_banner()
+        return {
+            "mode": self.mode.name,
+            "depth": self.depth,
+            "banner": banner,
+            "banner_state": banner_state,
+            "readout": self.transport_readout(),
+            "lines": self.status_lines(),
+            "pads": [_css(index) for index in self._drawn_pads],
+            "buttons": {
+                button_name(cc): level
+                for cc, level in sorted(self._drawn_buttons.items())
+            },
+            "bpm": round(self.engine.bpm, 2),
+            "bar": self.app_bar(),
+            "playing": bool(self.engine.is_playing),
+            "recording": self.engine.rec_state,
+            "project": Path(self.project_dir).name if self.project_dir else "",
+            "bank": self.bank_letter,
+            "page": self.page_letter,
+            "unsaved": self.unsaved,
+            "offline": bool(self.push.offline),
+        }
+
+    def _publish_monitor(self, now: float) -> None:
+        """Push a snapshot, at most ten a second, and only if anyone is looking."""
+        page = self.monitor_page
+        if page is None or not page.wanted:
+            return
+        if now - self._last_monitor < MONITOR_INTERVAL:
+            return
+        self._last_monitor = now
+        try:
+            page.publish(self.monitor_snapshot())
+        except Exception as exc:  # pragma: no cover - a mode with a bad line
+            # The monitor is never allowed to take the instrument down with it.
+            self.notify(f"monitor error: {exc}")
+            page.close()
+            self.monitor_page = None
+
     def _input_line(self) -> str:
         peak = self.engine.stats.input_peak
         filled = min(12, int(peak * 12 + 0.5))
@@ -1115,7 +1231,8 @@ class App:
         if now - self._last_frame >= FRAME_INTERVAL:
             self._last_frame = now
             self.render()
-        if self.display is not None and now - self._last_display >= 0.1:
+        self._publish_monitor(now)
+        if self.display is not None and now - self._last_display >= DISPLAY_INTERVAL:
             self._last_display = now
             try:
                 banner, state = self.mode_banner()
@@ -1215,6 +1332,12 @@ class App:
             self.clock.close()
         except Exception:  # pragma: no cover - a port already gone
             pass
+        if self.monitor_page is not None:
+            try:
+                self.monitor_page.close()
+            except Exception:  # pragma: no cover - a socket already gone
+                pass
+            self.monitor_page = None
         self.engine.close()
         self.push.clear()
         self.push.close()

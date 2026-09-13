@@ -12,6 +12,56 @@ plan.
 
 ## Unreleased
 
+### The surface, in a browser (`NH-12`)
+
+`--monitor-port` serves a small read-only page mirroring the whole surface: the
+64 pads in their real colours, the mode banner, the transport line, the
+display's text and every lit button, ten times a second over server-sent
+events. Off unless you ask for it, and `--monitor-port` on its own means 8765.
+
+For a room watching one Push, for a stream that wants the grid without a camera
+pointed at your hands, and for seeing what the LEDs would be doing with no
+hardware at all — `--sim --monitor-port` publishes the same snapshot.
+
+Three refusals hold it up:
+
+- **It never accepts a command.** Every verb but `GET` and `HEAD` is 405, and no
+  path reads a query string. A page that could press a pad would be a hole in
+  the surface reachable by anything that can open a socket.
+- **It never touches the app.** The render thread stores a finished snapshot
+  into one attribute; the request threads only read it. No lock anywhere, in a
+  program whose audio design is built on not having any — and the snapshot
+  mirrors the frame `render()` actually drew rather than asking the modes to
+  render again, because two renders could disagree.
+- **It binds to loopback**, and `--monitor-host` warns when you ask for
+  anything else. Read-only is not private: the page carries your slot names and
+  the shape of your song.
+
+Nobody watching costs nothing — with no stream open and no recent
+`/snapshot.json`, the snapshot is not built at all. Failing to bind is a message
+rather than a crash, and if building a snapshot ever raises, the page closes and
+the instrument carries on.
+
+Two things the first run found. **`/snapshot.json` was permanently empty**: a
+script polling it never opens a stream, so nothing was ever published for it to
+return; fetching it now counts as watching. And **dim pads were invisible** —
+the page carries the palette's own RGB, and `#242424` on a lit screen is nothing
+like a white LED at 14 % in a dark room. Rather than falsify the colour there is
+a *brighten dim pads* box, off by default.
+
+#### The docs now have a test
+
+Writing this up meant renumbering the tutorial, which had accumulated two `Step
+11b`s and two `Step 11c`s across four rounds of insertion — and renumbering
+broke an in-page link that nobody would have clicked for months.
+
+`tests/test_docs.py` now walks every markdown file in the project: every
+in-page anchor resolves, every relative link resolves including its anchor, no
+two headings share a slug, and the tutorial's steps are `1..n` exactly once
+each. It found three more dead or ambiguous anchors on its first run, all
+pre-existing, and the reference's "Not built yet" list turned out to still be
+promising that there was no sync, no importing and no choke groups.
+
 ### Send a slot to its own output pair (`NH-11`)
 
 With more than two output channels, **Shift** + a mixer strip button walks that
@@ -485,7 +535,7 @@ every take, velocity, edit and undo step from an older project still works.
   click-only-while-recording, and **a separate click output** — with that set, the
   main mix and everything bounced from it is click-free while a cue pair has it.
 
-### Also
+### Also in v1.3
 
 - A bounce now renders **to the last bar in use** rather than to the nominal
   song length. With four pages available and most songs using one, the old
@@ -512,7 +562,7 @@ convenience.
 what it was for, and a second word-picker for directory names is a lot of
 surface for very little.
 
-### Bugs found by using it
+### Bugs found by using it in v1.3
 
 - **`count_in_beats` came within one commit of repeating a bug this project had
   already recorded.** `NH-03` lists the count-in lengths as 0/1/2/4/8 and I made
@@ -588,7 +638,7 @@ Completes the `v1.1` **Trustworthy** and `v1.2` **Playable** trains: 32 of the
   rounds and a median, so one cough does not set your timing; it refuses
   anything over 250 ms, which is a room reflection rather than latency.
 
-### Also
+### Also in v1.2
 
 - The settings page **scrolls** with up/down, now that there are more settings
   than there are buttons under the display.
@@ -598,7 +648,7 @@ Completes the `v1.1` **Trustworthy** and `v1.2` **Playable** trains: 32 of the
   `--version` are new on the command line; the project argument now defaults to
   the last project you had open.
 
-### Bugs found by using it
+### Bugs found by using it in v1.2
 
 Each of these was found by running the thing, not by reading it:
 
@@ -646,7 +696,7 @@ Ableton Live, no DAW, no mouse.
   (`--sim`) that runs the entire program with no hardware at all.
 - **Full user documentation** in [`docs/`](docs/README.md).
 
-### Bugs found by using it
+### Bugs found by using it in v1.0
 
 - `--samplerate 8000` was **silently discarded** — the setting had a closed
   `choices` list, so a valid request became the default with no message.

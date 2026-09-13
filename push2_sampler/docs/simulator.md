@@ -21,6 +21,17 @@ Which makes it good for three things:
 - **Reporting a bug** that anyone can reproduce by pasting your lines back in.
 - **Trying a gesture** you are not sure about before you do it to a real song.
 
+Add `--monitor-port` and you get the grid in a browser as well as in the
+terminal — in real colours rather than letters, updating as you type:
+
+```
+python -m push2sampler --sim --monitor-port my-song
+```
+
+The simulator publishes the same snapshot the hardware path does, so this is
+the one way to see what the LEDs would be doing with no Push in the room. See
+[the monitor page](reference.md#the-monitor-page).
+
 ---
 
 ## What you see

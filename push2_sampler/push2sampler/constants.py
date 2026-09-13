@@ -155,6 +155,24 @@ ALL_BUTTON_CCS: tuple[int, ...] = tuple(sorted(
     | set(DISPLAY_ROW_TOP) | set(DISPLAY_ROW_BOTTOM)
 ))
 
+#: cc -> a readable name, for anything that has to *show* a button rather than
+#: light it: the remote monitor page (NH-12) and the probe's reports.
+#:
+#: The two rows flanking the display have no names of their own on the hardware
+#: -- they are "the button under the third column" -- so they are numbered.
+BUTTON_NAMES: dict[int, str] = {
+    **{value: name.lower() for name, value in vars(Btn).items()
+       if not name.startswith("_") and isinstance(value, int)},
+    **{cc: f"top{i + 1}" for i, cc in enumerate(DISPLAY_ROW_TOP)},
+    **{cc: f"bot{i + 1}" for i, cc in enumerate(DISPLAY_ROW_BOTTOM)},
+}
+
+
+def button_name(cc: int) -> str:
+    """A name for `cc`, or ``cc123`` for one we have never bound."""
+    return BUTTON_NAMES.get(cc, f"cc{cc}")
+
+
 #: Relative encoders.  Value 1..63 is clockwise, 127..65 counter-clockwise.
 ENCODER_TEMPO = 14
 ENCODER_SWING = 15

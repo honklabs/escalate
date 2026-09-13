@@ -9,6 +9,7 @@ from pathlib import Path
 from . import __version__
 from .app import App
 from .audio import Engine
+from .monitor_http import DEFAULT_PORT as MONITOR_DEFAULT_PORT
 from .project import Project
 from .settings import Settings
 
@@ -68,7 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--monitor", choices=("off", "auto", "on"), default=None,
         help="hear the input: never, only while recording, or always. "
              "Default off -- on speakers rather than headphones it feeds back. "
-             "Shift+Metronome cycles it on the device.",
+             "Shift+Metronome cycles it on the device. This is audio "
+             "monitoring; the web page is --monitor-port.",
     )
     parser.add_argument(
         "--monitor-gain", type=float, default=None,
@@ -159,6 +161,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="where Shift+Browse starts looking for audio to import",
     )
     parser.add_argument(
+        "--monitor-port", type=int, default=None, metavar="PORT", nargs="?",
+        const=MONITOR_DEFAULT_PORT,
+        help=f"serve a read-only page mirroring the surface (default port "
+             f"{MONITOR_DEFAULT_PORT}); useful for teaching, streaming "
+             f"overlays and watching the LEDs with no hardware. 0 turns it off",
+    )
+    parser.add_argument(
+        "--monitor-host", default=None, metavar="HOST",
+        help="interface the monitor page binds to; loopback by default, so the "
+             "page stays on this machine. Anything else puts your slot names "
+             "and song on the network - read-only is not the same as private",
+    )
+    parser.add_argument(
         "--lights-off", action="store_true",
         help="turn every pad and button LED off and exit; use it after a "
              "diagnostic or a crash left the surface lit",
@@ -196,6 +211,8 @@ def resolve_settings(args) -> Settings:
         "samples_root": args.samples_root,
         "clock_role": args.clock_role,
         "clock_port": args.clock_port,
+        "monitor_port": args.monitor_port,
+        "monitor_host": args.monitor_host,
     }
     given = {name: value for name, value in overrides.items() if value is not None}
     if args.no_play_while_recording:
@@ -360,6 +377,21 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     app.restore_ui_state()
+
+    # The monitor page works with or without hardware -- watching the LEDs in a
+    # browser while driving the simulator from a terminal is one of the things
+    # it is for -- so it starts for both, and only when a port was asked for.
+    if app.start_monitor():
+        page = app.monitor_page
+        # In the simulator the app's own notify() already printed this to the
+        # same terminal, so saying it twice is just noise.
+        if not args.sim:
+            print(f"monitor: {page.url} (read-only)")
+        if page.exposed:
+            print(f"monitor: bound to {page.host} - reachable from the network",
+                  file=sys.stderr)
+    elif app.monitor_page is None and settings["monitor_port"]:
+        print("monitor: not started", file=sys.stderr)
 
     # The clock needs a real MIDI port, so it is opened here rather than in the
     # App constructor -- the simulator and the tests build an App and must stay

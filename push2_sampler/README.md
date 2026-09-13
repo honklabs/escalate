@@ -466,6 +466,35 @@ b session      # back to the library
 `t ±N` turns the tempo encoder, `k ±N` the first track encoder or `k 3 ±N` the
 third, `wait S` lets the transport run, `q` quits.
 
+## The monitor page
+
+`--monitor-port` serves a small read-only web page that mirrors the surface:
+the 64 pads in their real colours, the mode banner, the transport line, the
+display's text and every lit button, updated ten times a second over
+server-sent events. Off unless you ask for it.
+
+```
+python -m push2sampler --monitor-port my-song        # http://localhost:8765/
+python -m push2sampler --sim --monitor-port my-song  # the LEDs, with no Push
+```
+
+For teaching (a room watching one Push), for streaming (an overlay without a
+camera pointed at your hands), and for watching the LED state with no hardware
+at all -- the simulator publishes the same snapshot.
+
+Three refusals hold it up. **It never accepts a command**: every verb but `GET`
+and `HEAD` is 405, and no path reads a query string, because a page that could
+press a pad would be a hole in the surface reachable by anything that can open
+a socket. **It never touches the app**: the render thread publishes a finished
+snapshot and the request threads only read it, so there is no lock anywhere in
+a program built on not having any. **It binds to loopback** unless
+`--monitor-host` says otherwise, and says so loudly when you ask -- read-only
+is not private, and the page carries your slot names and the shape of your song.
+
+`/snapshot.json` is the same frame as JSON for a script, and fetching it counts
+as watching. Nobody watching costs nothing: the snapshot is not built at all
+unless a stream is open or the JSON was fetched in the last five seconds.
+
 ## Hardware notes
 
 * The program prefers the **Push 2 User port** for output, so it coexists with
@@ -525,7 +554,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-865 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+933 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -551,13 +580,13 @@ MIDI stack is needed — only `numpy`.
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **49 are shipped, completing the v1.1, v1.2,
+several people work on it at once. **50 are shipped, completing the v1.1, v1.2,
 v1.3 and v1.5 trains**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v1.4 — Plays with others` has two items left: swing, and a remote monitor page.
-MIDI clock, importing from disk, per-sample playback behaviour, output routing
-and the hardware probe have all shipped. The one thing this project cannot do
+`v1.4 — Plays with others` has one item left: swing. MIDI clock, importing from
+disk, per-sample playback behaviour, output routing, the monitor page and the
+hardware probe have all shipped. The one thing this project cannot do
 for itself is the human hardware pass — the display protocol and most of the
 button map are still taken from Ableton's document rather than from a device.

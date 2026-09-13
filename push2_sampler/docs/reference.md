@@ -7,10 +7,14 @@ same material, read [Getting started](getting-started.md) instead.
 - [Controls that work everywhere](#controls-that-work-everywhere)
 - [Banks and pages](#banks-and-pages)
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
-  [Sample page](#sample-page) · [Editor](#sample-editor) ·
+  [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
+  [Swap](#swapping-two-samples) · [Editor](#sample-editor) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
-  [Browser](#project-browser) · [Naming](#naming-and-colouring-a-slot) ·
+  [Output routing](#output-routing) · [Browser](#project-browser) ·
+  [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
   [Settings](#settings-page)
+- [Clock](#clock--playing-with-other-gear)
+- [The display](#the-display) · [The monitor page](#the-monitor-page)
 - [Scenes](#scenes)
 - [Colours](#colours)
 - [Settings](#settings)
@@ -868,6 +872,59 @@ Vertical space is the real constraint — 160 pixels — so the banner costs one
 the text lines. A machine with no scalable font gets the banner at body size
 rather than not at all.
 
+## The monitor page
+
+`--monitor-port` serves a small web page that mirrors the surface: the 64 pads
+in their real colours, the banner, the transport line, the display's text and
+every lit button. Off unless you ask for it.
+
+```
+python -m push2sampler --monitor-port my-song      # http://localhost:8765/
+python -m push2sampler --monitor-port 9000 my-song
+```
+
+It was built for three things the device cannot do: **teaching** (a room
+watching one Push), **streaming** (an overlay without a camera pointed at your
+hands), and **debugging the LEDs with no hardware at all** — the
+[simulator](simulator.md) publishes the same snapshot, so `--sim
+--monitor-port` gives you the grid in a browser while you type commands in a
+terminal.
+
+Three rules hold it up, and each is a refusal:
+
+| Rule | How |
+| --- | --- |
+| **It never accepts a command** | Every verb but `GET` and `HEAD` is refused with 405, and no path reads a query string |
+| **It never touches the instrument** | The render thread publishes a finished snapshot; the request threads only read it. No locks, in a program whose audio design is built on not having any |
+| **It stays on this machine** | Bound to `127.0.0.1` unless `--monitor-host` says otherwise, and saying otherwise prints a warning |
+
+A page that could press a pad would be a hole in the surface reachable by
+anything that can open a socket. A page that can only watch is safe to leave
+running — but **read-only is not private**: the page carries your slot names,
+your tempo and the shape of your song, so `--monitor-host 0.0.0.0` puts all of
+that on the network.
+
+| Path | Serves |
+| --- | --- |
+| `/` | The page. One file, no build step, no CDN — it works with no network |
+| `/events` | Server-sent events: one message per new frame |
+| `/snapshot.json` | The latest frame, for a script. Fetching it counts as watching |
+
+**Nobody watching costs nothing.** The app skips building a snapshot entirely
+unless a stream is open or the JSON was fetched in the last five seconds, so a
+monitor left enabled and unopened is one attribute read per frame. Published at
+ten frames a second rather than the LEDs' thirty: the page is not a meter.
+
+The pads carry the palette's own RGB, which means a dim state looks dim on a
+lit screen in a way an LED does not in a dark room. Rather than falsify the
+colour there is a **brighten dim pads** box on the page: off by default, so what
+you see is what the Push is told.
+
+Failing to bind is a message and nothing more — an instrument that would not
+start because port 8765 was busy would be an absurd thing to have built. If
+building a snapshot ever raises, the page is closed and the instrument carries
+on.
+
 ## Colours
 
 ### In the library
@@ -1269,7 +1326,7 @@ set it back to `main`, to hear it in the next bounce.
 
 With nothing muted and nothing routed, the stems sum back to the mix exactly.
 
-### Settings
+### The settings file
 
 `~/.config/push2sampler/settings.json`, honouring `XDG_CONFIG_HOME`.
 
@@ -1317,8 +1374,13 @@ because "everything is missing" is a diagnosis rather than a crash.
 | `doctor` / `--doctor` | Print what is installed and what is missing, then exit |
 | `--version` | Print the version and exit |
 | `--report PATH` | Where `--selftest` writes (default `./hardware-report.json`) |
+| `--monitor-port [N]` | Serve [the monitor page](#the-monitor-page); default 8765, `0` off |
+| `--monitor-host HOST` | What it binds to; loopback by default |
 | `--list-ports` | List MIDI ports and exit |
 | `--list-devices` | List audio devices and exit |
+
+`--monitor` and `--monitor-port` are unrelated despite the names: the first is
+*audio* monitoring (hearing your input), the second is the web page.
 
 ---
 
@@ -1330,22 +1392,24 @@ So you do not go looking:
   brightness SysEx is not sent: its command byte is unverified, and a knob that
   might do something else is worse than no knob.
 - **No renaming a project**; duplicate it and the copy is named for you.
-- **No time-stretch.** A take from another tempo is detected and can be padded or
-  trimmed, not stretched with its pitch preserved.
-- **No sync.** No MIDI clock in or out, no Ableton Link. The program is an island.
-  Tempo tapping and the fine nudge are the manual substitutes.
-- **No importing** audio from disk; you can only record into it.
-- **No swing**, no per-trigger probability, no choke groups or loop/gate modes —
-  every sample is a one-shot that plays to its end.
-- **No scenes or snapshots** of an arrangement; duplicating a block of bars is as
-  close as it gets.
+- **No time-stretch.** A take from another tempo — recorded or
+  [imported](#import-browser) — is detected and can be padded or trimmed, not
+  stretched with its pitch preserved.
+- **No Ableton Link.** [MIDI clock](#clock--playing-with-other-gear) works in
+  both directions; Link is a seam with nothing behind it, because the native
+  library has never been available here. `--clock link` says so rather than
+  pretending.
+- **No swing** and **no per-trigger probability**. Play modes and choke groups
+  did ship — see [Play modes](#play-modes--how-a-sample-ends).
 - **No per-layer editing** of an overdub: layers can be added and removed, not
   soloed or re-balanced against each other.
+- **No slicing** a take across the pads, and nothing that listens to your audio
+  and suggests anything. Those are the `v2.0` ideas in `plans.md`.
 - **Aftertouch** is received and ignored; velocity is used.
-- **The colour display** shows text only: mode, transport, levels and messages.
-  No waveform drawing, no graphics.
+- **The colour display** shows text only: a mode banner, transport, levels and
+  messages. No waveform drawing, no graphics — and it has never rendered on
+  real hardware.
 
-`plans.md` in the project root tracks all of it: 42 of the 58 planned items are
-shipped, which completes the `v1.1`, `v1.2` and `v1.3` release trains, and 16
-remain.
+`plans.md` in the project root tracks all of it: 50 of the 61 planned items are
+shipped, which completes the `v1.1`, `v1.2`, `v1.3` and `v1.5` release trains.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

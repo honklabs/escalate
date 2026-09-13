@@ -113,7 +113,7 @@ and cannot get feedback from a loop that is not playing.
 
 The eight buttons **above** the display are an input level meter. Make a noise;
 they should light. If they do not, your input device is wrong — see
-[step 12](#step-12-the-settings-worth-knowing).
+[step 21](#step-22-the-settings-worth-knowing).
 
 ---
 
@@ -155,7 +155,7 @@ You may notice faint white pads you did not press. Those are a ruler: a dim mark
 on every bar that starts a 4-bar phrase, a brighter one on every 16-bar section.
 They make it possible to count bars without counting pads.
 
-### Step 6b: three faster ways to fill bars
+### Step 7: three faster ways to fill bars
 
 Pressing one bar at a time is exact, but most arranging is blocks. Three gestures
 cover nearly all of it — try each on your loop:
@@ -177,7 +177,7 @@ All three are a single **Undo** each, however many bars they touched — so the
 fast way is not the risky way. (After a paint or a fill you will need a second
 **Undo** for the first press that started it.)
 
-### Step 6c: play it twice, on top of itself
+### Step 8: play it twice, on top of itself
 
 A second pass on the *same* slot, rather than a second slot:
 
@@ -198,7 +198,7 @@ anywhere is silent during the overdub — the program says so if you try.
 
 ## Part 3 — Building up
 
-### Step 7: a second part
+### Step 9: a second part
 
 1. **Press Session** to go back to the library. Your first slot is green; the
    rest are white.
@@ -219,7 +219,7 @@ variation of a take rather than a new one, press **Duplicate** then its pad in t
 library: you get a copy in the next empty slot, with the same arrangement, which
 you can then re-record, retune or trim independently.
 
-### Step 7b: more than 64 of anything
+### Step 10: more than 64 of anything
 
 You have four banks of 64 slots — 256 samples — and four song pages of 64 bars,
 which is about eight minutes. The grid always shows 64 of each, so two controls
@@ -238,7 +238,7 @@ There is a third thing **Repeat** now does: it cycles what the loop covers.
 four, `off` plays to the end and stops. Working on the chorus while the verse
 waits is the point.
 
-### Step 8: decide what you hear while you work
+### Step 11: decide what you hear while you work
 
 Two ways to silence a sample without losing it:
 
@@ -250,7 +250,7 @@ Two ways to silence a sample without losing it:
 Muting changes what plays and what gets bounced. It does not change the
 arrangement, and it is undoable.
 
-### Step 9: audition without leaving the library
+### Step 12: audition without leaving the library
 
 In the library, **hold** a filled pad for about half a second. It plays, and the
 pad turns amber, but you stay in the library — useful when you are hunting for a
@@ -261,7 +261,7 @@ particular take among twenty. A short **tap** opens the sample's page instead.
 
 ## Part 4 — Playing, not programming
 
-### Step 10: play the arrangement in
+### Step 13: play the arrangement in
 
 Toggling bars is precise but slow. Perform mode lets you play the song in.
 
@@ -281,7 +281,7 @@ Toggling bars is precise but slow. Perform mode lets you play the song in.
 
 Everything you played in, and everything you erased, is on the undo stack.
 
-### Step 11: make the pads velocity-sensitive
+### Step 14: make the pads velocity-sensitive
 
 By default a sample plays at one level however hard you hit the pad, which is
 right for a loop toggled in by hand. For something you are playing live, you
@@ -298,7 +298,7 @@ want dynamics.
 
 ## Part 5 — Fixing and finishing
 
-### Step 11b: see the whole song
+### Step 15: see the whole song
 
 Every page so far shows one sample's bars, or one bank's slots. **Press Clip**
 and you get the whole arrangement at once.
@@ -314,7 +314,7 @@ pressing it toggles exactly what the sample page would. **Page ◀/▶** steps t
 next block, **Delete** clears the block you are in, and **Clip** zooms back out
 then leaves.
 
-### Step 11c: balance it
+### Step 16: balance it
 
 Toggling bars tells you *what* plays. The mixer tells you how loudly.
 
@@ -344,7 +344,7 @@ Start the program with `--out-channels 4` (or 6, or 8) to open those channels in
 the first place. A routed slot is left out of a bounce on purpose, but its stem
 is the full recording.
 
-### Step 11b: decide how each sample ends
+### Step 17: decide how each sample ends
 
 Everything so far has played to the end of its recording. That is right for a
 drum hit and wrong for a pad: trigger a 4-bar chord on bar 1 and again on bar 3,
@@ -374,7 +374,7 @@ for.
 
 All of it is per sample, saved with the song, and one **Undo** each.
 
-### Step 11c: bring in a sample you already have
+### Step 18: bring in a sample you already have
 
 Not everything has to be recorded. **Shift**+**Browse** opens a file browser on
 the pads.
@@ -411,7 +411,7 @@ And from the terminal, when a browser is more trouble than it is worth:
 python -m push2sampler --import ~/Music/samples/kick.wav my-first-song
 ```
 
-### Step 11d: watch it play
+### Step 19: watch it play
 
 Everything so far has been editing. Now just listen.
 
@@ -428,7 +428,36 @@ The flash marks the moment a sample *starts*, not how long it lasts: a 4-bar pad
 blinks once rather than staying lit for four bars. The display counts how many
 slots fired in the bar you are in.
 
-### Step 11e: put two samples in the wrong order, then fix it
+### Step 20: put the grid on a screen
+
+Master playback is best watched, and there is only one Push in the room. Quit the
+program and start it again with one extra flag:
+
+```
+python -m push2sampler --monitor-port my-first-song
+```
+
+It prints a line like `monitor: http://localhost:8765/ (read-only)`. Open that in
+a browser and you have the whole surface: the 64 pads in their real colours, the
+mode banner, the transport line, the display's text and every lit button, updated
+ten times a second. Press **Shift**+**Session**, press **Play**, and watch the
+song play out in the browser as well as under your hands.
+
+It is worth having open for three reasons: a class or a bandmate can see what you
+are doing without leaning over the Push, a stream can show the grid without a
+camera pointed at your hands, and it keeps working with `--sim` when the Push is
+not plugged in at all.
+
+**It cannot press anything.** The page only watches — every attempt to send it a
+command is refused — and it is served to this machine only unless you go out of
+your way with `--monitor-host`. Do think before you do that: read-only is not the
+same as private, and the page carries your slot names and the shape of your song.
+
+If the dim pads look black on your screen, tick **brighten dim pads** at the top.
+The pads carry the colours the Push is actually told, and an LED at 14 % looks a
+lot brighter in a dark room than the same number does on a lit monitor.
+
+### Step 21: put two samples in the wrong order, then fix it
 
 Say your kick is on pad 1 and your snare on pad 2, and you would rather it was
 the other way round.
@@ -443,7 +472,7 @@ gains, play modes. One **Undo** puts it back.
 Picking an *empty* pad second moves the sample there instead, which is the same
 gesture and does what you would expect.
 
-### Step 12: the settings worth knowing
+### Step 22: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -478,7 +507,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 13: tempo, click, loop
+### Step 23: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -514,7 +543,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 14: shape a take
+### Step 24: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -544,7 +573,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 14b: name it, colour it
+### Step 25: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -560,7 +589,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 14c: keep two versions of the arrangement
+### Step 26: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -574,7 +603,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 14d: start another song, without a terminal
+### Step 27: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -590,7 +619,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 15: undo
+### Step 28: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -599,7 +628,7 @@ arrangement, a cleared arrangement comes back with its bars, a tempo nudge goes
 back to the old tempo, applied edits come back as edits. The button is lit only
 when there is something to take back.
 
-It also covers the block gestures from [step 6b](#step-6b-three-faster-ways-to-fill-bars):
+It also covers the block gestures from [step 7](#step-7-three-faster-ways-to-fill-bars):
 a painted range, a filled phrase, a duplicated block or a duplicated slot is one
 step each, and an undone *move* puts the sample back where it was.
 
@@ -612,7 +641,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 16: bounce it
+### Step 29: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

@@ -146,6 +146,11 @@ SPECS: dict[str, Spec] = {
     "samplerate": Spec(48_000, int, 8_000, 192_000, label="rate"),
     "in_channels": Spec(1, int, 1, 8, label="in ch"),
     "out_channels": Spec(2, int, 1, 8, label="out ch"),
+    # The read-only monitor page (NH-12).  0 is off, which is the default: a
+    # program does not open a port because it could.  1-1023 need root on most
+    # systems, so the range starts above them rather than failing at bind time.
+    "monitor_port": Spec(0, int, 0, 65_535, label="mon port"),
+    "monitor_host": Spec("127.0.0.1", str, label="mon host"),
 }
 
 #: Settings the audio engine consumes, in the order the app pushes them.

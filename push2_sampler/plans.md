@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **49 of the 61 items below are shipped**, which completes the `v1.1`,
-`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has two items left. One of the 49
+Status: **50 of the 61 items below are shipped**, which completes the `v1.1`,
+`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has one item left (`NH-02`, swing). One of the 50
 (`CC-13`) shipped only the half that does not need unverified hardware, and
 `NF-09` shipped MIDI clock but left Link a seam. Each shipped item carries a
 status note saying what was built and where it deviated from this plan and why.
@@ -341,7 +341,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-11`~~ `NH-02` `NH-12` |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-11`~~ ~~`NH-12`~~ `NH-02` |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
@@ -1633,7 +1633,7 @@ from a seeded RNG held on the engine), `modes/sample.py`. **Tests:** p=0 never
 fires, p=100 always; with a fixed seed a 64-bar pass is reproducible;
 `every_n=2` fires on passes 2, 4, 6. **Deps:** `NF-10` (shared trigger record).
 
-### ~~NH-11 — Multiple output pairs and a cue bus~~ `size: M` — **shipped**
+### NH-11 — Multiple output pairs and a cue bus `size: M`
 
 Route a slot to output pair 1/2 or 3/4, and send the metronome to the cue pair
 so the click stays out of the mix. Needs `out_channels` > 2 and a per-slot
@@ -1688,6 +1688,57 @@ bind to localhost by default. **Code:** new `monitor_http.py`, `app.py` (publish
 a snapshot dict), `cli.py`. **Tests:** snapshot serialization matches the LED
 state; the server thread shuts down cleanly with the app; disabled by default.
 **Deps:** none.
+
+**Status: shipped**, to the plan, including both of its refusals. `monitor_http.py`
+holds the server, the page and the one snapshot everybody reads; `App.monitor_page`,
+`monitor_snapshot()` and `_publish_monitor()` are its whole footprint in the app.
+`monitor_port` (0 = off, the default) and `monitor_host` in settings,
+`--monitor-port [N]` and `--monitor-host` for one run.
+
+Four decisions the plan left open:
+
+1. **The snapshot mirrors the frame `render()` drew**, kept in `_drawn_pads` and
+   `_drawn_buttons`, rather than asking the modes to render a second time. Two
+   renders could disagree, and a monitor that disagrees with the instrument is
+   worse than no monitor.
+2. **Nobody watching costs nothing.** `Monitor.wanted` is false with no stream
+   open and no recent `/snapshot.json`, and the app skips building the snapshot
+   entirely — a monitor left enabled and unopened is one attribute read per
+   frame. Published at 10 Hz, not the LEDs' 30: the page is not a meter.
+3. **No lock anywhere**, in keeping with the engine. The render thread stores a
+   finished dict into one attribute; readers hold that reference while they
+   serialise it. The dict is built fresh each time and never mutated, so there
+   is no window in which a reader sees half of one frame and half of the next.
+4. **Buttons are named, not numbered** (`BUTTON_NAMES`, `button_name`) — `cc85`
+   tells a reader nothing. The two rows flanking the display have no names on
+   the hardware, so they are `top1`..`top8` and `bot1`..`bot8`.
+
+**Two things the first run found**, neither of them in the plan:
+
+- **`/snapshot.json` was permanently empty.** A script polling the JSON never
+  opens a stream, so `wanted` was never true and nothing was ever published to
+  read. Fetching it now counts as watching for five seconds. An endpoint that
+  is always empty is not an endpoint.
+- **Dim pads were invisible.** The page carries the palette's own RGB, and
+  `#242424` on a lit screen is nothing like a white LED at 14 % in a dark room.
+  Rather than falsify the colour there is a **brighten dim pads** checkbox
+  (a CSS filter, remembered per browser): off by default, so what you see is
+  what the Push is told.
+
+**It also produced `tests/test_docs.py`**, which is not a feature but is the
+most reusable thing in the item. Writing NH-12's docs meant renumbering the
+tutorial, which had accumulated two `Step 11b`s and two `Step 11c`s from four
+rounds of insertion — and that broke a link nobody would have clicked for
+months. The test now walks every markdown file in the project: every in-page
+anchor resolves, every relative link resolves (including its anchor), no two
+headings share a slug, and the tutorial's steps are `1..n` exactly once each.
+It found three more dead or ambiguous anchors on its first run, all pre-existing.
+
+Getting its slug function right needed care: github-slugger turns **each** space
+into its own hyphen and does not collapse runs, so a heading with an em dash
+(`Clock — playing with other gear`) anchors as `clock--playing-with-other-gear`.
+Collapsing them would have had the test call working links dead, which is the
+failure mode that makes people delete a test.
 
 ---
 
