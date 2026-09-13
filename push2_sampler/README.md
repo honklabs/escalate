@@ -89,7 +89,6 @@ everything in every bank plays regardless of which one you are looking at.
 * The eight buttons **below the display** are scenes: `Shift` stores the whole
   arrangement in one, a plain press recalls it. For A/B-ing two versions of a
   chorus, or switching between them live.
-
 * `Shift`+`Browse` opens an **import browser**: a file browser on the pads,
   white for folders and blue for audio. One press highlights and describes, a
   second imports into the first empty slot, resampling to the session rate. It
@@ -459,6 +458,12 @@ third, `wait S` lets the transport run, `q` quits.
 * It never sends a mode change, so no button has to be pressed on the Push
   first. If the pads don't respond, see
   [troubleshooting](docs/troubleshooting.md#pads-and-buttons-do-nothing-but-the-lights-work-or-vice-versa).
+* It can **follow or send MIDI clock** (`--clock midi_slave|midi_master`,
+  `--clock-port NAME`) on a port of its own, separate from the surface.
+  Following never moves the playhead -- only the tempo is nudged, and phase is
+  compared at tick arrival where the sender's position is exact. Measured
+  against a synthetic sender: 0.3 ms over 32 bars. Never measured against real
+  gear. Ableton Link is a lazy-import seam that reports itself unavailable.
 * Pad colours are addressed by palette index, and the factory palette is not
   stable across firmware, so the program uploads its own palette entries (64+)
   over SysEx at startup.

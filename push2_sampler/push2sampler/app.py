@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import colors, wavio
 from .audio import MONITOR_AUTO, MONITOR_OFF, MONITOR_ON
+from .clock import make_clock
 from .constants import (
     BTN_BRIGHT,
     BTN_DIM,
@@ -120,6 +121,16 @@ class App:
         self._log = log
 
         self.history = History()
+        #: External clock, if the settings ask for one (NF-09).  Built here but
+        #: not opened: opening touches MIDI ports, which the simulator and the
+        #: tests have no business doing.
+        self.clock = make_clock(
+            self.settings["clock_role"],
+            port_name=self.settings["clock_port"],
+            beats_per_bar=project.beats_per_bar,
+            bpm=project.bpm,
+        )
+        self.clock.bind(engine)
         self.shift = False
         self._delete_armed = False
         self._delete_armed_at = 0.0
@@ -997,7 +1008,12 @@ class App:
         where = f"BAR {bar + 1}" if bar >= 0 else "BAR -"
         if page:
             where += f"{page}"
-        return f"{where} · {beat + 1} · {format_bpm(self.engine.bpm)} BPM"
+        line = f"{where} · {beat + 1} · {format_bpm(self.engine.bpm)} BPM"
+        if self.clock.role != "internal":
+            # Who is in charge of the tempo is exactly what you need to know
+            # when the tempo is doing something you did not ask for.
+            line += f" · {'SYNC' if getattr(self.clock, 'locked', True) else 'sync?'}"
+        return line
 
     def status_lines(self) -> list[str]:
         lines = list(self.mode.status_lines())
@@ -1015,6 +1031,8 @@ class App:
             f"{'  *' if self.unsaved else ''}"
         )
         lines.append(self._input_line())
+        if self.clock.role != "internal":
+            lines.append(self.clock.status)
         if self.push.offline:
             lines.append("SURFACE OFFLINE - check the cable; the audio is still running")
         if self.message and time.monotonic() - self._message_at < 3.0:
@@ -1042,6 +1060,7 @@ class App:
             self._clip_until = time.monotonic() + CLIP_WARNING_S
             self.notify("input clipping")
         self.mode.on_tick()
+        self._poll_clock()
         self._step_bounce()
         self._supervise_surface()
 
@@ -1060,6 +1079,45 @@ class App:
             # Announce only a real project write; a moved bookmark is not news.
             self.save_now(announce=self.project.dirty)
             self.save_settings()
+
+    def _poll_clock(self) -> None:
+        """Apply whatever the external clock is asking for.
+
+        The clock never touches the engine itself: it returns intentions and
+        this decides, which is what keeps "the tempo is refused mid-take" in
+        one place rather than in every clock role.
+        """
+        events = self.clock.poll(self.engine)
+        if not events:
+            return
+        for event in events:
+            if event.kind == "tempo":
+                # set_bpm refuses mid-take on its own, but checking here too
+                # keeps the reason in the place that knows why: a take's length
+                # is measured in frames at the tempo it was cut at.
+                if self.engine.rec_state == "idle":
+                    self.engine.set_bpm(event.bpm)
+                    # The project's tempo is deliberately *not* written here.
+                    # save_now already copies the engine's tempo in before it
+                    # writes, so a synced session saves the tempo it ran at --
+                    # and writing it on every poll would mark the project dirty
+                    # thirty times a second and autosave in a loop.
+            elif event.kind == "start":
+                self.engine.play(event.bar)
+            elif event.kind == "continue":
+                if not self.engine.is_playing:
+                    self.engine.play(self.app_bar())
+            elif event.kind == "stop":
+                # Straight to the engine, not through _stop: that one is the
+                # *hand* gesture, with a double-press panic and a Shift-held
+                # stop-at-bar-end.  An external stop means stop.
+                self.engine.stop()
+            elif event.kind == "seek":
+                self.engine.play(min(event.bar, self.project.song_bars - 1))
+
+    def app_bar(self) -> int:
+        """The bar the transport is on, clamped into the song."""
+        return max(0, min(self.engine.current_bar, self.project.song_bars - 1))
 
     def _supervise_surface(self) -> None:
         """Keep trying to get an unplugged Push back, without stopping the music.
@@ -1104,6 +1162,10 @@ class App:
             # a project that could not be written should say so, not print into
             # a terminal nobody is looking at.
             self.save_now()
+        try:
+            self.clock.close()
+        except Exception:  # pragma: no cover - a port already gone
+            pass
         self.engine.close()
         self.push.clear()
         self.push.close()

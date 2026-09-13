@@ -20,6 +20,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .clock import ROLES
+
 CONFIG_DIR = "push2sampler"
 CONFIG_FILE = "settings.json"
 
@@ -113,6 +115,12 @@ SPECS: dict[str, Spec] = {
     # there is no text entry on a Push, so this is set in the file or on the
     # command line, and an empty value means "beside the project".
     "samples_root": Spec("", str, label="samples root"),
+    # Clock role (NF-09).  A closed choices list is right here, unlike the
+    # count-in: these are names of code paths, not a number someone might
+    # reasonably want a value between.  An unknown one falls back to internal
+    # rather than refusing to start -- see clock.make_clock.
+    "clock_role": Spec("internal", str, choices=ROLES, label="clock"),
+    "clock_port": Spec("", str, label="clock port"),
     #: Blank library pads at full white is glare on 64 pads at once (CC-13).
     "dim_library": Spec(True, bool, label="dim library"),
     "monitor": Spec("off", str, choices=("off", "auto", "on"), label="monitor"),

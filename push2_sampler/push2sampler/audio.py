@@ -51,11 +51,11 @@ import numpy as np
 
 from .constants import GATE, LOOP, ONE_SHOT, RETRIGGER
 
-#: Maximum simultaneously sounding voices; the oldest is faded out beyond this.
 #: How many times a looping voice may wrap inside one segment.  A bound, not a
 #: budget: segments are split at beat lines, so a sane loop wraps once at most.
 MAX_LOOP_WRAPS = 64
 
+#: Maximum simultaneously sounding voices; the oldest is faded out beyond this.
 MAX_VOICES = 96
 #: Extra voice slots reserved for voices that are fading out.
 MAX_RELEASING = 16
@@ -612,7 +612,32 @@ class Engine:
         if self.rec_state != IDLE:
             return  # changing tempo mid-take would corrupt the take length
         bpm = max(40.0, min(240.0, float(bpm)))
-        self._post(("bpm", bpm), self._intend(bpm=bpm))
+        # The published intent has to carry the rescaled position too, or a UI
+        # read between the post and the callback applying it sees the new tempo
+        # against the old position -- which is the very inconsistency the
+        # rescaling exists to remove.
+        self._post(("bpm", bpm), self._intend(bpm=bpm, pos=self._rescaled(bpm)))
+
+    def _rescaled(self, bpm: float) -> float:
+        """``_pos`` at ``bpm``, keeping the musical position it stands for.
+
+        Position is kept in frames, and a beat is ``60 / bpm * samplerate``
+        frames, so changing the tempo without touching ``_pos`` silently
+        *reinterprets* it: at 120 BPM, 64000 frames is bar 4, and at 240 BPM
+        the very same frame count is bar 8.  Doubling the tempo used to
+        teleport the playhead four bars forward with no audio in between.
+
+        Preserving the musical position instead makes a tempo change mean only
+        what it says.  It also makes the clock slave possible at all: a control
+        loop whose actuator instantly moves the thing it is measuring -- by an
+        amount proportional to how far into the song you are -- cannot be
+        tuned.
+        """
+        current = self.transport.frames_per_beat
+        if current <= 0 or bpm <= 0:
+            return self._pos
+        beats = self._pos / current
+        return beats * (60.0 / bpm * self.transport.samplerate)
 
     def play(self, from_bar: int = 0) -> None:
         pos = float(from_bar) * self.frames_per_bar
@@ -754,6 +779,9 @@ class Engine:
             self._rec_state = COUNT_IN if pos < 0 else RECORDING
             self._running = True
         elif kind == "bpm":
+            # Rescale first, then re-peg: the position has to be in the new
+            # tempo's frames before the boundary tracking is anchored to it.
+            self._pos = self._rescaled(command[1])
             self.transport.bpm = command[1]
             self._reanchor()
         elif kind == "voice":

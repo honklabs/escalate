@@ -394,6 +394,10 @@ See [Getting started, step 2](getting-started.md#step-2-run-the-probe).
   unverified. The simulator faithfully reproduces our *assumptions*.
 - **Whether a cable is plugged in.** `SimPush` never goes offline, so the
   reconnect handling is exercised by the tests rather than here.
+- **Syncing to anything.** `--clock` needs a real MIDI port, so the simulator
+  always runs on the internal clock. The control loop is tested against a
+  synthetic sender instead, in `tests/test_clock.py`, where simulated minutes
+  cost milliseconds and the numbers are reproducible.
 
 What it *does* now reach is every control — but only because that keeps getting
 caught rather than designed in. The mixer and overdub shipped with three buttons

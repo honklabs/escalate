@@ -340,7 +340,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ `NF-09` `NH-02` `NH-11` `NH-12` |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
@@ -1151,6 +1151,75 @@ a traceback; import is undoable.
 helper once, in `modes/browser.py`).
 
 ### NF-09 — MIDI clock and Ableton Link sync `size: L`
+
+**Status: MIDI clock shipped; Link is a seam only.** `clock.py` holds the role
+interface, the PLL, the master emitter and the Link stub. `clock_role` and
+`clock_port` in settings, `--clock` and `--clock-port` for one run.
+
+**The plan's own advice was the most valuable line in it.** "Prototype the PLL
+in a throwaway script before touching `audio.py`" -- done, and the throwaway
+caught four things that would each have been a bad day in `audio.py`:
+
+1. **Comparing against a quantised position.** Reading our position on the UI
+   tick means comparing against something rounded to 1/24 beat: 21 ms at 120
+   BPM, so ±1 ms was arithmetically impossible. Phase is now compared *at tick
+   arrival*, where the sender's position is exactly `n / 24`.
+2. **Mixing an additive integral with a multiplicative proportional term**,
+   which leaves a standing tempo offset -- a 120 BPM source settled at 122.
+   Both corrections are multiplicative now, so both vanish at zero error.
+3. **An integral not scaled by the tick interval**, which made the loop half as
+   fast at half the tempo and left 3.6 ms of error at 60 BPM.
+4. **No model of actuation delay.** The prototype applied tempo instantly; the
+   real loop can only act on the 30 Hz UI pass. That is a 33 ms delay the
+   prototype could not see, and it is why the first real measurement was 7.8 ms
+   rather than the predicted 0.2 -- a reminder that a prototype validates the
+   maths, not the plumbing.
+
+A fifth bug was in the real code and only the real rig could find it: `poll`
+carried each tick's own index and then compared against the *latest* tick count,
+overstating the sender's position for every tick but the last in a drained
+batch. It showed up as a constant 15 mbeat offset the integrator could not
+remove, because it was not an error the loop could act on.
+
+Measured over 32 bars against a synthetic sender: **0.28 ms** steady at 120,
+0.28 ms from a cold start at the wrong tempo, 0.23 ms after a 2:1 cold start,
+1.25 ms through a ±3 % wobble, 3.6 ms with 1 ms of arrival jitter, and never a
+backwards step in the music.
+
+**The engine needed one change, and it was a bug fix rather than a feature.**
+Position is kept in frames and a beat is `60/bpm*rate` frames, so changing the
+tempo *reinterpreted* the same frame count: 64000 frames was bar 4 at 120 BPM
+and bar 8 at 240. Doubling the tempo teleported the playhead four bars forward
+with no audio in between -- so tapping a tempo mid-song moved where you were in
+it, and nudging ±0.1 BPM at bar 200 moved you by a fifth of a bar. `set_bpm`
+now preserves the musical position. This was not a sync bug; sync merely made
+it impossible to ignore, because a control loop whose actuator instantly moves
+the thing it measures -- by an amount proportional to how far into the song you
+are -- cannot be tuned at all.
+
+Deviations:
+
+- **Link is a seam, not a feature**, and says so. The lazy import and the
+  absent-safe fallback are real and tested; nothing behind the import has ever
+  run, because the native library has not been available in any environment
+  this code has been in. `--clock link` reports `link unavailable` and leaves
+  you on the internal clock.
+- **No `frames_per_beat` PLL.** The plan wanted the loop to adjust
+  `frames_per_beat` gradually; it adjusts `bpm`, which *is* `frames_per_beat`
+  by another name and goes through the one setter that already refuses mid-take
+  and already clamps. The engine's transport was not touched.
+- **The master emits from a thread watching the engine position**, not from the
+  callback (which would allocate and do IO) and not from the wall clock (which
+  would drift from the audio device). One millisecond of poll granularity.
+- **No sync offset calibration.** A constant offset between arrival and audio
+  is a real thing that real gear will show, and the loop locks to whatever it
+  measures. Noted in troubleshooting rather than guessed at; it wants a real
+  device on the other end before a control is added for it.
+
+**Still unverified, and honestly so:** neither role has been run against real
+gear. The numbers above are real measurements of real code driven by a
+simulation. This is the same class of risk as `F-08`, and it wants the same
+treatment -- a human, a drum machine, and a report.
 
 **Problem.** The sampler is an island. It cannot play in time with a drum
 machine, a modular setup, or a friend's laptop.

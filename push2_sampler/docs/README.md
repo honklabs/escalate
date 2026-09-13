@@ -23,10 +23,22 @@ disk.
 Every hardware fact in this program — which MIDI port to use, what control
 change each button sends, what a palette colour looks like, how the display is
 fed — was taken from Ableton's *Push 2 MIDI and Display Interface* document
-rather than measured on a device. **Nobody has run it on real hardware yet.**
+rather than measured on a device.
 
-So the first thing to do with a Push 2 in front of you is not to make music, it
-is to run the probe:
+It **has** now run on a real Push 2, and the first session corrected four of
+those facts before a single note was recorded: there was no `User` button to
+press, the surface reports on the *Live* port rather than the User port in both
+directions, and two of our own diagnostics were wrong about what they were
+measuring. What the port names are is now confirmed; most of the rest — every
+button's control change, every palette colour, the display protocol — is still
+from the document.
+
+So the first thing to do with a Push 2 in front of you is still not to make
+music. It is to run the probe.
+
+If the grid stays dark, start with `--led-test` and then `--midi-probe`; the
+probe below assumes the LEDs already work, which is exactly the assumption the
+first real session broke. Otherwise:
 
 ```
 python -m push2sampler --selftest

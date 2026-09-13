@@ -334,6 +334,8 @@ the display says why.
 | `--import FILE` | import an audio file into the project and exit |
 | `--slot N` | with `--import`, which slot (1-256); default the first empty |
 | `--samples-root DIR` | where **Shift**+**Browse** starts looking |
+| `--clock ROLE` | `internal`, `midi_slave`, `midi_master`, `link` |
+| `--clock-port NAME` | which MIDI port carries clock (not the Push's) |
 | `--midi-port NAME` | force the Push port (`live`, `user`, any substring) |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |

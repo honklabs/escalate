@@ -14,8 +14,11 @@ Three things first:
 2. **Run the probe.** `python -m push2sampler --selftest` tests the MIDI ports,
    the pads, the buttons, the encoders and the display one at a time and writes
    down what it found. If a control does nothing, the probe will tell you whether
-   the program is looking at the wrong control change number — which is likely,
-   because [nobody has run this on real hardware yet](README.md#one-thing-to-know-before-you-trust-it).
+   the program is looking at the wrong control change number — which is quite
+   possible, because most of them still come from
+   [a document rather than a device](README.md#one-thing-to-know-before-you-trust-it).
+   If the grid is dark, run `--led-test` first: the probe's questions all
+   assume working LEDs.
 3. **Read the display.** Nearly every failure in this program announces itself
    there: a device that would not open, a bounce that failed, a take that does
    not fit its bars, a clipping input. The program does not fail silently on
@@ -182,6 +185,45 @@ Two things do genuinely take the surface away from us:
 If Live is running and you would rather not quit it, that is what the Push's
 user mode is for — but it is a Live-side arrangement, not something this program
 takes part in. Quitting Live is the supported answer.
+
+### The tempo will not stay where I put it
+
+Something else is driving it. Look at the transport line: `SYNC` or `sync?`
+means an external clock owns the tempo, and the line below says which.
+
+```
+python -m push2sampler --clock internal my-song
+```
+
+puts you back in charge for that run; `clock_role` in the settings file is what
+makes it stick.
+
+### Sync is locked but everything sits slightly early or late
+
+A constant offset is not a tracking failure — the loop locks to whatever it
+measures, and it measures when clock ticks *arrive*. Buffering between the two
+machines shifts every tick by the same amount, so the lock is exact and the
+position is offset.
+
+There is no calibration control for this yet. `--rec-latency-ms` compensates
+the *recording* path only. If you need it, say so and it becomes a setting.
+
+### It says `clock slave: waiting for clock`
+
+No usable ticks have arrived. In order of likelihood:
+
+| Cause | Fix |
+| --- | --- |
+| Wrong port | `--clock-port NAME` matches part of a port name; `--list-ports` shows them. The clock port is **not** the Push's port |
+| The other device is not sending clock | Most need it turned on explicitly, and many only send while their own transport runs |
+| Ticks arriving faster than 2 ms apart | Refused as a broken sender rather than followed. `--midi-probe` on that port shows what is really arriving |
+
+### `link unavailable`
+
+Ableton Link needs a native library that is not a dependency of this program,
+and `--clock link` says so and leaves you on the internal clock rather than
+failing to start. This is a seam with nothing behind it yet — see
+[the reference](reference.md#what-has-not-been-verified).
 
 ### "ignoring …/settings.json: …" on startup
 

@@ -137,6 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
              "midi-report.json",
     )
     parser.add_argument(
+        "--clock", dest="clock_role", default=None,
+        choices=("internal", "midi_slave", "midi_master", "link"),
+        help="follow or send MIDI clock instead of running on our own tempo",
+    )
+    parser.add_argument(
+        "--clock-port", default=None, metavar="NAME",
+        help="MIDI port to take or send clock on (substring of its name); "
+             "separate from the Push's own port",
+    )
+    parser.add_argument(
         "--import", dest="import_file", metavar="FILE", default=None,
         help="import an audio file into the project and exit (needs no hardware)",
     )
@@ -184,6 +194,8 @@ def resolve_settings(args) -> Settings:
         "monitor_gain": args.monitor_gain,
         "count_in_beats": args.count_in,
         "samples_root": args.samples_root,
+        "clock_role": args.clock_role,
+        "clock_port": args.clock_port,
     }
     given = {name: value for name, value in overrides.items() if value is not None}
     if args.no_play_while_recording:
@@ -323,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(push, "follow_input", False):
             print("(output follows whichever port the surface turns out to be "
                   "on; --midi-port pins it)")
+
     try:
         engine.start()
     except Exception as exc:
@@ -347,6 +360,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     app.restore_ui_state()
+
+    # The clock needs a real MIDI port, so it is opened here rather than in the
+    # App constructor -- the simulator and the tests build an App and must stay
+    # port-free.  After restore_ui_state, because that can change the tempo.
+    if not args.sim and app.clock.role != "internal":
+        app.clock.open()
+        if app.clock.problem:
+            print(f"clock: {app.clock.problem}", file=sys.stderr)
+        else:
+            print(f"clock: {app.clock.status}")
+            starter = getattr(app.clock, "start_thread", None)
+            if starter is not None:
+                starter(engine)
 
     if args.sim:
         from . import sim

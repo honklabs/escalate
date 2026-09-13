@@ -12,6 +12,72 @@ plan.
 
 ## Unreleased
 
+### A tempo change no longer moves the playhead
+
+A bug, found while building the clock and worth its own entry because it has
+been there all along. Position is kept in frames and a beat is `60/bpm*rate`
+frames, so changing the tempo silently *reinterpreted* the same frame count:
+64000 frames was bar 4 at 120 BPM and bar 8 at 240.
+
+So doubling the tempo teleported the playhead four bars forward with no audio
+in between — tapping a tempo mid-song moved where you were in it, and a ±0.1
+BPM nudge at bar 200 moved you by a fifth of a bar. `set_bpm` now preserves the
+musical position, in the published intent as well as in the callback, so a
+tempo change means only what it says.
+
+Sync did not cause this; it made it impossible to ignore. A control loop whose
+actuator instantly moves the thing it measures — by an amount proportional to
+how far into the song you are — cannot be tuned at all.
+
+### Follow or send MIDI clock (`NF-09`)
+
+`--clock midi_slave` follows another device's clock, start/stop/continue and
+song position. `--clock midi_master` sends 24 ppqn, start/stop and a song
+position on each seek. `--clock-port NAME` picks the port, which is **separate
+from the Push's own** — the thing sending clock is rarely the thing you are
+pressing. `clock_role` and `clock_port` make it stick.
+
+Two decisions carry the feature:
+
+- **The playhead is never moved to correct phase.** A jump would stutter and
+  could go backwards, cutting every sounding voice. Only the tempo is nudged.
+  The engine's transport needed no changes: the slave calls the same setter a
+  hand does, which already refuses mid-take and already clamps.
+- **Phase is compared at tick arrival**, where the sender is at exactly
+  `n / 24` beats. Comparing on our own 30 Hz refresh would mean reading a
+  position quantised to 1/24 beat — 21 ms at 120 BPM, so the 1 ms target was
+  arithmetically unreachable that way.
+
+Measured over 32 bars against a synthetic sender: **0.28 ms** steady at 120
+BPM, 0.28 ms from a cold start at the wrong tempo, 0.23 ms after a 2:1 cold
+start, 1.25 ms through a ±3 % wobble, 3.6 ms with a millisecond of arrival
+jitter — and never a backwards step in the music.
+
+Three refusals: a tick gap under 2 ms is a broken sender and is refused rather
+than clamped (a clamped 1250 BPM would look like a deliberate 240 and claim a
+lock that is not real); a silence over a second unlocks rather than
+freewheeling, and re-seeds outright on the next tick; and an incoming tempo is
+still ignored mid-take.
+
+**Prototyping first, as the plan insisted, paid for itself.** The throwaway
+caught four wrong turns before any of this existed: comparing against a
+quantised position, mixing an additive integral with a multiplicative
+proportional term (120 BPM settling at 122), an integral not scaled by the tick
+interval (half as fast at half the tempo), and — by omission — no model of
+actuation delay, which is why the first real measurement was 7.8 ms rather than
+the predicted 0.2. A fifth bug only the real rig could find: `poll` compared
+every tick in a drained batch against the *latest* tick count instead of its
+own, which read as a constant 15 mbeat offset the integrator could not remove.
+
+**Not verified against real gear.** Both roles have only ever seen a synthetic
+sender. The numbers are real measurements of real code driven by a simulation —
+the same class of risk as `F-08`, and it wants the same treatment.
+
+**Ableton Link is a seam, not a feature.** The lazy import and absent-safe
+fallback are real; nothing behind the import has run, because the native
+library has never been available here. `--clock link` says `link unavailable`
+and leaves you on the internal clock rather than pretending.
+
 ### Import audio from disk (`NF-08`)
 
 You could only use what you recorded. `Shift`+`Browse` now opens a file browser

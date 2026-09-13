@@ -577,3 +577,107 @@ def test_next_grid_bar_wraps_at_the_end_of_the_song():
     engine.play(3)
     engine.process_offline(64)
     assert engine.next_grid_bar(4.0) == 0  # the next bar line is the loop point
+
+
+# ============================== a tempo change keeps its musical position
+def _running(bpm=120.0, bars=64):
+    eng = Engine(samplerate=8000, blocksize=64, in_channels=1, out_channels=2,
+                 backend="offline", bpm=bpm, song_bars=bars)
+    eng.play()
+    return eng
+
+
+def test_a_tempo_change_does_not_move_the_playhead():
+    """It used to.  Position is kept in frames and a beat is 60/bpm*rate frames,
+    so changing the tempo without rescaling silently *reinterprets* the same
+    frame count: 64000 frames was bar 4 at 120 BPM and bar 8 at 240.  Doubling
+    the tempo teleported the playhead four bars forward with no audio between.
+    """
+    eng = _running()
+    for _ in range(4):
+        eng.process_offline(int(eng.frames_per_bar))
+    assert eng.current_bar == 4
+
+    eng.set_bpm(240.0)
+    eng.process_offline(1)
+    assert eng.current_bar == 4
+
+    eng.set_bpm(60.0)
+    eng.process_offline(1)
+    assert eng.current_bar == 4
+
+
+def test_the_beat_inside_the_bar_survives_a_tempo_change_too():
+    eng = _running()
+    eng.process_offline(int(eng.frames_per_beat * 2.5))
+    before = eng.position_frames / eng.frames_per_beat
+    eng.set_bpm(180.0)
+    eng.process_offline(1)
+    after = eng.position_frames / eng.frames_per_beat
+    assert after == pytest.approx(before, abs=0.01)
+
+
+def test_the_published_intent_carries_the_rescaled_position():
+    """A UI read between the post and the callback applying it must not see the
+    new tempo against the old position -- the inconsistency the fix removes."""
+    eng = _running()
+    for _ in range(4):
+        eng.process_offline(int(eng.frames_per_bar))
+    eng.set_bpm(240.0)
+    # No block rendered yet, so this is the intent talking.
+    assert eng.current_bar == 4
+
+
+def test_a_tempo_change_retriggers_nothing():
+    """_reanchor's job: the boundary anchors follow the rescaled position."""
+    eng = _running()
+    buf = np.full((int(eng.frames_per_bar), 1), 0.4, dtype=np.float32)
+    schedule = [[] for _ in range(64)]
+    schedule[0] = [ScheduledSample(0, buf)]
+    schedule[4] = [ScheduledSample(0, buf)]
+    eng.set_schedule(schedule)
+    eng.process_offline(int(eng.frames_per_bar * 2))
+    voices_before = len(eng._voices)
+    eng.set_bpm(200.0)
+    eng.process_offline(64)
+    assert len(eng._voices) <= voices_before
+
+
+def test_a_tempo_change_while_stopped_leaves_the_rewound_position_alone():
+    """Stop rewinds to 0, and rescaling 0 is 0 -- but only if the arithmetic
+    is safe at the boundary, which is worth pinning rather than assuming."""
+    eng = _running()
+    eng.process_offline(int(eng.frames_per_bar * 3))
+    eng.stop()
+    eng.process_offline(1)
+    assert eng.position_frames == 0.0
+
+    eng.set_bpm(90.0)
+    eng.process_offline(1)
+    assert eng.position_frames == 0.0
+    assert eng.transport.bpm == 90.0
+
+
+def test_rescaling_a_count_in_position_keeps_it_negative():
+    """_pos goes negative during a count-in, and the rescale has to respect
+    that: a count-in measured in beats is still a count-in at another tempo."""
+    eng = Engine(samplerate=8000, blocksize=64, in_channels=1, out_channels=2,
+                 backend="offline", bpm=120.0, song_bars=64)
+    eng.arm_record(2, count_in_beats=4)
+    eng.process_offline(64)
+    assert eng.position_frames < 0
+    beats_before = eng.position_frames / eng.frames_per_beat
+    # set_bpm refuses mid-take, so exercise the arithmetic directly.
+    rescaled = eng._rescaled(90.0)
+    assert rescaled < 0
+    assert rescaled / (60.0 / 90.0 * 8000) == pytest.approx(beats_before, abs=0.01)
+
+
+def test_a_tempo_change_is_still_refused_mid_take():
+    eng = _running()
+    eng.arm_record(2, count_in_beats=0)
+    eng.process_offline(64)
+    before = eng.transport.bpm
+    eng.set_bpm(200.0)
+    eng.process_offline(1)
+    assert eng.transport.bpm == before

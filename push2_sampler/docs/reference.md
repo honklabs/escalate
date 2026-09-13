@@ -633,6 +633,87 @@ and the display says what went wrong.
 
 ---
 
+## Clock — playing with other gear
+
+By default the sampler runs on its own tempo. `clock_role` in the settings, or
+`--clock` for one run, changes who is in charge:
+
+| Role | What it does |
+| --- | --- |
+| `internal` | our own tempo. The default, and everything before this existed |
+| `midi_slave` | follow MIDI clock, start/stop/continue and song position from another device |
+| `midi_master` | send 24 ppqn clock, start/stop, and a song position on each seek |
+| `link` | Ableton Link — see the caveat below |
+
+`--clock-port NAME` picks which MIDI port, by any part of its name. It is a
+**separate port from the Push's own**: the surface and the clock have nothing to
+do with each other, and a device sending clock is rarely the device you are
+pressing.
+
+```
+python -m push2sampler --clock midi_slave --clock-port "Elektron" my-song
+python -m push2sampler --clock midi_master --clock-port "IAC" my-song
+```
+
+The transport line gains `SYNC` when the loop is locked and `sync?` while it is
+still chasing, and a line below says what the clock is doing —
+`clock slave locked 120.4 BPM (+2 mbeat)`.
+
+### How following works, and why it works that way
+
+Two decisions matter more than the rest.
+
+**The playhead is never moved to correct phase.** Jumping the transport to line
+up with an incoming clock would stutter, and could move it *backwards* — which
+cuts every sounding voice. Instead only the tempo is nudged, and the position
+converges on its own. The engine needed no changes for this at all: the slave
+only ever calls the same tempo setter a hand does.
+
+**Phase is compared at tick arrival.** When clock tick *n* arrives, the sender
+is at exactly `n / 24` beats. Comparing on our own 30 Hz refresh instead would
+mean reading a position quantised to 1/24 beat — 21 ms at 120 BPM, and so
+never better than that. The MIDI thread therefore timestamps the tick and
+samples the transport right then, and the arithmetic happens afterwards.
+
+Measured against a synthetic sender over 32 bars: **0.3 ms** at a steady 120
+BPM, 0.3 ms after starting at the wrong tempo, 0.2 ms after a 2:1 cold start,
+about 1.3 ms through a ±3 % tempo wobble, and under 6 ms with a millisecond of
+arrival jitter. It never moves the music backwards in any of those.
+
+Three refusals worth knowing:
+
+- **A tick gap under 2 ms is not a tempo**, it is a broken sender, and it is
+  refused rather than clamped — a clamped 1250 BPM would look like a
+  deliberate 240 and claim a lock that is not real.
+- **A silence longer than a second unlocks** rather than freewheeling on a
+  stale estimate, and the next tick re-seeds the tempo outright instead of
+  crawling toward it.
+- **The tempo is still refused mid-take.** A take's length is frames measured
+  at the tempo it was cut at, so an incoming tempo change during a recording
+  is ignored, exactly as a hand-turned one is.
+
+### Sending clock
+
+`midi_master` emits from a thread that watches the **engine's own position**
+rather than the wall clock, so what we send follows the audio device exactly
+and cannot drift from what is being heard. A backwards jump — a loop wrap or a
+seek — re-anchors rather than emitting a catch-up burst, because a burst
+arrives at whatever is following as a tempo spike.
+
+### What has not been verified
+
+`midi_slave` and `midi_master` have been tested only against a **synthetic**
+clock, in the same sense that the surface constants were once only from a
+document: no real drum machine, modular or DAW has been on the other end of
+them. The numbers above are real measurements of real code, but of code driven
+by a simulation.
+
+**Ableton Link is a seam, not a feature.** `LinkClock` has the lazy import and
+the absent-safe fallback, and says `link unavailable` when the library is
+missing — which it has been in every environment this program has ever run in.
+Nothing behind that import has been exercised. Choosing `link` will tell you so
+and leave you on the internal clock rather than pretending.
+
 ## Colours
 
 ### In the library
@@ -710,6 +791,8 @@ is reported, so a flag can never silently do nothing.
 | `click_when_recording` | off | on/off | yes |
 | `click_channel` | none | 0–14, or none for the main mix | yes |
 | `samples_root` | `""` | a folder path; empty means beside the project | no |
+| `clock_role` | `internal` | internal / midi_slave / midi_master / link | no |
+| `clock_port` | `""` | part of a MIDI port name | no |
 | `dim_library` | on | on/off | yes |
 | `auto_trim` | off | on/off | yes |
 | `auto_normalize` | off | on/off | yes |
