@@ -12,6 +12,38 @@ plan.
 
 ## Unreleased
 
+### `--midi-probe`: measure, don't ask (`F-08` finding 4)
+
+`--led-test` came back negative on every stage: no input from any pad, no light
+from factory palette indices, none from ours, no button LEDs, nothing on any
+channel — while the ports still opened without error. A useful negative result,
+since it eliminates `program_palette`, `index_to_note`, the colour map and the
+channel in one run: none of them can matter when no traffic passes either way.
+
+It also means an interactive tool is now the wrong instrument. Once "what do
+you see?" is answered "nothing", the remaining questions have to be answered by
+the machine.
+
+- **New `--midi-probe`** (`midiprobe.py`) asks almost nothing and reports:
+  which **mido backend** is loaded (the program is written against
+  `python-rtmidi`; anything else invalidates every other reading); whether the
+  Push is **on the USB bus** at all via `pyusb`, independently of MIDI, which
+  separates a cable, power or stale-port problem from a MIDI-layer one; input
+  read **both by callback and by polling**; **both** Push ports in **both**
+  directions; and every exception rather than swallowing it. Writes
+  `midi-report.json`.
+- It is written to suspect **us** as readily as the device. `Push2` reads input
+  via a callback, so a callback that stays silent while polling on the same
+  port works is reported as a bug in `push2.py` — in those words — rather than
+  as a hardware fault. Likewise, if the *Live* port answers when the User port
+  does not, that is stated as a finding about the device.
+- Fixed a substring trap in that tool before it shipped: `"rtmidi" in
+  "mido.backends.portmidi"` is **true** (`po`**`rtmidi`**), so the obvious
+  backend check waved through the one backend it existed to catch. Now an exact
+  match against `RTMIDI_BACKENDS`, with a test that asserts the trap and both
+  directions of the check. Same family as the `--samplerate` bug: a loose
+  comparison that silently accepts the wrong input.
+
 ### `--led-test`: why are the pads dark? (`F-08` finding 3)
 
 First time on real hardware, the probe's opening check — one pad lit, which

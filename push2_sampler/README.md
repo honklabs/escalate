@@ -449,6 +449,12 @@ they light from the private block we upload, do the buttons light, is it the
 channel. It writes `led-report.json`. Worth running before `--selftest`, whose
 questions all assume the LEDs already work.
 
+If `--led-test` reports nothing in either direction, `--midi-probe` stops
+asking and starts measuring: which mido backend is loaded, whether `pyusb` can
+see the Push on the bus independently of MIDI, input read by both callback and
+polling (a callback-only failure is a bug in `push2.py`, and it says so), and
+both ports in both directions. Writes `midi-report.json`.
+
 ### Confirmed against real hardware
 
 | what | source | confirmed on a device |

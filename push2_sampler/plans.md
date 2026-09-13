@@ -642,13 +642,24 @@ arrives:
 | --- | --- | --- | --- |
 | 1 | Docs told the user to press a `User` button before starting | No such button found on the panel | Docs corrected. The claim was never a code requirement: `Push2.open` picks a port *by name* and sends no mode change, so nothing has to be pressed. `Btn.USER = 59` stays in the map (spec value, unverified, deliberately unbound) and the probe now labels it as possibly absent |
 | 2 | Port names `Ableton Push 2 Live Port` / `Ableton Push 2 User Port` | Exactly that, in both directions — and `_pick` chose the User port | **Confirmed.** README table row filled in |
-| 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes. Leading suspect: `program_palette`. Every colour in `colors.py` is a private palette index ≥ 64 uploaded over unverified SysEx, so an upload that does not take means the program paints in entries the device left black — silently |
+| 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes |
+| 4 | The palette was the likely culprit | **Not the palette.** `--led-test` reported nothing in *either* direction: no input from any pad, no light from factory indices, none from ours, no button LEDs, no channel. The ports still opened without error | **Open.** Rules out `program_palette`, `index_to_note`, the colour map and the channel in one go — none of them can matter when no traffic passes at all. `--midi-probe` (`midiprobe.py`) was written to measure rather than ask |
 
 Finding 1 is one shape to expect: a **documentation** assumption built on a spec
 value, where the code was indifferent all along. Check that distinction before
 changing anything — the correction is often to prose, not to `constants.py`.
 
-Finding 3 is the other, and the more expensive one. The probe was built to ask
+Finding 4 is the useful kind of negative result: one run eliminated four
+candidate causes at once, because none of them can matter when no traffic passes
+in either direction. It also reset the order of the diagnostics — an
+*interactive* tool is the wrong instrument once "what do you see?" is answered
+"nothing", so `--midi-probe` asks almost nothing and instead reports the mido
+backend, USB-bus presence via `pyusb` (independent of MIDI), input read by both
+callback and polling, and both ports in both directions. It is written to
+suspect this program as readily as the device: a callback that stays silent
+while polling works is named as a bug in `push2.py`.
+
+Finding 3 is the other kind, and the more expensive one. The probe was built to ask
 "is this control on the CC we think?", which presumes the LEDs work; when they
 do not, every one of its nine checks returns the same unanswerable silence. A
 verification tool needs to establish its own preconditions before it starts

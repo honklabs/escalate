@@ -130,6 +130,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="the pads stay dark: find out which layer is at fault, and write "
              "led-report.json",
     )
+    parser.add_argument(
+        "--midi-probe", action="store_true",
+        help="nothing lit and nothing received: report the facts about the MIDI "
+             "link (backend, USB bus, both ports, both directions) to "
+             "midi-report.json",
+    )
     parser.add_argument("--list-ports", action="store_true", help="list MIDI ports and exit")
     parser.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     return parser
@@ -214,6 +220,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bounce or args.stems:
         return _render(args)
+    if args.midi_probe:
+        from .midiprobe import run_midi_probe
+
+        return run_midi_probe()
     if args.led_test:
         from .ledtest import run_led_test
 

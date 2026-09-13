@@ -69,6 +69,39 @@ says so in one line, and writes `led-report.json`.
 
 It prints a verdict at the end. Paste that back, or the JSON.
 
+### `--led-test` said nothing happened in either direction
+
+Then there is nothing left to *look* at, and the next questions have to be
+answered by the machine:
+
+```
+python -m push2sampler --midi-probe
+```
+
+This one asks you almost nothing. It reports:
+
+- which **mido backend** is actually loaded — the program is written against
+  `python-rtmidi`, and anything else invalidates every other reading;
+- whether the Push is **on the USB bus at all**, via `pyusb`, independently of
+  MIDI. This is what separates "not plugged in, not powered, or stale ports"
+  from "the MIDI layer";
+- input read **two ways**, by callback and by polling. `Push2` uses a callback,
+  so a callback that stays silent while polling works is *our* bug, not the
+  device's, and the probe says so in those words;
+- **both** Push ports, in both directions. If the Live port answers when the
+  User port does not, that is a real finding about the device;
+- every exception, printed rather than swallowed.
+
+It writes `midi-report.json`, which is all facts and no opinions — the useful
+fields are `environment.mido_backend`, `usb.found`, and the callback-versus-
+polled counts per port.
+
+The most common cause of silence in both directions, once the ports open
+without error, is **something else holding the Push**: Ableton Live (including
+a background process that outlives quitting it), Push's firmware updater, or
+another DAW with a control-surface script. On macOS a second process can open
+the same port, get no error, and receive nothing at all.
+
 ### If the grid is dark and you have not run the LED test
 
 **The program does not need any button pressed on the Push.** It opens

@@ -283,6 +283,7 @@ the display says why.
 | `--version` | print the version |
 | `--selftest` | guided hardware probe, writes `hardware-report.json` |
 | `--led-test` | the pads are dark: which layer is at fault, writes `led-report.json` |
+| `--midi-probe` | nothing in either direction: facts about the MIDI link, writes `midi-report.json` |
 | `--calibrate` | measure input latency and store it |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |
