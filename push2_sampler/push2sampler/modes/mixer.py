@@ -24,6 +24,7 @@ from ..constants import (
     Btn,
 )
 from ..history import SetEnabled, SetGain, SetMasterGain
+from ..project import BANK_SLOTS
 from .base import Mode
 
 #: Gain change per encoder click.
@@ -47,9 +48,12 @@ class MixerMode(Mode):
 
     @property
     def slots(self) -> range:
-        """The eight slots this page is showing."""
-        start = self.row * GRID_W
+        """The eight slots this page is showing, within the current bank."""
+        start = self.app.bank * BANK_SLOTS + self.row * GRID_W
         return range(start, start + GRID_W)
+
+    def _slot(self, column: int) -> int:
+        return self.app.bank * BANK_SLOTS + self.row * GRID_W + column
 
     def on_enter(self) -> None:
         self.app.notify("mixer: encoders set gain, buttons below mute")
@@ -98,7 +102,7 @@ class MixerMode(Mode):
 
     def _strip_button(self, column: int) -> None:
         """One of the eight strips: mute it, or solo it while Solo is armed."""
-        slot = self.row * GRID_W + column
+        slot = self._slot(column)
         sample = self.project[slot]
         if sample is None:
             self.app.notify(f"slot {slot + 1} is empty")
@@ -123,7 +127,7 @@ class MixerMode(Mode):
                 self.engine.master_gain = gain
             return True
         if cc in ENCODER_TRACK:
-            slot = self.row * GRID_W + ENCODER_TRACK.index(cc)
+            slot = self._slot(ENCODER_TRACK.index(cc))
             sample = self.project[slot]
             if sample is not None:
                 gain = max(0.0, min(2.0, sample.gain + delta * GAIN_STEP))
@@ -174,7 +178,7 @@ class MixerMode(Mode):
             else BTN_DIM
         )
         for column, cc in enumerate(DISPLAY_ROW_BOTTOM):
-            slot = self.row * GRID_W + column
+            slot = self._slot(column)
             sample = self.project[slot]
             if sample is None:
                 buttons[cc] = 0
@@ -184,8 +188,9 @@ class MixerMode(Mode):
                 buttons[cc] = BTN_DIM if sample.enabled else BTN_ON
 
     def status_lines(self) -> list[str]:
-        first = self.row * GRID_W
-        head = f"MIXER  slots {first + 1}-{first + GRID_W}  master {self.project.master_gain:.2f}"
+        first = self.app.bank * BANK_SLOTS + self.row * GRID_W
+        head = (f"MIXER {self.app.bank_letter}  slots {first + 1}-{first + GRID_W}"
+                f"  master {self.project.master_gain:.2f}")
         if self.project.soloed is not None:
             head += f"  SOLO {self.project.soloed + 1}"
         gains = []

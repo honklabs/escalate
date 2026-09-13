@@ -18,7 +18,7 @@ from push2sampler.constants import (
 )
 from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
-from push2sampler.project import Project
+from push2sampler.project import PAGE_BARS, Project
 from push2sampler.push2 import PadEvent, SimPush
 from push2sampler.settings import EDITABLE, EDITABLE_PAGES, Settings
 
@@ -82,10 +82,18 @@ def record_take(app, engine, bars):
 
 
 # ----------------------------------------------------------------- library
-def test_library_starts_all_white(rig):
+def test_library_starts_all_dim_white(rig):
+    """Blank slots are dim by default (CC-13): 64 pads at full white is glare."""
     app, push, _, _ = rig
     pump(app)
     assert app.mode.name == "library"
+    assert set(push.pad_leds) == {colors.WHITE_DIM.index}
+
+
+def test_the_dimmer_can_be_turned_off(rig):
+    app, push, _, _ = rig
+    app.settings.set("dim_library", False)
+    pump(app)
     assert set(push.pad_leds) == {colors.WHITE.index}
 
 
@@ -95,7 +103,7 @@ def test_filled_slots_are_green_blank_stay_white(rig):
     app.rebuild_schedule()
     pump(app)
     assert push.pad_leds[5] == colors.GREEN.index
-    assert push.pad_leds[4] == colors.WHITE.index
+    assert push.pad_leds[4] == colors.WHITE_DIM.index
 
 
 def test_muted_sample_is_dim_green(rig):
@@ -382,11 +390,26 @@ def test_tempo_encoder_and_metronome(rig):
 
 
 def test_loop_toggle(rig):
-    app, push, engine, _ = rig
+    """Repeat now cycles a scope rather than toggling a flag (NF-11)."""
+    app, push, engine, project = rig
     assert engine.loop is True
+    assert app.loop_scope == "page"
+    assert engine.loop_range == (0, PAGE_BARS)  # the page you are on
+
     push.press_button(Btn.REPEAT)
     pump(app)
+    assert app.loop_scope == "song"
+    assert engine.loop is True
+    assert engine.loop_range == (0, project.song_bars)  # all of it
+
+    push.press_button(Btn.REPEAT)
+    pump(app)
+    assert app.loop_scope == "off"
     assert engine.loop is False
+
+    push.press_button(Btn.REPEAT)
+    pump(app)
+    assert app.loop_scope == "page"  # and round again
 
 
 def test_shift_pad_previews_a_sample_without_leaving_the_library(rig):
@@ -453,7 +476,7 @@ def test_autosave_skips_rewriting_unchanged_audio(rig, tmp_path):
     app, push, engine, project = rig
     record_into(app, push, engine, slot=0, bars=1)
     app.save_now()
-    wav = tmp_path / "song" / "samples" / "slot_00.wav"
+    wav = tmp_path / "song" / "samples" / "slot_000.wav"
     mtime = wav.stat().st_mtime_ns
     push.press_pad(2)  # arrangement change only
     pump(app)

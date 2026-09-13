@@ -24,26 +24,38 @@ FRAME_HEADER = bytes(
 )
 XOR_PATTERN = np.array([0xE7F3, 0xFFE7], dtype=np.uint16)
 ENDPOINT = 0x01
+#: Space reserved at the bottom for the big transport readout.
+BIG_LINE_HEIGHT = 44
 
 
 class Push2Display:
-    def __init__(self, device, font=None) -> None:
+    def __init__(self, device, font=None, big_font=None) -> None:
         self._device = device
         self._font = font
+        self._big_font = big_font or font
         self._buffer = np.zeros((HEIGHT, LINE_PIXELS), dtype=np.uint16)
 
     # ------------------------------------------------------------------
-    def draw(self, lines: list[str]) -> None:
-        """Render up to five lines of text and push one frame."""
+    def draw(self, lines: list[str], readout: str | None = None) -> None:
+        """Render the text lines, with ``readout`` large along the bottom.
+
+        The big line is the one you read while playing rather than while
+        looking: bar, beat and tempo, across the room.  It is optional so that
+        anything holding a display can still hand over plain lines.
+        """
         from PIL import Image, ImageDraw
 
         image = Image.new("RGB", (WIDTH, HEIGHT), (0, 0, 0))
         draw = ImageDraw.Draw(image)
         y = 6
-        for i, text in enumerate(lines[:5]):
+        room = 4 if readout else 5
+        for i, text in enumerate(lines[:room]):
             fill = (255, 255, 255) if i == 0 else (170, 170, 170)
             draw.text((12, y), text, fill=fill, font=self._font)
             y += 30 if i == 0 else 26
+        if readout:
+            draw.text((12, HEIGHT - BIG_LINE_HEIGHT), readout,
+                      fill=(255, 210, 120), font=self._big_font)
         self.draw_image(image)
 
     def draw_image(self, image) -> None:
@@ -65,7 +77,7 @@ class Push2Display:
             pass
 
 
-def open_display(font_size: int = 22):
+def open_display(font_size: int = 22, big_font_size: int = 38):
     """Return a :class:`Push2Display`, or ``None`` if it is unavailable."""
     try:
         import usb.core
@@ -79,20 +91,33 @@ def open_display(font_size: int = 22):
         device.set_configuration()
     except Exception:
         return None
-    font = None
-    for candidate in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    ):
+    font, big_font = _fonts(ImageFont, font_size, big_font_size)
+    return Push2Display(device, font, big_font)
+
+
+#: Where a bold system font tends to live, per platform.
+FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+)
+
+
+def _fonts(ImageFont, size: int, big_size: int):
+    """A text font and a larger one for the transport readout.
+
+    Falls back to the bitmap default, which cannot be scaled -- so on a machine
+    with no usable TrueType font the big line is merely the same size as the
+    rest, rather than absent.
+    """
+    for candidate in FONT_CANDIDATES:
         try:
-            font = ImageFont.truetype(candidate, font_size)
-            break
+            return (ImageFont.truetype(candidate, size),
+                    ImageFont.truetype(candidate, big_size))
         except Exception:
             continue
-    if font is None:
-        try:
-            font = ImageFont.load_default()
-        except Exception:
-            font = None
-    return Push2Display(device, font)
+    try:
+        default = ImageFont.load_default()
+    except Exception:
+        return None, None
+    return default, default

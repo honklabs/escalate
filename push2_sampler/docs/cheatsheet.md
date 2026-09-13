@@ -18,11 +18,15 @@ need it. This is the *what*, for when you have already done that once.
 | **Shift**+**Play** | perform mode (play the arrangement in by hand) |
 | **Metronome** | click on / off |
 | **Shift**+**Metronome** | monitoring: `off` → `auto` → `on` |
-| **Repeat** | 64-bar loop on / off |
+| **Repeat** | loop scope: `page` → `song` → `off` |
+| **Page ◀** / **Page ▶** | bank A–D (which 64 slots the grid shows) |
+| **Shift**+**Page ◀/▶** | song page A–D (which 64 bars a sample page shows) |
 | **Undo** | take back the last edit (64 deep) |
 | **Shift**+**Undo** | redo |
 | **Session** / **Note** / **Left arrow** | back — leave this page |
+| **Clip** | song overview (open / close) |
 | **Mix** | mixer page (open / close) |
+| **Browse** | project browser (open / close) |
 | **Setup** | settings page (open / close) |
 | **Shift**+**Setup** | save the project right now |
 | **Delete** | arm delete, then press a pad |
@@ -39,7 +43,7 @@ isn't.
 
 ---
 
-## Library — 64 samples
+## Library — 64 of 256 samples (one bank)
 
 The page you start on, and the one **Session** always returns you to.
 
@@ -54,6 +58,8 @@ The page you start on, and the one **Session** always returns you to.
 | **Mute** then a pad | mute / unmute that slot |
 | **Duplicate** then a pad | copy that slot to the next empty one |
 | **Duplicate** then **Shift** + a pad | move it instead of copying |
+| **buttons below the display** | recall one of 8 scenes |
+| **Shift** + a button below | store the arrangement in that scene |
 
 **Delete** disarms itself after 3 seconds. Deleting a slot that *plays* somewhere
 takes two presses — the first says `slot 7 plays on 12 bars - press again`.
@@ -99,8 +105,9 @@ top-left one. Recording stops by itself and drops you on the new sample's page.
 
 ## Sample page — where this sample plays
 
-Each pad is **one bar of the 64-bar song**: top-left is bar 1, the pad below it
-is bar 9, bottom-right is bar 64.
+Each pad is **one bar of the current song page**: on page A, top-left is bar 1,
+the pad below it is bar 9, bottom-right is bar 64. **Shift**+**Page ◀/▶** moves
+to another page of 64.
 
 | Control | Does |
 | --- | --- |
@@ -115,6 +122,7 @@ is bar 9, bottom-right is bar 64.
 | **Mute** | mute this sample (`MUTED` on the display) |
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
 | **Device** | open the editor |
+| **Select** | name and colour this slot |
 | **Record** | re-record this slot |
 | **Delete** then a pad | clear every bar of this sample |
 | **Shift**+**Delete** | delete the sample itself |
@@ -194,6 +202,49 @@ overrides mute without destroying it — un-solo and your mix is exactly as it w
 
 ---
 
+## Song overview (**Clip**)
+
+The whole arrangement as a heat map. Each pad is **8 bars × 8 slots** — columns
+are bars, rows are slots.
+
+| Pad colour | Triggers in that cell |
+| --- | --- |
+| off | none |
+| dim blue | 1 |
+| blue | 2–3 |
+| amber | 4–7 |
+| white | 8+ |
+
+The playing column is one rung brighter. **Press a pad to zoom in**; each pad is
+then one bar of one slot. **Page ◀/▶** moves to the next cell, **Delete** clears
+the cell, **Clip** zooms back out then leaves.
+
+---
+
+## Browser (**Browse**)
+
+| Control | Does |
+| --- | --- |
+| a pad | highlight that project |
+| the same pad again | open it |
+| **Up** / **Down** | previous / next |
+| **button 1** | open the highlighted one |
+| **button 2** | new project |
+| **button 3** | duplicate it |
+| **button 5** | **hold** to delete it |
+
+Green = has samples, dim white = empty, dim amber = the one you have open.
+Opening saves your current song first and does not restart the audio.
+
+---
+
+## Naming (**Select** on a sample page)
+
+Top 7 rows of pads = words (8 categories × 8). Bottom row = 8 colours; press the
+same one again to clear it. Buttons below = jump to a category.
+
+---
+
 ## Settings (**Setup**)
 
 The pads go dark on purpose. Each button *below* the display owns one setting;
@@ -207,8 +258,12 @@ the encoder above it changes the value, pressing the button resets or cycles it.
 | --- | --- | --- | --- |
 | play while recording | autosave delay | input device | audio block size |
 
-**Up** / **Down** reaches page 2: **auto trim**, **auto normalise**, **auto
-fade** — post-take processing, all off by default.
+**Up** / **Down** reaches two more pages:
+
+- page 2 — **auto trim**, **auto normalise**, **auto fade** (post-take
+  processing, all off by default), and **dim library**.
+- page 3 — **pre-roll**, **click sound**, **click volume**, **click on rec
+  only**, **click output**.
 
 **Setup** again closes the page and writes
 `~/.config/push2sampler/settings.json`. Changing the input device or block size
@@ -250,12 +305,16 @@ settings file.
 ## Files
 
 ```
-SONG/project.json            tempo; per slot: bars, trigger bars, velocities,
-                             mute, gain, edits
-SONG/samples/slot_NN.wav     one per filled slot
+SONG/project.json            tempo, pages, master gain, 8 scenes; per slot:
+                             bars, trigger bars, velocities, mute, gain,
+                             colour, edits
+SONG/samples/slot_NNN.wav    one per filled slot (0-255)
 SONG/bounces/*.wav           what you have bounced
 ~/.config/push2sampler/settings.json
 ```
+
+**256 slots** in 4 banks, **256 bars** in 4 pages. The grid always shows 64 of
+each; the display names which.
 
 Saves itself a couple of seconds after any change, and on exit. A `*` on the
 transport line means there is something unsaved; `saved` appears when it writes.

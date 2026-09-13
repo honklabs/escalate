@@ -56,6 +56,7 @@ class PerformMode(Mode):
     def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
         if not pressed:
             return True
+        index = self.app.slot_at(index)
         sample = self.project[index]
         if sample is None:
             return True
@@ -115,15 +116,16 @@ class PerformMode(Mode):
     def render_pads(self, pads: list[int]) -> None:
         sounding = set(self.engine.sounding)
         for i in range(PAD_COUNT):
-            sample = self.project[i]
+            slot = self.app.slot_at(i)
+            sample = self.project[slot]
             if sample is None:
                 pads[i] = colors.WHITE_DIM.index  # nothing to fire here
-            elif i in sounding:
+            elif slot in sounding:
                 pads[i] = colors.AMBER.index
             elif not sample.enabled:
                 pads[i] = colors.GREEN_DIM.index
             else:
-                pads[i] = colors.GREEN.index
+                pads[i] = colors.slot_color(sample.color)
 
     def render_buttons(self, buttons: dict[int, int]) -> None:
         if self.writing:
@@ -140,7 +142,8 @@ class PerformMode(Mode):
         mode = "WRITING" if self.writing else "playing"
         erase = "   ERASING" if self.app.delete_armed else ""
         return [
-            f"PERFORM  {mode}  quantize {QUANTIZE_LABELS[self.quantize_index]}{erase}",
+            f"PERFORM {self.app.bank_letter}  {mode}  "
+            f"quantize {QUANTIZE_LABELS[self.quantize_index]}{erase}",
             "pads fire samples   Record: write them in   Fixed Length: quantize",
             "Delete: erase bars as they pass   Session: back",
         ]

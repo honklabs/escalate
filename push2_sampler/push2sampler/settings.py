@@ -93,7 +93,19 @@ class Spec:
 
 
 SPECS: dict[str, Spec] = {
+    # NH-03 lists 0/1/2/4/8 as the count-in lengths, but this stays a *range*.
+    # A closed choices list is what silently swallowed `--samplerate 8000`
+    # earlier in this project, and 3 is a real count-in in 3/4 time.
     "count_in_beats": Spec(4, int, 0, 16, label="count-in", unit=" beats"),
+    "pre_roll_bars": Spec(0, int, 0, 8, label="pre-roll", unit=" bars"),
+    "click_sound": Spec(
+        "sine", str, choices=("sine", "tick", "cowbell"), label="click",
+    ),
+    "click_gain": Spec(1.0, float, 0.0, 2.0, step=0.05, label="click vol"),
+    "click_when_recording": Spec(False, bool, label="click on rec only"),
+    "click_channel": Spec(None, int, 0, 14, label="click out"),
+    #: Blank library pads at full white is glare on 64 pads at once (CC-13).
+    "dim_library": Spec(True, bool, label="dim library"),
     "monitor": Spec("off", str, choices=("off", "auto", "on"), label="monitor"),
     "monitor_gain": Spec(1.0, float, 0.0, 2.0, step=0.05, label="mon gain"),
     "rec_latency_ms": Spec(0.0, float, 0.0, 250.0, step=1.0, label="rec lat", unit="ms"),
@@ -121,6 +133,10 @@ SPECS: dict[str, Spec] = {
 
 #: Settings the audio engine consumes, in the order the app pushes them.
 ENGINE_SETTINGS: tuple[str, ...] = (
+    "click_sound",
+    "click_gain",
+    "click_when_recording",
+    "click_channel",
     "monitor",
     "monitor_gain",
     "play_while_recording",
@@ -148,6 +164,14 @@ EDITABLE_PAGES: tuple[tuple[str, ...], ...] = (
         "auto_trim",
         "auto_normalize",
         "auto_fade",
+        "dim_library",
+    ),
+    (
+        "pre_roll_bars",
+        "click_sound",
+        "click_gain",
+        "click_when_recording",
+        "click_channel",
     ),
 )
 

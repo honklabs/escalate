@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from . import colors, wavio
 from .audio import MONITOR_AUTO, MONITOR_OFF, MONITOR_ON
@@ -18,6 +19,7 @@ from .constants import (
 )
 from .history import Command, History, SetBpm
 from .modes import (
+    BrowserMode,
     LibraryMode,
     MixerMode,
     Mode,
@@ -25,8 +27,15 @@ from .modes import (
     RecordMode,
     SampleMode,
     SettingsMode,
+    SongMode,
 )
-from .project import Project, format_bpm
+from .project import (
+    BANK_SLOTS,
+    PAGE_BARS,
+    PROJECT_FILE,
+    Project,
+    format_bpm,
+)
 from .render import BounceJob, default_bounce_path
 from .settings import ENGINE_SETTINGS, Settings
 from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase, SurfaceOffline
@@ -60,6 +69,13 @@ DELETE_ARM_S = 3.0
 PRESS_FLASH_S = 0.08
 #: How often to try reopening a control surface that stopped answering.
 RECONNECT_INTERVAL_S = 2.0
+#: How long the grid flashes after a bank change, so you see where you landed.
+BANK_FLASH_S = 0.25
+#: Where the browser looks when there is no project directory to infer from.
+DEFAULT_PROJECT_ROOT = "~/push2sampler"
+#: What `Repeat` cycles through: this page, the whole song, or no looping.
+LOOP_PAGE, LOOP_SONG, LOOP_OFF = "page", "song", "off"
+LOOP_SCOPES = (LOOP_PAGE, LOOP_SONG, LOOP_OFF)
 
 
 def _bpm_from_taps(taps: list[float]) -> float | None:
@@ -115,6 +131,12 @@ class App:
         self._flashes: dict[int, float] = {}
         self._reconnect_at = 0.0
         self._surface_message = ""
+        #: Which 64 slots and which 64 bars the grid is showing.
+        self.bank = 0
+        self.page = 0
+        self._bank_flash_until = 0.0
+        #: page / song / off -- what `Repeat` cycles.
+        self.loop_scope = LOOP_PAGE
         #: Tempo tapping: press times of the current series, and whether the
         #: held Tap button has been used as a fine-nudge modifier instead.
         self._taps: list[float] = []
@@ -136,6 +158,7 @@ class App:
         self._modes: list[Mode] = [LibraryMode(self)]
         self.engine.set_bpm(project.bpm)
         self.engine.master_gain = project.master_gain
+        self.apply_loop_scope()
         self.rebuild_schedule()
         self.mode.on_enter()
 
@@ -270,8 +293,100 @@ class App:
         return int(self.settings["count_in_beats"])
 
     @property
+    def dim_library(self) -> bool:
+        return bool(self.settings.get("dim_library", True))
+
+    @property
+    def pre_roll_bars(self) -> int:
+        return int(self.settings.get("pre_roll_bars", 0) or 0)
+
+    @property
     def autosave_delay(self) -> float:
         return float(self.settings.get("autosave_delay_s", AUTOSAVE_DELAY))
+
+    # ------------------------------------------------------------------
+    # which 64 of the 256 the grid is showing
+    # ------------------------------------------------------------------
+    def slot_at(self, pad: int) -> int:
+        """The library slot a pad means, in the bank currently on screen."""
+        return self.bank * BANK_SLOTS + pad
+
+    def pad_of_slot(self, slot: int) -> int | None:
+        """Where a slot appears on the grid, or None if its bank is not shown."""
+        pad = slot - self.bank * BANK_SLOTS
+        return pad if 0 <= pad < BANK_SLOTS else None
+
+    def bar_at(self, pad: int) -> int:
+        """The song bar a pad means, on the page currently on screen."""
+        return self.page * PAGE_BARS + pad
+
+    def pad_of_bar(self, bar: int) -> int | None:
+        pad = bar - self.page * PAGE_BARS
+        return pad if 0 <= pad < PAGE_BARS else None
+
+    @property
+    def bank_letter(self) -> str:
+        return "ABCD"[self.bank % 4]
+
+    @property
+    def page_letter(self) -> str:
+        return "ABCD"[self.page % 4]
+
+    def set_bank(self, bank: int, announce: bool = True) -> None:
+        bank = max(0, min(self.project.banks - 1, bank))
+        if bank == self.bank:
+            return
+        self.bank = bank
+        # A full-grid flash on the way in, so you always know where you landed.
+        self._bank_flash_until = time.monotonic() + BANK_FLASH_S
+        if announce:
+            filled = sum(
+                1 for slot in range(bank * BANK_SLOTS, (bank + 1) * BANK_SLOTS)
+                if self.project[slot] is not None
+            )
+            self.notify(f"bank {self.bank_letter}: {filled}/{BANK_SLOTS} filled")
+        self.snapshot_ui_state()
+
+    def set_page(self, page: int, announce: bool = True) -> None:
+        page = max(0, min(self.project.pages - 1, page))
+        if page == self.page:
+            return
+        self.page = page
+        self.apply_loop_scope()
+        if announce:
+            first = page * PAGE_BARS + 1
+            self.notify(f"song page {self.page_letter}: bars {first}-{first + PAGE_BARS - 1}")
+        self.snapshot_ui_state()
+
+    @property
+    def bank_flashing(self) -> bool:
+        return time.monotonic() < self._bank_flash_until
+
+    # ------------------------------------------------------------------
+    # what the loop covers
+    # ------------------------------------------------------------------
+    def apply_loop_scope(self) -> None:
+        """Push the loop scope and the current page into the engine."""
+        scope = self.loop_scope
+        self.engine.loop = scope != LOOP_OFF
+        if scope == LOOP_PAGE:
+            start = self.page * PAGE_BARS
+            self.engine.loop_range = (start, start + PAGE_BARS)
+        else:
+            self.engine.loop_range = (0, self.project.song_bars)
+
+    def cycle_loop_scope(self) -> None:
+        index = LOOP_SCOPES.index(self.loop_scope)
+        self.loop_scope = LOOP_SCOPES[(index + 1) % len(LOOP_SCOPES)]
+        self.apply_loop_scope()
+        self.notify(f"loop {self.loop_label}")
+        self.snapshot_ui_state()
+
+    @property
+    def loop_label(self) -> str:
+        if self.loop_scope == LOOP_PAGE:
+            return f"page {self.page_letter}"
+        return "song" if self.loop_scope == LOOP_SONG else "off"
 
     # ------------------------------------------------------------------
     # where you were last time
@@ -311,6 +426,106 @@ class App:
         if self.push_mode(PerformMode(self)) and not self.engine.is_playing:
             self.engine.play(0)
 
+    # ------------------------------------------------------------------
+    # switching projects, without leaving the device
+    # ------------------------------------------------------------------
+    @property
+    def project_root(self):
+        """Where the browser looks for projects: the folder ours lives in."""
+        if self.project_dir is not None:
+            return Path(self.project_dir).resolve().parent
+        return Path(DEFAULT_PROJECT_ROOT).expanduser()
+
+    def new_project_path(self):
+        """A fresh directory name, dated and worded, needing no typing."""
+        from .modes.browser import project_word
+
+        root = self.project_root
+        stamp = time.strftime("%m%d")
+        for attempt in range(200):
+            name = f"{stamp}-{project_word(int(time.time()) + attempt)}"
+            if not (root / name).exists():
+                return root / name
+        return root / f"{stamp}-{int(time.time())}"
+
+    def open_project(self, path, create: bool = False) -> bool:
+        """Swap the project in place, keeping the audio stream running.
+
+        The outgoing project is saved first: switching songs must never be the
+        thing that loses one.  The stream is untouched, so the swap is silent --
+        reopening the device would click, and would risk not reopening at all.
+        """
+        path = Path(path)
+        if not create and not (path / PROJECT_FILE).exists():
+            self.notify(f"{path.name} is not a project")
+            return False
+        if self.unsaved:
+            self.save_now()
+        self.engine.stop()
+        try:
+            if create:
+                path.mkdir(parents=True, exist_ok=True)
+                project = Project(samplerate=self.project.samplerate,
+                                  bpm=self.project.bpm,
+                                  beats_per_bar=self.project.beats_per_bar)
+                project.save(path)
+            else:
+                project = Project.load(path, samplerate=self.project.samplerate)
+        except OSError as exc:
+            self.notify(f"could not open {path.name}: {exc}")
+            return False
+        self.project = project
+        self.project_dir = path
+        self.history.clear()  # the journal belonged to the other song
+        self.bank = self.page = 0
+        self.engine.set_bpm(project.bpm)
+        self.engine.master_gain = project.master_gain
+        self.apply_loop_scope()
+        self.rebuild_schedule()
+        if project.warning:
+            self.notify(project.warning)
+        self.goto_library()
+        return True
+
+    def duplicate_project(self, path):
+        """Copy a project directory, audio and all.  Returns the new path."""
+        import shutil
+
+        source = Path(path)
+        destination = self.new_project_path()
+        try:
+            shutil.copytree(source, destination)
+        except OSError as exc:
+            self.notify(f"could not copy {source.name}: {exc}")
+            return None
+        return destination
+
+    def delete_project(self, path) -> bool:
+        import shutil
+
+        target = Path(path)
+        if self.project_dir and target.resolve() == Path(self.project_dir).resolve():
+            self.notify("cannot delete the project you have open")
+            return False
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            self.notify(f"could not delete {target.name}: {exc}")
+            return False
+        return True
+
+    def open_browser(self) -> None:
+        if self.mode.name == "browser":
+            self.pop_mode()
+            return
+        self.push_mode(BrowserMode(self))
+
+    def open_song(self) -> None:
+        if self.mode.name == "song":
+            self.pop_mode()
+            return
+        self.push_mode(SongMode(self))
+
     def open_mixer(self) -> None:
         if self.mode.name == "mixer":
             self.pop_mode()
@@ -342,6 +557,20 @@ class App:
                 self.engine.monitor_gain = float(values[setting])
             elif setting == "play_while_recording":
                 self.engine.play_while_recording = bool(values[setting])
+            elif setting in ("click_sound", "click_gain"):
+                self.engine.set_click(
+                    sound=values["click_sound"], gain=values["click_gain"],
+                )
+            elif setting == "click_when_recording":
+                self.engine.click_while_recording_only = bool(values[setting])
+            elif setting == "click_channel":
+                # Out of range for this device means the main mix, rather than
+                # a click routed into silence.
+                channel = values[setting]
+                usable = (
+                    channel is not None and 0 <= int(channel) < self.engine.out_channels
+                )
+                self.engine.set_click(channel=int(channel) if usable else None)
             elif setting == "rec_latency_ms":
                 samplerate = self.engine.transport.samplerate
                 self.engine.rec_latency_frames = max(
@@ -511,7 +740,9 @@ class App:
                 self.engine.stop()
                 self.notify("stopped")
             else:
-                self.engine.play(0)
+                # Start where the loop starts: with a page loop that is the page
+                # you are working on, which is what you meant by Play.
+                self.engine.play(self.engine.loop_range[0])
                 self.notify("playing")
         elif cc == Btn.STOP:
             self._stop(pressed_at=time.monotonic())
@@ -523,9 +754,13 @@ class App:
                 self.notify(f"metronome {'on' if self.engine.metronome else 'off'}")
                 self.snapshot_ui_state()
         elif cc == Btn.REPEAT:
-            self.engine.loop = not self.engine.loop
-            self.notify(f"loop {'on' if self.engine.loop else 'off'}")
-            self.snapshot_ui_state()
+            self.cycle_loop_scope()
+        elif cc in (Btn.PAGE_LEFT, Btn.PAGE_RIGHT):
+            step = -1 if cc == Btn.PAGE_LEFT else 1
+            if self.shift:
+                self.set_page(self.page + step)
+            else:
+                self.set_bank(self.bank + step)
         elif cc == Btn.DELETE:
             self.delete_armed = not self.delete_armed
             self.mute_armed = False
@@ -538,6 +773,10 @@ class App:
                 self.goto_library()
         elif cc == Btn.MIX:
             self.open_mixer()
+        elif cc == Btn.CLIP:
+            self.open_song()
+        elif cc == Btn.BROWSE:
+            self.open_browser()
         elif cc == Btn.SETUP:
             if self.shift:
                 self.save_now()
@@ -705,6 +944,21 @@ class App:
             else:
                 buttons[cc] = BTN_ON
 
+    def transport_readout(self) -> str:
+        """The one line you should be able to read from across a room.
+
+        Bar, beat within the bar, and tempo -- the three things you look up
+        while playing.  Beats count from 1 because that is how anyone counts
+        them out loud.
+        """
+        bar = self.engine.current_bar
+        beat = self.engine.beat_in_bar
+        page = self.page_letter if self.project.pages > 1 else ""
+        where = f"BAR {bar + 1}" if bar >= 0 else "BAR -"
+        if page:
+            where += f"{page}"
+        return f"{where} · {beat + 1} · {format_bpm(self.engine.bpm)} BPM"
+
     def status_lines(self) -> list[str]:
         lines = list(self.mode.status_lines())
         transport = "PLAY" if self.engine.is_playing else "STOP"
@@ -717,7 +971,7 @@ class App:
         lines.append(
             f"{transport}  {format_bpm(self.engine.bpm)} BPM  bar "
             f"{bar + 1 if bar >= 0 else 0}/{self.project.song_bars}"
-            f"  {'loop' if self.engine.loop else 'once'}"
+            f"  loop {self.loop_label}"
             f"{'  *' if self.unsaved else ''}"
         )
         lines.append(self._input_line())
@@ -758,7 +1012,7 @@ class App:
         if self.display is not None and now - self._last_display >= 0.1:
             self._last_display = now
             try:
-                self.display.draw(self.status_lines())
+                self.display.draw(self.status_lines(), self.transport_readout())
             except Exception as exc:  # pragma: no cover - display is optional
                 self.notify(f"display error: {exc}")
                 self.display = None

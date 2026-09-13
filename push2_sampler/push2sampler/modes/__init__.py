@@ -22,6 +22,14 @@ Mixer
     Eight slots at a time as vertical level meters, with an encoder of gain and
     a mute button per strip, plus solo and a master gain.
 
+Browser
+    The projects on disk, as pads: open, create, duplicate or delete a song
+    without going back to a terminal.
+
+Song
+    The whole arrangement as a heat map: every bar against every slot, with a
+    zoom into any eight-by-eight cell where each pad is one bar of one slot.
+
 Sample
     The 64 pads are now the 64 bars of the song.  Lit pads are the bars where
     this sample plays; they may overlap freely with other samples.  Record
@@ -35,16 +43,20 @@ share.
 from __future__ import annotations
 
 from .base import COUNT_IN_BEATS, Mode
+from .browser import BrowserMode
 from .library import LibraryMode
 from .mixer import MixerMode
 from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
 from .sample_edit import SampleEditMode
+from .song import SongMode
+from .tag import TagMode
 from .settings import SettingsMode
 
 __all__ = [
     "COUNT_IN_BEATS",
+    "BrowserMode",
     "LibraryMode",
     "MixerMode",
     "Mode",
@@ -53,4 +65,6 @@ __all__ = [
     "SampleEditMode",
     "SampleMode",
     "SettingsMode",
+    "SongMode",
+    "TagMode",
 ]

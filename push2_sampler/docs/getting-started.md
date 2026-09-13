@@ -1,9 +1,9 @@
 # Getting started
 
 A tutorial. By the end you will have recorded several loops, arranged them across
-a 64-bar song, played parts in by hand, shaped a take, fixed a mistake, and
-bounced the result to a file you can play anywhere — using every feature the
-program currently has.
+a song, played parts in by hand, shaped a take, named and coloured your samples,
+kept two versions of the arrangement, fixed a mistake, and bounced the result to
+a file you can play anywhere — using every feature the program currently has.
 
 You need: a Push 2, a USB cable, **headphones** (see
 [step 4](#step-4-decide-how-you-will-hear-yourself)), and something to record —
@@ -80,7 +80,8 @@ python -m push2sampler my-first-song
 ```
 
 `my-first-song` is a directory; it is created if it does not exist. The grid
-should light up **all white**: 64 empty sample slots.
+should light up **dim white**: 64 empty sample slots. (Dim on purpose — 64 pads
+at full brightness is glare, and the brightest white is saved for the playhead.)
 
 If the pads stay dark, press the Push's **User** button — the program talks to
 the User port, so the Push has to be in user mode.
@@ -116,7 +117,8 @@ they should light. If they do not, your input device is wrong — see
 4. It stops on its own. You did not have to press anything.
 
 The take is now in the slot you chose, and the grid has become that sample's own
-page. What you are looking at is **the 64 bars of your song**.
+page. What you are looking at is **64 bars of your song** — the first page of
+four, which is plenty for now.
 
 If it went wrong, press **Record** again to redo the take, or **Session** to go
 back to the library and forget it.
@@ -129,7 +131,7 @@ below it is bar 9, the bottom-right pad is bar 64.
 1. **Press the top-left pad.** It goes green: this sample now plays on bar 1.
 2. **Press Play.** The song runs from bar 1, you hear your loop, and a white
    pad walks across the grid — that is the playhead. When it reaches bar 64 it
-   loops back.
+   loops back, because the loop starts out covering just this page.
 3. Press a few more pads while it plays. Each one adds another place the loop
    fires. You can do this while playing; nothing needs to stop.
 4. **Press Stop.**
@@ -202,6 +204,25 @@ variation of a take rather than a new one, press **Duplicate** then its pad in t
 library: you get a copy in the next empty slot, with the same arrangement, which
 you can then re-record, retune or trim independently.
 
+### Step 7b: more than 64 of anything
+
+You have four banks of 64 slots — 256 samples — and four song pages of 64 bars,
+which is about eight minutes. The grid always shows 64 of each, so two controls
+move the window:
+
+- **Page ◀** and **Page ▶** change the **bank**: which 64 slots the library
+  shows. The grid flashes for a moment so you know you moved, and the display
+  names the bank (A–D). Everything in every bank still plays — a bank is a view,
+  not a song section.
+- **Shift**+**Page ◀/▶** changes the **song page**: which 64 bars a sample page
+  shows. Page A is bars 1–64, page B is 65–128, and the song runs through them
+  in order.
+
+There is a third thing **Repeat** now does: it cycles what the loop covers.
+`page` (the default) loops just the page you are working on, `song` loops all
+four, `off` plays to the end and stops. Working on the chorus while the verse
+waits is the point.
+
 ### Step 8: decide what you hear while you work
 
 Two ways to silence a sample without losing it:
@@ -262,7 +283,23 @@ want dynamics.
 
 ## Part 5 — Fixing and finishing
 
-### Step 11b: balance it
+### Step 11b: see the whole song
+
+Every page so far shows one sample's bars, or one bank's slots. **Press Clip**
+and you get the whole arrangement at once.
+
+Each pad is a block of **8 bars by 8 slots** — columns are bars, rows are slots —
+coloured by how much happens inside it: dim blue for one trigger, blue for a
+couple, amber for a handful, white for a lot. The column the playhead is in
+brightens. That is how you see at a glance that bar 33 is bare, or that your
+second half is just your first half again.
+
+**Press any pad to zoom in.** Now each pad really is one bar of one slot, and
+pressing it toggles exactly what the sample page would. **Page ◀/▶** steps to the
+next block, **Delete** clears the block you are in, and **Clip** zooms back out
+then leaves.
+
+### Step 11c: balance it
 
 Toggling bars tells you *what* plays. The mixer tells you how loudly.
 
@@ -327,7 +364,13 @@ The two that matter most early on:
 - **Hold Tap Tempo and turn the tempo encoder** for ±0.1 BPM, which is what you
   want when matching something playing in the room. The readout grows a decimal
   so you can see it: `121.3 BPM`.
-- **Metronome** turns the click on and off.
+- **Metronome** turns the click on and off. Page 3 of the **Setup** page has the
+  rest of it: the click's **sound** (a soft sine, a sharp tick, or a cowbell that
+  cuts through anything), its **volume**, **click on rec only** so it is silent
+  while you play, a **pre-roll** that runs the song for a few bars before the
+  count-in so you arrive already in the groove, and a **click output** — set that
+  to a channel your interface has and the click goes only there, keeping it out
+  of the main mix and out of everything you bounce.
 - **Repeat** turns the 64-bar loop on and off. With it off, the song plays once
   and stops.
 - **Shift**+**Stop** stops at the end of the current bar rather than instantly, so
@@ -376,6 +419,52 @@ recording for good — and even that is one undo step.
 
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
+
+### Step 14b: name it, colour it
+
+Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
+do not need one.
+
+**Press Select** on a sample page. The top seven rows of pads are words — eight
+categories of eight, from `kick` and `snare` through `bass`, `chord`, `vox` and
+`riser` — and the buttons below the display jump between categories. Press a
+word and the slot is named. A second `kick` names itself `kick 2`.
+
+**The bottom row of pads is eight colours.** Press one and the slot shows in that
+colour in the library, so a full bank becomes readable at a glance. Press the same
+one again to clear it. Muted and sounding still look the way they always did.
+
+Both are one **Undo** each, and both are saved with the song.
+
+### Step 14c: keep two versions of the arrangement
+
+The eight buttons **below the display** in the library are scenes.
+
+1. Arrange something you like. **Hold Shift and press the first button.** That
+   button lights: the arrangement is stored.
+2. Now change things — mute a sample, move some bars, add a part.
+3. **Press that first button** (no Shift). You are back to the stored version.
+
+A scene remembers what is audible and where it plays. It does *not* touch the
+audio, the gain or your edits — those belong to the take, not the arrangement.
+Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
+while the song is playing lands on the next bar rather than chopping a note.
+
+### Step 14d: start another song, without a terminal
+
+**Press Browse.** The pads are the songs on disk: green has samples in it, dim
+white is empty, and dim amber is the one you have open.
+
+- Press a pad to highlight it; **press the same pad again to open it**.
+- **Button 2** below the display starts a new song, named from today's date and a
+  word.
+- **Button 3** duplicates the highlighted one, audio and all — the safe way to
+  try a different arrangement.
+- **Button 5**, *held* for a second, deletes it. Held, because this is the one
+  action **Undo** cannot reach.
+
+Opening a song saves the one you were in first, and swaps it in without
+restarting the audio, so there is no gap or click.
 
 ### Step 15: undo
 
@@ -437,6 +526,8 @@ It saves itself a couple of seconds after any change, and on exit.
 ## Where to go next
 
 - **[Cheat sheet](cheatsheet.md)** — every control on one page.
+- **[The changelog](../CHANGELOG.md)** — what each release added, and the bugs
+  each one turned up.
 - **[Reference](reference.md)** — the exact behaviour of each mode, every colour,
   every setting.
 - **[Troubleshooting](troubleshooting.md)** — when something does not sound

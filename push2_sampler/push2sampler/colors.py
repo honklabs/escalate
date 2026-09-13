@@ -43,6 +43,27 @@ BLUE = Color("blue", 72, (0, 90, 255))
 BLUE_DIM = Color("blue_dim", 73, (0, 16, 56))
 YELLOW = Color("yellow", 74, (255, 214, 0))
 
+#: Eight colours a slot can be tagged with, so a full library is readable at a
+#: glance (CC-18).  Index 0 is the default green every untagged slot already
+#: used, so tagging is additive: nothing changes appearance until you ask.
+USER_COLORS: tuple[Color, ...] = (
+    GREEN,
+    Color("user_cyan", 77, (0, 210, 200)),
+    Color("user_blue", 78, (40, 90, 255)),
+    Color("user_violet", 79, (150, 60, 255)),
+    Color("user_magenta", 80, (255, 40, 160)),
+    Color("user_red", 81, (255, 40, 40)),
+    Color("user_orange", 82, (255, 120, 0)),
+    Color("user_lime", 83, (170, 255, 0)),
+)
+
+
+def slot_color(tag: int | None) -> int:
+    """Palette index for a slot's user colour tag, defaulting to green."""
+    if tag is None or not 0 <= tag < len(USER_COLORS):
+        return GREEN.index
+    return USER_COLORS[tag].index
+
 #: Every colour that must be uploaded to the device.
 PALETTE: tuple[Color, ...] = (
     WHITE,
@@ -58,6 +79,7 @@ PALETTE: tuple[Color, ...] = (
     BLUE,
     BLUE_DIM,
     YELLOW,
+    *USER_COLORS[1:],  # USER_COLORS[0] is GREEN, already above
 )
 
 BY_INDEX = {c.index: c for c in (OFF,) + PALETTE}
@@ -78,4 +100,7 @@ SIM_GLYPHS = {
     BLUE.index: "B",
     BLUE_DIM.index: "b",
     YELLOW.index: "Y",
+    # The user colours share one glyph: the simulator's grid is about state, and
+    # eight more letters would make it less readable rather than more.
+    **{c.index: "C" for c in USER_COLORS[1:]},
 }

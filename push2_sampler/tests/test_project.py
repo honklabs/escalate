@@ -3,7 +3,12 @@ import json
 import numpy as np
 import pytest
 
-from push2sampler.project import FORMAT_VERSION, Project, Sample
+from push2sampler.project import (
+    FORMAT_VERSION,
+    SONG_BARS,
+    Project,
+    Sample,
+)
 from push2sampler import wavio
 
 
@@ -49,7 +54,7 @@ def test_toggle_bar():
     assert sample.toggle(5) is False
     assert sample.triggers == set()
     with pytest.raises(ValueError):
-        sample.toggle(64)
+        sample.toggle(SONG_BARS)  # one past the last bar of the last page
 
 
 def test_build_schedule_places_samples_on_their_bars():
@@ -57,7 +62,7 @@ def test_build_schedule_places_samples_on_their_bars():
     a = project.put(0, tone(10), bars=1, triggers={0, 3})
     b = project.put(1, tone(20), bars=1, triggers={3})
     schedule = project.build_schedule()
-    assert len(schedule) == 64
+    assert len(schedule) == SONG_BARS
     assert [e.slot for e in schedule[0]] == [0]
     assert sorted(e.slot for e in schedule[3]) == [0, 1]
     assert schedule[1] == ()
@@ -72,9 +77,16 @@ def test_build_schedule_places_samples_on_their_bars():
 
 def test_schedule_ignores_out_of_range_bars():
     project = Project()
-    project.put(0, tone(10), bars=1, triggers={0, 99})
+    project.put(0, tone(10), bars=1, triggers={0, SONG_BARS + 5})
     schedule = project.build_schedule()
     assert sum(len(entries) for entries in schedule) == 1
+
+
+def test_a_bar_on_the_last_page_is_scheduled():
+    project = Project()
+    project.put(0, tone(10), bars=1, triggers={200})
+    schedule = project.build_schedule()
+    assert len(schedule[200]) == 1
 
 
 def test_save_and_load_round_trip(tmp_path):
@@ -114,7 +126,7 @@ def test_load_skips_slots_whose_audio_is_missing(tmp_path):
     project = Project(samplerate=8000)
     project.put(1, tone(50), bars=1)
     project.save(tmp_path)
-    (tmp_path / "samples" / "slot_01.wav").unlink()
+    (tmp_path / "samples" / "slot_001.wav").unlink()
     assert Project.load(tmp_path, samplerate=8000).filled() == []
 
 

@@ -229,7 +229,8 @@ def test_a_failed_save_is_reported_and_does_not_raise(rig, monkeypatch):
 
 def test_no_project_directory_means_nothing_is_ever_unsaved(tmp_path):
     project = Project(samplerate=SR)
-    engine = Engine(samplerate=SR, blocksize=64, backend="offline", bpm=120.0)
+    engine = Engine(samplerate=SR, blocksize=64, backend="offline", bpm=120.0,
+                    song_bars=project.song_bars)
     push = SimPush()
     push.open()
     app = App(push, engine, project, project_dir=None, settings=Settings())
@@ -316,7 +317,7 @@ def test_it_reconnects_and_relights_everything(flaky_rig, monkeypatch):
     assert app.message == "surface back"
     # The cache was invalidated, so the whole grid was resent.
     app.render()
-    assert push.pad_leds[0] == colors.WHITE.index
+    assert push.pad_leds[0] == colors.WHITE_DIM.index
 
 
 def test_a_failed_reconnect_just_tries_again_later(flaky_rig, monkeypatch):
@@ -1064,7 +1065,7 @@ def test_a_take_with_missing_layer_files_still_loads(rig, tmp_path):
     project[0].add_layer(take(engine, value=0.25))
     directory = tmp_path / "lossy"
     project.save(directory)
-    for path in (directory / "samples").glob("slot_00_L*.wav"):
+    for path in (directory / "samples").glob("slot_000_L*.wav"):
         path.unlink()
     loaded = Project.load(directory, samplerate=SR)
     assert loaded[0] is not None  # the take survives
@@ -1093,4 +1094,4 @@ def test_repairing_a_take_forgets_the_layer_breakdown(rig):
 
 
 def test_the_format_version_moved_for_layers():
-    assert FORMAT_VERSION == 5
+    assert FORMAT_VERSION >= 5

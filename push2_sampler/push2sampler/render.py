@@ -46,7 +46,9 @@ class BounceJob:
     def __init__(self, project, bars: int | None = None, tail: bool = True,
                  only_slot: int | None = None) -> None:
         self.project = project
-        self.bars = project.song_bars if bars is None else max(1, bars)
+        # Render to the last bar in use, not to the nominal song length: four
+        # pages are available and most songs use one.
+        self.bars = max(1, project.used_bars) if bars is None else max(1, bars)
         self.tail = tail
         self.only_slot = only_slot
         self.done = False
@@ -130,7 +132,7 @@ def stems_to(project, directory: str | Path, bars: int | None = None) -> list[Pa
     written = []
     for slot, audio in render_stems(project, bars=bars).items():
         sample = project[slot]
-        name = f"slot_{slot:02d}_{sample.name}.wav".replace(" ", "_")
+        name = f"slot_{slot:03d}_{sample.name}.wav".replace(" ", "_")
         path = directory / name
         wavio.write(path, audio, project.samplerate)
         written.append(path)

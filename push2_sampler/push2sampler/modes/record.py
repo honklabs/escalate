@@ -41,7 +41,10 @@ class RecordMode(Mode):
             return False
         if cc == Btn.RECORD:
             if self.engine.rec_state == "idle":
-                self.engine.arm_record(self.bars, self.app.count_in_beats)
+                self.engine.arm_record(
+                    self.bars, self.app.count_in_beats,
+                    pre_roll_bars=self.app.pre_roll_bars,
+                )
             else:
                 self.engine.cancel_record()
                 self.app.notify("take cancelled")
@@ -135,6 +138,8 @@ class RecordMode(Mode):
         state = self.engine.rec_state
         head = f"RECORD -> slot {self.slot + 1}"
         if state == "count_in":
+            if self.engine.in_pre_roll:
+                return [head, "pre-roll: the song is running", "get ready..."]
             return [head, f"count-in: {self.engine.count_in_beats_left}", "playing in..."]
         if state == "recording":
             return [head, f"recording bar {self.engine.current_bar + 1}/{self.bars}", ""]

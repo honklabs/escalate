@@ -1,7 +1,8 @@
 # push2sampler — product plan
 
-Status: **32 of the 58 items below are shipped**, which completes the `v1.1` and
-`v1.2` trains; `v1.3` is next. Each shipped item carries a status note saying
+Status: **42 of the 58 items below are shipped**, which completes the `v1.1`,
+`v1.2` and `v1.3` trains; `v1.4` is next. One of the 42 (`CC-13`) shipped only
+the half that does not need unverified hardware. Each shipped item carries a status note saying
 what was built and where it deviated from this plan and why.
 
 An earlier version of this line claimed "v1.1 shipped and most of v1.2" while
@@ -74,8 +75,8 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-**Every foundation item is shipped** (`F-01`-`F-09`), and the `v1.1` and `v1.2`
-trains are complete, plus `NF-03`, `NF-04`,
+**Every foundation item is shipped** (`F-01`-`F-09`), and the `v1.1`, `v1.2` and
+`v1.3` trains are complete, plus `NF-03`, `NF-04`,
 `NF-05`, `NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own
 section below. ~7,700 lines, 298 tests, `ruff` clean, no hardware needed to
 test.
@@ -213,7 +214,7 @@ CC is the most likely merge conflict in this project.
 | Mute | 60 | **taken** — per-sample audible toggle / library mute-arm |
 | Delete | 118 | **taken** — delete-arm |
 | Metronome | 9 | **taken** — click |
-| Repeat | 56 | **taken** — loop |
+| Repeat | 56 | **taken** — `NF-11`: loop scope (page / song / off) |
 | Shift | 49 | **taken** — modifier |
 | Setup | 30 | **taken** — settings page · `Shift`+`Setup` saves the project |
 | Tempo encoder | 14 | **taken** — BPM (±1, ±10 with `Shift`, ±0.1 holding `Tap Tempo`) |
@@ -222,10 +223,10 @@ CC is the most likely merge conflict in this project.
 | Display row top | 102–109 | **taken** — input level meter (`F-07`) |
 | Display row bottom 1 | 20 | **taken** — Sample page: fit an off-grid take |
 | Duplicate | 88 | **taken** — `NH-05`: library copies a slot, sample page copies a block of bars |
-| Clip | 113 | reserved → `NF-01` (Song page) |
+| Clip | 113 | **taken** — `NF-01`: the song overview · again to zoom out |
 | Device | 110 | **taken** — Sample page: editor · `Shift`+`Device` applies |
-| Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
-| Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
+| Browse | 111 | **taken** — `NF-06`: the project browser |
+| Page ◀ / ▶ | 62 / 63 | **taken** — `NF-07`: bank · `Shift`: `NF-11` song page · Song page: move the zoom |
 | Fixed Length | 90 | **taken** — Perform: quantize amount |
 | Accent | 57 | **taken** — Sample page: velocity response on/off |
 | Scale | 58 | reserved → `IN-04` (key/pitch tools) |
@@ -234,12 +235,12 @@ CC is the most likely merge conflict in this project.
 | Tap Tempo | 3 | **taken** — `NH-07`: four taps set the tempo · held, it makes the tempo encoder ±0.1 |
 | Master | 28 | free — `NH-01` used the master *encoder*, not this button |
 | Add Track | 53 | free |
-| Select | 48 | free |
+| Select | 48 | **taken** — `CC-17`/`CC-18`: name and colour a slot |
 | Layout | 31 | free |
 | User | 59 | free — leave free, users press it to switch Push modes |
 | Octave ▲▼ | 55 / 54 | free |
 | ▶ Right | 45 | free |
-| Display row bottom | 21–27 | free — 7 contextual buttons, claim per mode |
+| Display row bottom | 20–27 | **taken per mode** — Library: `NH-06` scenes · Mixer: mute · Settings/Editor/Tag/Browser: their own |
 | Swing encoder | 15 | reserved → `NH-02` |
 | Mix | 112 | **taken** — `NH-01`: the mixer page |
 | Solo | 61 | **taken** — `NH-01`: arms solo on the mixer page |
@@ -338,13 +339,17 @@ something that makes the instrument nicer to touch, not only bigger.
 | --- | --- | --- |
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
-| **v1.3 — A whole song** ← next | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ ~~`NH-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
-| **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
+| ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
 do for itself.
+
+† `CC-13` shipped its dimmer-library half only. Its global-brightness SysEx
+needs a command byte verified against Ableton's manual, which cannot be done
+here, so it waits for `F-08` — see the item.
 
 ---
 
@@ -704,6 +709,18 @@ up instead of a hardware looper.
 
 ### NF-01 — Song page: see all 64 bars × all samples at once `size: L`
 
+**Status: shipped.**  `modes/song.py`.  Density ramp reuses the existing palette
+as the spec asked (off / dim blue / blue / amber / white at 0 / 1 / 2-3 / 4-7 /
+8+), and the playhead brightens its whole column one rung rather than drawing
+over it, so the density stays readable underneath.  Zoom maps (col,row) to
+(bar, slot) through the same `app.bar_at` window the sample page uses, so a
+zoomed toggle and a sample-page toggle are the identical `ToggleTrigger`.
+
+Two additions the spec did not ask for and the page wanted: `Delete` clears a
+whole cell (eight bars of eight slots), and the overview counts only the
+visible page and bank -- with 256 bars and 256 slots an "everything" heat map
+would be four pads per cell and unreadable.
+
 **Problem.** The arrangement is only visible one sample at a time. You cannot
 see the shape of the song, find the empty bars, or spot bar 33 being bare.
 
@@ -892,6 +909,24 @@ PortAudio nor MIDI.
 
 ### NF-06 — Project browser on the device `size: M`
 
+**Status: shipped.**  `ProjectSummary.read` parses one `project.json` and
+nothing else, so the browser draws 64 projects without loading a single WAV --
+which is the whole reason `scan()` is separate from `load()`.  A project whose
+manifest will not parse is still *listed*, honestly empty, rather than hidden:
+it is a directory someone made.
+
+`App.open_project` saves the outgoing project, stops the transport, and swaps
+the `Project` with the audio stream untouched, as specified -- reopening the
+device would click and might not reopen at all.  The undo journal is cleared on
+the way, because it described the other song.
+
+Deviations: the root is the folder the current project lives in rather than a
+configurable setting (one less thing to set, and it is where you already are),
+and rename is not built -- `duplicate` plus a name from the date and a word
+covers what rename was for, and a second word-picker page for directory names
+would be a lot of surface for very little.  Delete is hold-to-confirm because
+it is the one action in the program undo cannot reach.
+
 **Problem.** One project per CLI invocation. Switching songs means quitting to a
 terminal.
 
@@ -915,6 +950,19 @@ and resets modes to the library; duplicate produces an independent copy
 **Deps.** `F-03`, `F-06`.
 
 ### NF-07 — Four banks of 64 slots `size: M`
+
+**Status: shipped**, with the model kept flatter than the spec offered.  Rather
+than `list[list[...]]` or a `(bank, slot)` key, `Project.slots` is one list of
+256 and **slot identity stays a single integer** -- `bank = slot //
+BANK_SLOTS`.  Every undo command, velocity map, schedule entry, stem filename
+and mixer strip therefore kept working unchanged; a tuple key would have touched
+all of them.  The grid is a *window*: `App.slot_at` / `App.pad_of_slot` are the
+only code that knows which bank is showing.
+
+`Page ◀/▶` switches bank and a quarter-second full-grid flash says you moved.
+`Shift`+`Page` had to go to `NF-11`'s song page -- the two items both claimed it
+-- so "jump to the first/last used bank" is **not built**; it was a convenience
+and the page switch is not.
 
 **Problem.** 64 samples is a limit you reach in an afternoon; a kit alone can
 eat 16.
@@ -1028,6 +1076,27 @@ exactly; pad brightness buckets.
 
 ### NF-11 — Song pages beyond 64 bars `size: M`
 
+**Status: shipped.**  `Sample.triggers` keys are absolute bars 0-255 exactly as
+the spec predicted, so the model really did barely change; the pads became a
+window via `App.bar_at`.
+
+`audio.py` gained a **loop range** in place of "song length": `Engine.loop_range`
+is written as one tuple, because two separate ints could be read torn into a
+start past its own end.  `Repeat` cycles page / song / off, `end_frames` is the
+one boundary `_wrap_song` and `_segment_limit` respect, and the wrap carries the
+overshoot across so looping does not quantise the playhead to a block boundary
+once per pass.  `Play` starts at the loop start, which with a page loop is the
+page you are working on.
+
+A trigger past the last page is dropped on load with a warning on the display,
+as specified -- and so is a slot outside the library, which the spec did not
+mention but the same file can contain.
+
+One consequence worth its own line: **a bounce now renders to the last bar in
+use**, not to the nominal song length.  Four pages are available and most songs
+use one, so the old behaviour would have put two minutes of silence on the end
+of every export.
+
 **Problem.** 64 bars is about two minutes. Songs are longer.
 
 **Spec.** Four song pages (A–D) of 64 bars = 256 bars, playing consecutively,
@@ -1092,6 +1161,17 @@ is unaffected while swing is non-zero. **Deps:** `F-01`, `NF-02`.
 
 ### NH-03 — Metronome and count-in options `size: S`
 
+**Status: shipped**, including the separate click output the spec called for:
+`Voice` gained a `channel`, and `_mix_routed` adds a routed voice into its own
+pair only -- so with `click out` set to channel 3 on a four-output interface the
+main mix, and anything bounced from it, is click-free while a cue pair has it.
+
+Count-in stays a **range** 0-16 rather than the spec's closed 0/1/2/4/8 list: a
+closed `choices` list is exactly what silently swallowed `--samplerate 8000`
+earlier in this project, and 3 is a real count-in in 3/4.  Pre-roll plays the
+song for N bars before the count-in; only the count-in beats click, so the
+run-up is the song rather than a longer countdown.
+
 Count-in length (0/1/2/4/8 beats), pre-roll (start the loop N bars before the
 take), click sound (sine/tick/cowbell), click level, click-only-while-recording,
 and an optional separate click output channel pair. All in settings (`F-06`)
@@ -1151,6 +1231,21 @@ an edit; bar-range copy handles wrap at bar 64 by clipping; all operations
 undoable. **Deps:** `F-04`.
 
 ### NH-06 — Scenes / arrangement snapshots `size: M`
+
+**Status: shipped**, on the display row **below** rather than above: that row is
+the input meter (`F-07`), and a level meter you cannot see is a worse trade than
+a scene button one row down.
+
+The spec's "swap the schedule at the next bar, not mid-bar" needed **no engine
+change**, which is worth recording rather than quietly skipping: triggers are
+only ever read at bar lines, and a voice already sounding owns its buffer, so
+replacing the schedule mid-bar can neither cut a voice nor take effect early.
+A recall is one undo step, and it restores a snapshot of what it replaced.
+
+A scene carries the enable map and the trigger sets only.  Audio, gain, edits
+and layers belong to the *take*, not the arrangement, and a scene that silently
+re-pitched your samples would be a trap.  Slots recorded since a snapshot are
+left alone rather than emptied -- a scene is a variation, not a rollback.
 
 Eight snapshots of the whole enable-map (which samples are audible and their
 trigger sets), stored in the project and recalled instantly for A/B comparison
@@ -1530,6 +1625,13 @@ play next bar" hint so you can see what is coming. **Code:** `modes/library.py`,
 5, that slot renders `AMBER_DIM`.
 
 ### CC-08 — Big transport readout `size: S`
+
+**Status: shipped.**  `App.transport_readout()` is the structured variant the
+spec asked for -- `BAR 17C · 3 · 124 BPM` -- and `Push2Display.draw` takes it as
+a second argument and draws it large along the bottom, giving up one of the five
+text lines for it.  Beats count from 1 because that is how anyone counts them
+out loud.  On a machine with no scalable font the big line is merely the same
+size as the rest rather than absent.
 The display's last line becomes a large, glanceable `BAR 17 · 1.3 · 124 BPM`
 (bar, beat.subdivision, tempo) in a bigger font, with the rest of the lines
 above it. Readable from across a room. **Code:** `display.py` (second font
@@ -1597,6 +1699,18 @@ phrase. Makes "just play it for four bars" one gesture. **Code:**
 8–11; a 2-bar sample sets bars 8 and 10. **Deps:** `F-04`.
 
 ### CC-13 — Global brightness and a dimmer library `size: S`
+
+**Status: half shipped, deliberately.**  Blank library slots now render
+`WHITE_DIM` behind a `dim library` setting, and the brightest white is reserved
+for the playhead -- the glare half of the problem, and the half that can be
+verified.
+
+The **global brightness SysEx is not built.**  The item says to verify the
+command byte against Ableton's manual first; there is no manual and no device
+here, so writing a byte and then unit-testing my own guess of it would prove
+nothing and could do something else entirely on real hardware.  Same call, and
+the same reason, as the LED brightness omission in `F-06`.  It belongs with the
+`F-08` hardware pass.
 64 white pads at full brightness is glare and current draw. Add a brightness
 setting (applied via the Push 2 global LED brightness SysEx — **verify the
 command byte against the Push 2 MIDI and Display Interface manual before
@@ -1659,6 +1773,16 @@ three worked examples. **Code:** `cli.py`. **Tests:** `doctor` exits 0 with
 everything missing and still prints every row.
 
 ### CC-17 — Slot names without a keyboard `size: S`
+
+**Status: shipped.**  `names.py` holds eight categories of eight words; `Select`
+on a sample page opens `modes/tag.py`, where the top seven rows are words and
+the bottom row is `CC-18`'s colours -- one page for a slot's whole identity,
+which is how you actually think about it.
+
+The pads show seven categories at once rather than one: with eight words per
+category and seven rows available, showing one would waste six rows and hide the
+obvious neighbours.  A second `kick` names itself `kick 2`, because two slots
+called the same thing is not a name.
 Name a sample by picking from a curated word list (kick, snare, hat, clap, bass,
 chord, pad, lead, vox, fx, riser, noise, …) with the display-row buttons paging
 through categories, plus an auto-suggestion from `IN-02` when available. Names
@@ -1667,6 +1791,14 @@ show on the display and in `project.json` (already supported). **Code:**
 `Sample.name`, persists, and is undoable.
 
 ### CC-18 — Colour-code slots `size: S`
+
+**Status: shipped**, as the bottom row of the `CC-17` namer rather than
+`Shift`+a top display-row button -- that row is the input meter.  Eight colours
+at palette indices 77-83 plus green as "no colour", so tagging is additive and
+an untagged library looks exactly as it did.  Pressing a slot's current colour
+clears it, so the picker is a toggle rather than a one-way door.  Muted, armed
+and sounding states still win over the tag, since those are what you need to see
+while playing.
 `Shift` + a top display-row button assigns one of eight user colours to the
 selected slot; the library renders filled slots in their colour (keeping dim for
 muted, amber for sounding) so a 64-slot library becomes readable at a glance.

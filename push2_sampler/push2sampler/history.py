@@ -116,6 +116,53 @@ class SetBars(Command):
 
 
 @dataclass
+class RecallScene(Command):
+    """Swap the whole arrangement for a stored snapshot.
+
+    The snapshot covers what is audible and where each take plays -- not the
+    audio, gain, edits or layers, which belong to the *take* rather than to the
+    arrangement.  Undo puts back a snapshot of the state it replaced, so an A/B
+    comparison can always be walked back.
+    """
+
+    index: int
+    _previous: object = None
+
+    @property
+    def label(self) -> str:
+        return f"scene {self.index + 1}"
+
+    def apply(self, project) -> None:
+        if self._previous is None:
+            self._previous = project.snapshot()
+        project.recall_scene(self.index)
+
+    def revert(self, project) -> None:
+        if self._previous is not None:
+            project.restore(self._previous)
+
+
+@dataclass
+class StoreScene(Command):
+    """Keep the arrangement as it stands in one of the eight scene slots."""
+
+    index: int
+    _previous: object = None
+
+    @property
+    def label(self) -> str:
+        return f"stored scene {self.index + 1}"
+
+    def apply(self, project) -> None:
+        self._previous = project.scenes[self.index]
+        project.store_scene(self.index)
+
+    def revert(self, project) -> None:
+        project.scenes[self.index] = self._previous
+        project.dirty = True
+
+
+@dataclass
 class CopySlot(Command):
     """Copy (or move) a whole sample into another slot.
 
@@ -251,6 +298,52 @@ class SetVelocitySensitivity(Command):
         sample = project[self.slot]
         if sample is not None:
             sample.velocity_sensitivity = self.previous
+
+
+@dataclass
+class SetName(Command):
+    """Rename a slot, from the curated word list."""
+
+    slot: int
+    name: str
+    previous: str
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: {self.name}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.name = self.name
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.name = self.previous
+
+
+@dataclass
+class SetColor(Command):
+    """Tag a slot with one of the eight user colours, or clear the tag."""
+
+    slot: int
+    color: int | None
+    previous: int | None
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1} colour {'cleared' if self.color is None else self.color + 1}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.color = self.color
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.color = self.previous
 
 
 @dataclass

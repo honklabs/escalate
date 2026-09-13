@@ -10,6 +10,109 @@ plan.
 
 ---
 
+## v1.3 — A whole song
+
+Completes the `v1.3` **A whole song** train: 42 of the 58 planned items are
+shipped. The instrument stopped being a sketchpad — it now holds a whole song and
+can leave the box without a terminal.
+
+### Four times bigger
+
+- **Four banks of 64 samples** (`NF-07`) — 256 in all. `Page ◀/▶` switches bank
+  and the grid flashes so you see that you moved. A bank is a *view*, not a song
+  section: everything in every bank plays.
+- **Four song pages of 64 bars** (`NF-11`) — 256 bars, about eight minutes,
+  playing consecutively. `Shift`+`Page ◀/▶` moves the window. **`Repeat` now
+  cycles what the loop covers**: this page, the whole song, or off — so you can
+  work on one page while the rest waits.
+
+Slot and bar identity stayed a single number through all of that, which is why
+every take, velocity, edit and undo step from an older project still works.
+
+### Seeing it
+
+- **A song overview** (`NF-01`). `Clip` turns the grid into a heat map of the
+  whole arrangement — each pad is eight bars by eight slots, coloured by how
+  much is happening in it, with the playing column brightened. Press a pad to
+  zoom in, and each pad is then one bar of one slot, toggling the same triggers
+  the sample page does. It is how you notice that bar 33 is bare, or that the
+  second half is just the first half again.
+- **A readout you can read from across the room** (`CC-08`). The display's
+  bottom line is now large: `BAR 17C · 3 · 124 BPM`.
+- **A dimmer library** (`CC-13`). Blank pads are dim, so the brightest white
+  means the playhead rather than "nothing here". Sixty-four pads at full white
+  was glare.
+
+### Finding it again
+
+- **Names, without a keyboard** (`CC-17`). `Select` on a sample page opens a
+  word list — eight categories of eight, from `kick` to `vinyl`. A second kick
+  names itself `kick 2`.
+- **Colours** (`CC-18`). The bottom row of the same page tags a slot with one of
+  eight colours, so a full library is readable at a glance. Untagged slots look
+  exactly as they did.
+- **A project browser** (`NF-06`). `Browse` lists the songs on disk as pads:
+  open, create, duplicate, or hold to delete. Opening one saves what you were
+  working on and swaps it in **without restarting the audio stream**, so the
+  change is silent rather than a gap. It reads only each `project.json`, never
+  the audio, so 64 projects draw instantly.
+
+### Playing it
+
+- **Eight scenes** (`NH-06`). The row of buttons below the display stores and
+  recalls snapshots of the whole arrangement — `Shift` to store, a press to
+  recall — for A/B comparison or live variation. A scene carries what is audible
+  and where it plays, never the audio or the gain, and it is one undo step.
+- **The metronome you actually want** (`NH-03`). Count-in length, a pre-roll that
+  plays the song for a few bars before the take, three click sounds, click level,
+  click-only-while-recording, and **a separate click output** — with that set, the
+  main mix and everything bounced from it is click-free while a cue pair has it.
+
+### Also
+
+- A bounce now renders **to the last bar in use** rather than to the nominal
+  song length. With four pages available and most songs using one, the old
+  behaviour would have put two minutes of silence on the end of every export.
+- The project format is **version 6**, adding pages, scenes and slot colours.
+  Versions 1–5 load unchanged: a project from before pages opens as one page.
+- A trigger past the last page, or a slot outside the library, is dropped on load
+  **with a warning on the display** rather than kept as a silent surprise.
+- The settings page has a third scroll page for the click options.
+
+### What did not ship
+
+**`CC-13`'s global brightness SysEx.** The item says to verify the command byte
+against Ableton's manual first. There is no manual and no device here, so
+writing a byte and unit-testing my own guess of it would prove nothing and could
+do something else entirely on real hardware. The dimmer library — the half that
+can be verified — shipped; the rest waits for the hardware pass.
+
+**`NF-07`'s "jump to the first/last used bank".** It and `NF-11`'s song-page
+switch both claimed `Shift`+`Page`. The page switch won; the jump was a
+convenience.
+
+**`NF-06`'s rename.** `duplicate` plus an automatic date-and-word name covers
+what it was for, and a second word-picker for directory names is a lot of
+surface for very little.
+
+### Bugs found by using it
+
+- **`count_in_beats` came within one commit of repeating a bug this project had
+  already recorded.** `NH-03` lists the count-in lengths as 0/1/2/4/8 and I made
+  it a closed `choices` list — which is exactly what silently swallowed
+  `--samplerate 8000` in v1.0. Reverted to a range; 3 is a real count-in in 3/4.
+- **The new buttons were unreachable in the simulator again** — `Page ◀/▶`,
+  `Clip`, `Browse` and `Select` had no names there, so half the release could not
+  be driven without hardware. Caught mid-release this time rather than at the
+  end, and the simulator guide now says to add the name in the same change.
+- **A click's waveform crosses any threshold dozens of times**, so my first
+  count-in test counted oscillations rather than clicks and reported 199 clicks
+  for a four-beat count-in. It now counts bursts separated by real silence.
+
+**565 tests**, `ruff` clean, `numpy` the only hard requirement.
+
+---
+
 ## v1.2 — Playable
 
 Completes the `v1.1` **Trustworthy** and `v1.2` **Playable** trains: 32 of the

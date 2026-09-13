@@ -5,8 +5,22 @@ from __future__ import annotations
 import time
 
 from .. import colors
-from ..constants import BTN_BRIGHT, BTN_DIM, BTN_ON, PAD_COUNT, Btn
-from ..history import CopySlot, DeleteSample, SetEnabled
+from ..constants import (
+    BTN_BRIGHT,
+    BTN_DIM,
+    BTN_ON,
+    DISPLAY_ROW_BOTTOM,
+    PAD_COUNT,
+    Btn,
+)
+from ..history import (
+    CopySlot,
+    DeleteSample,
+    RecallScene,
+    SetEnabled,
+    StoreScene,
+)
+from ..project import BANK_SLOTS, SCENE_COUNT
 from .base import Mode
 
 #: Hold a filled pad for this long to audition it instead of opening its page.
@@ -27,6 +41,7 @@ class LibraryMode(Mode):
 
     # -- input -------------------------------------------------------------
     def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
+        index = self.app.slot_at(index)
         sample = self.project[index]
         if not pressed:
             return self._on_release(index, sample)
@@ -101,6 +116,23 @@ class LibraryMode(Mode):
             return
         self.app.do(CopySlot(index, destination, move=self.app.shift))
 
+    def _scene(self, index: int) -> None:
+        """One of the eight snapshots: Shift stores, a plain press recalls.
+
+        These live on the row *below* the display rather than the row above it,
+        which the plan asked for: that row is the input meter, and a level meter
+        you cannot see is a worse trade than a scene button one row down.
+        """
+        if index >= SCENE_COUNT:
+            return
+        if self.app.shift:
+            self.app.do(StoreScene(index))
+            return
+        if not self.project.scene_filled(index):
+            self.app.notify(f"scene {index + 1} is empty - Shift to store one here")
+            return
+        self.app.do(RecallScene(index))
+
     def on_button(self, cc: int, pressed: bool) -> bool:
         if not pressed:
             return False
@@ -121,6 +153,9 @@ class LibraryMode(Mode):
                 "mute armed: press a pad" if self.app.mute_armed else "mute off"
             )
             return True
+        if cc in DISPLAY_ROW_BOTTOM:
+            self._scene(DISPLAY_ROW_BOTTOM.index(cc))
+            return True
         if cc == Btn.DUPLICATE:
             self.app.duplicate_armed = not self.app.duplicate_armed
             self.app.delete_armed = self.app.mute_armed = False
@@ -136,27 +171,37 @@ class LibraryMode(Mode):
         if self.app.bounce is not None:
             self._render_progress(pads, self.app.bounce.progress)
             return
+        if self.app.bank_flashing:
+            # One beat of solid colour on a bank change, so you always see that
+            # the grid you are looking at is a different sixty-four.
+            for i in range(PAD_COUNT):
+                pads[i] = colors.BLUE_DIM.index
+            return
         sounding = set(self.engine.sounding)
         upcoming = self._next_bar_slots()
         blink = self.app.blink
         for i in range(PAD_COUNT):
-            sample = self.project[i]
+            slot = self.app.slot_at(i)
+            sample = self.project[slot]
             if sample is None:
-                pads[i] = colors.WHITE.index
+                pads[i] = (
+                    colors.WHITE_DIM.index if self.app.dim_library
+                    else colors.WHITE.index
+                )
             elif self.app.delete_armed:
                 pads[i] = colors.RED.index if blink else colors.RED_DIM.index
             elif self.app.mute_armed:
                 pads[i] = colors.YELLOW.index if sample.enabled else colors.GREEN_DIM.index
             elif self.app.duplicate_armed:
                 pads[i] = colors.BLUE.index if blink else colors.BLUE_DIM.index
-            elif i in sounding:
+            elif slot in sounding:
                 pads[i] = colors.AMBER.index
-            elif i in upcoming:
+            elif slot in upcoming:
                 pads[i] = colors.AMBER_DIM.index  # comes in on the next bar
             elif self.project.mismatched(sample):
                 pads[i] = colors.YELLOW.index  # does not fill its bars any more
             elif sample.enabled:
-                pads[i] = colors.GREEN.index
+                pads[i] = colors.slot_color(sample.color)
             else:
                 pads[i] = colors.GREEN_DIM.index
 
@@ -185,6 +230,8 @@ class LibraryMode(Mode):
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.MUTE] = BTN_BRIGHT if self.app.mute_armed else BTN_DIM
         buttons[Btn.DUPLICATE] = BTN_BRIGHT if self.app.duplicate_armed else BTN_DIM
+        for index, cc in enumerate(DISPLAY_ROW_BOTTOM[:SCENE_COUNT]):
+            buttons[cc] = BTN_ON if self.project.scene_filled(index) else BTN_DIM
 
     def status_lines(self) -> list[str]:
         filled = len(self.project.filled())
@@ -196,11 +243,18 @@ class LibraryMode(Mode):
                 "Shift + a slot moves it instead of copying",
                 "Duplicate again to cancel",
             ]
+        bank_start = self.app.bank * BANK_SLOTS
+        here = sum(
+            1 for slot in range(bank_start, bank_start + BANK_SLOTS)
+            if self.project[slot] is not None
+        )
+        scenes = sum(1 for i in range(SCENE_COUNT) if self.project.scene_filled(i))
         lines = [
-            "SAMPLE LIBRARY",
-            f"{filled}/64 slots filled, {muted} muted",
+            f"LIBRARY bank {self.app.bank_letter}  {here}/{BANK_SLOTS} here"
+            f"  {filled} in all, {muted} muted",
+            f"Page left/right: bank   Shift+Page: song page   {scenes} scene(s)",
             "blank pad: record   tap: open page   hold: audition",
-            "Shift+Record: bounce   Duplicate: copy a slot",
+            "Shift+Record: bounce   Duplicate: copy   buttons below: scenes",
         ]
         if self.app.bounce is not None:
             return ["BOUNCING", f"{self.app.bounce.progress * 100:.0f}%",

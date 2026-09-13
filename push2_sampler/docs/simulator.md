@@ -90,6 +90,7 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
+`clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
 
@@ -242,6 +243,27 @@ dup
 p 0
 p 8
 
+# name and colour the slot
+select
+p 0              # "kick"
+p 59             # bottom row: a colour swatch
+select
+
+# the song overview, and a zoom into its first cell
+clip
+p 0
+clip
+clip
+
+# bank B, and song page B
+pr
+s
+pl
+shift on
+pr
+shift off
+s
+
 # overdub a second pass onto the same take
 new
 wait 3
@@ -362,7 +384,9 @@ See [Getting started, step 2](getting-started.md#step-2-run-the-probe).
 - **Whether a cable is plugged in.** `SimPush` never goes offline, so the
   reconnect handling is exercised by the tests rather than here.
 
-What it *does* now reach is every control: when the mixer and overdub landed,
-their three buttons had no simulator names for an hour, which made two whole
-features undriveable without hardware. If you add a control, add its name to
-`BUTTONS` in `sim.py` in the same change.
+What it *does* now reach is every control — but only because that keeps getting
+caught rather than designed in. The mixer and overdub shipped with three buttons
+that had no simulator name, making two whole features undriveable without
+hardware; banks, the song page, the browser and the namer nearly did the same a
+release later. **If you add a control, add its name to `BUTTONS` in `sim.py` in
+the same change.**

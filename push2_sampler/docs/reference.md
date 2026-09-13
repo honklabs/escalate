@@ -5,9 +5,13 @@ same material, read [Getting started](getting-started.md) instead.
 
 - [Concepts](#concepts)
 - [Controls that work everywhere](#controls-that-work-everywhere)
+- [Banks and pages](#banks-and-pages)
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Editor](#sample-editor) ·
-  [Perform](#perform-mode) · [Mixer](#mixer-page) · [Settings](#settings-page)
+  [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
+  [Browser](#project-browser) · [Naming](#naming-and-colouring-a-slot) ·
+  [Settings](#settings-page)
+- [Scenes](#scenes)
 - [Colours](#colours)
 - [Settings](#settings)
 - [Undo](#undo)
@@ -21,12 +25,14 @@ same material, read [Getting started](getting-started.md) instead.
 
 ## Concepts
 
-**Slot.** One of 64 sample slots, one per pad. A slot holds one recorded take.
+**Slot.** One of **256** sample slots. A slot holds one recorded take. The grid
+shows 64 at a time — one **bank**.
 
 **Take.** The audio in a slot. Recorded as an exact number of bars at the tempo
 of the moment, and it remembers that tempo.
 
-**Song.** 64 bars. Every sample has its own set of bars it plays on; they
+**Song.** Up to **256 bars**, as four **pages** of 64 played one after another —
+about eight minutes. Every sample has its own set of bars it plays on; they
 overlap freely, including with themselves.
 
 **Trigger.** One sample playing on one bar. Optionally carries a velocity.
@@ -35,9 +41,46 @@ overlap freely, including with themselves.
 applied on the way to the speakers. The recording is never changed until you
 explicitly apply them.
 
+**Scene.** One of eight stored snapshots of the arrangement — what is audible
+and where it plays — for comparing two versions or switching live.
+
 **Mode.** What the 64 pads currently mean. The Library is home; the Sample page
-replaces it; the Editor, Perform and Settings open *over* whatever you were
-doing and close back to it.
+replaces it; the Editor, Perform, Song, Mixer, Browser, Naming and Settings pages
+open *over* whatever you were doing and close back to it.
+
+---
+
+## Banks and pages
+
+There are 256 slots and 256 bars, and 64 pads. So the grid is a **window**, and
+two controls move it:
+
+| Control | Moves |
+| --- | --- |
+| **Page ◀** / **Page ▶** | The **bank**: which 64 slots the library, perform and mixer pages show |
+| **Shift**+**Page ◀/▶** | The **song page**: which 64 bars a sample page shows |
+
+Banks are labelled A–D and so are pages. The display always names both.
+
+**A bank is a view, not a song section.** Everything in every bank plays,
+always — switching bank changes what you can *reach*, never what you hear. The
+grid flashes for a moment when you switch, so you always know you moved.
+
+**Pages are consecutive.** Page A is bars 1–64, page B is 65–128, and the song
+runs through them in order. What the loop covers is separate, and **Repeat**
+cycles it:
+
+| Loop scope | What happens |
+| --- | --- |
+| `page` (default) | Loops the page you are working on — the rest of the song waits |
+| `song` | Loops all four pages |
+| `off` | Plays to the end of the song and stops |
+
+**Play** starts at the loop's start, so with a page loop it starts on the page
+you are on. The transport line names the scope, and the big readout puts the
+page letter next to the bar: `BAR 129C`.
+
+An older project, from before pages existed, opens as **one** page.
 
 ---
 
@@ -53,12 +96,16 @@ These work in every mode unless that mode says otherwise.
 | **Shift**+**Stop** | [Stop at the end of the bar](#stopping) |
 | **Stop** twice quickly | Stop, and disarm everything that was armed |
 | **Session**, **Note**, **◀** | Close an overlay, or go home to the Library |
+| **Clip** | Open or close the [Song page](#song-page) |
 | **Mix** | Open or close the [Mixer page](#mixer-page) |
+| **Browse** | Open or close the [Project browser](#project-browser) |
+| **Page ◀/▶** | Change [bank](#banks-and-pages) |
+| **Shift**+**Page ◀/▶** | Change [song page](#banks-and-pages) |
 | **Setup** | Open or close the [Settings page](#settings-page) |
 | **Shift**+**Setup** | Save the project now |
 | **Metronome** | Click on/off |
 | **Shift**+**Metronome** | Cycle monitoring: off → auto → on |
-| **Repeat** | Loop the 64-bar song on/off |
+| **Repeat** | Cycle the [loop scope](#banks-and-pages): page → song → off |
 | **Undo** | Take back the last edit (64 deep) |
 | **Shift**+**Undo** | Redo |
 | **Delete** | Arm deleting; the next pad press acts (mode-dependent) |
@@ -103,8 +150,11 @@ Home. All 64 pads are sample slots.
 | **Shift**+**Record** | [Bounce](#bouncing) the song to a file |
 | **Mute** | Arm mute; the next pad press toggles that slot's audibility |
 | **Duplicate** | Arm duplicate; press again to cancel |
+| Buttons **below** the display | The eight [scenes](#scenes) |
+| **Shift** + a button below | Store the arrangement in that scene |
 
-The display lists how many slots are filled and how many are muted, and names
+The display names the bank, how many slots are filled in it and in all four, how
+many are muted, and names
 any slots that have fallen [off the grid](#off-grid-takes).
 
 A duplicated slot carries the original's arrangement, velocities, mute state,
@@ -296,6 +346,43 @@ Erasing removes that bar for **every** sample, as one undo step.
 If the sample has velocity response on ([Accent](#sample-page)), how hard you hit
 the pad sets the level, and a written trigger keeps that velocity.
 
+### Song page
+
+**Clip**. The whole arrangement at once, which no other page shows: every other
+page is one sample's bars or one bank's slots.
+
+It cannot be one pad per bar per slot — that is 4096 cells on 64 pads — so the
+overview is a **heat map**. Each pad is a cell of **8 bars by 8 slots**: columns
+are bars left to right, rows are slots top to bottom, within the current page and
+bank.
+
+| Colour | Triggers in that cell |
+| --- | --- |
+| Off | none |
+| Dim blue | 1 |
+| Blue | 2–3 |
+| Amber | 4–7 |
+| White | 8 or more |
+
+The column the playhead is in is brightened **one rung**, rather than drawn over,
+so the density stays readable underneath it.
+
+**Press a pad to zoom in.** The grid becomes that cell: each pad is now one bar
+of one slot, and pressing it toggles exactly what the sample page would.
+
+| Control | Action |
+| --- | --- |
+| A pad (overview) | Zoom into that cell |
+| A pad (zoomed) | Toggle one slot on one bar |
+| **Clip** | Zoomed: back to the overview. Overview: leave |
+| **Page ◀/▶** (zoomed) | The next cell along |
+| **Delete** (zoomed) | Clear the whole cell |
+| **Session**, **Note**, **◀** | Leave |
+
+In the zoom, a row with nothing in its slot is dark, alternate rows carry a faint
+tint so you can count them, and triggers show in [the slot's own
+colour](#naming-and-colouring-a-slot).
+
 ### Mixer page
 
 **Mix**. Eight slots at a time — the current row of the library — as eight
@@ -333,6 +420,67 @@ project.
 | Dim green | A muted strip's level |
 | Off | No sample in that slot |
 
+### Project browser
+
+**Browse**. The songs on disk, as pads — so switching song does not mean quitting
+to a terminal. The root is the folder the open project lives in.
+
+| Colour | Meaning |
+| --- | --- |
+| Green | A project with samples in it |
+| Dim white | A project directory with none |
+| Flashing amber/white | The one highlighted |
+| Dim amber | The project you have open |
+
+| Control | Action |
+| --- | --- |
+| A pad | Highlight that project |
+| The same pad again | Open it |
+| **▲** / **▼** | Highlight the previous / next |
+| Button 1 below the display | Open the highlighted project |
+| Button 2 | Start a new project, named from the date and a word |
+| Button 3 | Duplicate the highlighted project, audio and all |
+| Button 5 | **Hold** to delete it |
+| **Browse**, **Session**, **Note**, **◀** | Leave |
+
+The display names the highlighted project, its tempo, how many samples it has,
+how many pages, and when it last changed.
+
+**Opening a project saves the one you were in first** — switching songs must
+never be the thing that loses one — stops the transport, and swaps the project
+with **the audio stream untouched**, so the change is silent rather than a gap.
+The undo journal is cleared on the way, because it described the other song.
+
+Deleting is the one action in this program that undo cannot reach, which is why
+it needs the button held for a second rather than a press. You cannot delete the
+project you have open.
+
+Only each `project.json` is read, never the audio, so a directory of sixty-four
+songs draws instantly. A project whose manifest will not parse is still listed,
+honestly showing zero samples.
+
+### Naming and colouring a slot
+
+**Select** on a sample page. There is no text entry on a Push 2 and there should
+not be: picking `kick` from a list is two presses where spelling it on a grid is
+six.
+
+- **The top seven rows of pads are words** — seven categories at once, eight
+  words each. Press one to name the slot.
+- **The bottom row is eight colours.** Press one to tag the slot; press the same
+  one again to clear it.
+- **The buttons below the display** jump to a category; **▲**/**▼** scroll them.
+
+The categories are drums, perc, bass, keys, lead, voice, fx and field.
+
+A second `kick` names itself `kick 2`, because two slots with the same name is
+not a name. Both the name and the colour are one undo step each, and both are
+saved with the project.
+
+Colours are additive: an untagged slot is green, exactly as before. Muted, armed
+and sounding states still win over a tag, because those are what you need to see
+while playing.
+
 ### Settings page
 
 **Setup**. The pads stay dark on purpose — nothing on this page edits your song.
@@ -353,11 +501,19 @@ Page 1:
 | record latency | play while recording | autosave delay |
 | input device | audio block size | |
 
-Page 2 — [post-take processing](#post-take-processing):
+Page 2 — [post-take processing](#post-take-processing), and the library dimmer:
 
 | | | |
 | --- | --- | --- |
 | auto trim | auto normalise | auto fade |
+| dim library | | |
+
+Page 3 — [the click](#the-click):
+
+| | | |
+| --- | --- | --- |
+| pre-roll | click sound | click volume |
+| click on rec only | click output | |
 
 **Setup**, **Session**, **Note**, **◀** or **Stop** closes it.
 
@@ -437,6 +593,12 @@ is reported, so a flag can never silently do nothing.
 | `rec_latency_ms` | 0 | 0–250 | yes |
 | `play_while_recording` | on | on/off | yes |
 | `autosave_delay_s` | 2.0 | 0.5–30 | yes |
+| `pre_roll_bars` | 0 | 0–8 | yes |
+| `click_sound` | `sine` | sine / tick / cowbell | yes |
+| `click_gain` | 1.0 | 0–2 | yes |
+| `click_when_recording` | off | on/off | yes |
+| `click_channel` | none | 0–14, or none for the main mix | yes |
+| `dim_library` | on | on/off | yes |
 | `auto_trim` | off | on/off | yes |
 | `auto_normalize` | off | on/off | yes |
 | `auto_fade` | off | on/off | yes |
@@ -450,6 +612,32 @@ is reported, so a flag can never silently do nothing.
 Sample rate and channel counts are command-line only because changing them means
 resampling every take already loaded. Device and block size changes reopen the
 audio stream in place.
+
+---
+
+## Scenes
+
+Eight snapshots of the arrangement, on the row of buttons **below** the display
+in the library. **Shift** + a button stores; a plain press recalls. A lit button
+means that scene has something in it.
+
+A scene holds **what is audible and where it plays** — the mute state and the
+trigger set of every filled slot. It does **not** hold the audio, the gain, the
+edits or the layers: those belong to the *take* rather than to the arrangement,
+and a scene that silently re-pitched your samples would be a trap.
+
+Use them to compare two versions of a chorus, or to switch between them while
+playing. A recall is one undo step, so an A/B can always be walked back.
+
+Two details that follow from how the engine works:
+
+- **A recall never cuts a sounding voice.** Triggers are only read at bar lines
+  and a voice already playing owns its buffer, so a recall mid-bar takes effect
+  at the next bar and nothing is chopped.
+- **A slot recorded since the snapshot is left alone**, not emptied. A scene is a
+  variation, not a rollback of the whole library.
+
+Scenes are saved with the project.
 
 ---
 
@@ -607,6 +795,23 @@ Detection is by cross-correlation rather than by watching for a level: a click
 that has been through a speaker and a microphone is smeared and coloured, and its
 shape survives that far better than its amplitude.
 
+### The click
+
+| Setting | What it does |
+| --- | --- |
+| `count_in_beats` | Beats of count-in before a take. 0 starts on the next downbeat |
+| `pre_roll_bars` | Bars of the **song** played before the count-in, so you arrive in the groove rather than starting cold. Only the count-in beats click |
+| `click_sound` | `sine` (soft), `tick` (a short burst that cuts through a mix), `cowbell` (audible against anything) |
+| `click_gain` | How loud it is |
+| `click_when_recording` | Click only during a take, silent while you play |
+| `click_channel` | The first of a **separate output pair** for the click |
+
+A separate click output is the one worth knowing about. Set it to a channel your
+interface actually has — on a four-output box, channel 3 — and the main mix,
+along with anything you bounce from it, is **click-free**, while a pair of
+headphones fed from those channels still hears it. A channel the device does not
+have falls back to the main mix rather than routing the click into silence.
+
 ### Post-take processing
 
 Three settings, all **off** by default, applied to a take the moment it finishes.
@@ -655,21 +860,27 @@ The tolerance is 1%, so rounding does not trip it.
 
 ```
 my-song/
-  project.json            tempo, master gain, and per slot: length in bars, the
-                          bars it plays on, how hard each was played, mute,
-                          gain, the edits, and the tempo/rate it was recorded at
-  samples/slot_00.wav     one file per filled slot, named by slot number
-  samples/slot_00_L1.wav  one per overdub layer, when a take has any
-  bounces/*.wav           whatever you have bounced
+  project.json             tempo, page count, master gain, the eight scenes,
+                           and per slot: length in bars, the bars it plays on,
+                           how hard each was played, mute, gain, colour, the
+                           edits, and the tempo/rate it was recorded at
+  samples/slot_000.wav     one file per filled slot, named by slot number
+  samples/slot_000_L1.wav  one per overdub layer, when a take has any
+  bounces/*.wav            whatever you have bounced
 ```
 
 Saved a couple of seconds after any change (see `autosave_delay_s`) and on exit.
 `project.json` is written atomically — a crash mid-save cannot corrupt it. Audio
 files are only rewritten when the audio itself changed.
 
-The format version is **5**, and every older version loads: a version-1 take
-assumes it was recorded at the project's tempo, and versions 2, 3 and 4 simply
-lack velocities, edits, and overdub layers respectively.
+The format version is **6**, and every older version loads: a version-1 take
+assumes it was recorded at the project's tempo, and versions 2–5 simply lack
+velocities, edits, overdub layers, and pages/scenes/colours respectively. A
+project from before pages opens as **one** page.
+
+A trigger past the last page, or a slot outside the 256, is **dropped on load
+with a warning on the display** — it could never play, and keeping it would be a
+silent surprise later.
 
 A take whose layer files have gone missing still loads and still plays — as the
 summed audio it already was. It just cannot be [peeled back](#overdubbing) any
@@ -684,6 +895,10 @@ whose files are at a different sample rate than the session is resampled on load
 `<project>/bounces/<timestamp>.wav`. The render happens a chunk at a time inside
 the event loop, so the surface stays responsive and you can keep playing; the grid
 shows progress as one amber bar.
+
+A bounce renders **to the last bar anything plays on**, not to the nominal 256.
+With four pages available and most songs using one, rendering the full length
+would put minutes of silence on the end of every export.
 
 Both the on-device bounce and `--bounce` keep the tails of samples that overrun
 the last bar (up to 20 seconds). Muted samples are left out of the mix but are
@@ -746,23 +961,26 @@ because "everything is missing" is a diagnosis rather than a crash.
 
 So you do not go looking:
 
+- **No global LED brightness.** Blank pads can be dimmed, but the Push's own
+  brightness SysEx is not sent: its command byte is unverified, and a knob that
+  might do something else is worse than no knob.
+- **No renaming a project**; duplicate it and the copy is named for you.
 - **No time-stretch.** A take from another tempo is detected and can be padded or
   trimmed, not stretched with its pitch preserved.
 - **No sync.** No MIDI clock in or out, no Ableton Link. The program is an island.
   Tempo tapping and the fine nudge are the manual substitutes.
 - **No importing** audio from disk; you can only record into it.
-- **64 slots and 64 bars**, one bank, one page.
 - **No swing**, no per-trigger probability, no choke groups or loop/gate modes —
   every sample is a one-shot that plays to its end.
 - **No scenes or snapshots** of an arrangement; duplicating a block of bars is as
   close as it gets.
 - **No per-layer editing** of an overdub: layers can be added and removed, not
   soloed or re-balanced against each other.
-- **No banks.** One page of 64 slots, one 64-bar song.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: mode, transport, levels and messages.
   No waveform drawing, no graphics.
 
-`plans.md` in the project root tracks all of it: 32 of the 58 planned items are
-shipped, which completes the `v1.1` and `v1.2` release trains, and 26 remain.
+`plans.md` in the project root tracks all of it: 42 of the 58 planned items are
+shipped, which completes the `v1.1`, `v1.2` and `v1.3` release trains, and 16
+remain.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

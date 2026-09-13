@@ -416,9 +416,82 @@ and intended.
 By design: there are eight encoders. **Up**/**Down**, or pressing any pad, moves
 to another row of eight. The display names which slots you are looking at.
 
+### A pad I pressed opened a different slot than I expected
+
+You are in another **bank**. There are 256 slots and 64 pads, so the grid shows
+one bank of 64 at a time — the display names it (A–D) and **Page ◀/▶** moves it.
+The grid flashes when you switch, which is the cue you missed.
+
+### A sample I recorded has vanished from the library
+
+Almost certainly the same thing: it is in a bank you are not looking at. The
+library's display line names how many slots are filled **in this bank** and how
+many in all four, so if the second number is bigger than the first, go looking
+with **Page ◀/▶**.
+
+### Bars I arranged are not on the grid any more
+
+You are on another **song page**. Four pages of 64 bars each, and a sample page
+shows one; **Shift**+**Page ◀/▶** moves it. The sample page's display line ends
+with the page letter.
+
+### The song stops at bar 64 instead of playing on
+
+**Repeat** cycles what the loop covers, and it starts on `page` — which loops the
+page you are working on and leaves the rest of the song waiting. Press **Repeat**
+until the transport line says `loop song`.
+
+### Playback starts somewhere I did not expect
+
+**Play** starts at the loop's start, not always at bar 1. With a page loop, that
+is the page you are on — which is usually what you wanted, but it means moving to
+page C and pressing **Play** starts at bar 129.
+
+### A project opened with triggers missing
+
+The display says so on the way in: `dropped N trigger(s) past bar …`. A trigger
+beyond the last page can never play, so it is dropped rather than kept as a
+silent surprise. That happens with a file edited by hand, or one written by a
+newer version with more pages.
+
+### The song overview is all one colour
+
+It is a density map, so a uniform colour means uniform density. If everything is
+white, every 8×8 block has eight or more triggers in it — zoom in with a press to
+see the detail. If everything is off, nothing is arranged **on this page and in
+this bank**; the overview only counts what the window is showing.
+
+### A scene did not restore what I expected
+
+A scene holds **what is audible and where it plays** — mute state and trigger
+sets. It deliberately does not touch the audio, the gain, your edits or your
+layers, because those belong to the take rather than the arrangement.
+
+A slot you recorded *after* storing the scene is left alone rather than emptied:
+a scene is a variation, not a rollback of the whole library.
+
+### The click is in my bounce
+
+It is not — the click is never bounced. If you are hearing a tick in an export,
+it came from the input while monitoring was on, not from the metronome.
+
+If you want the click out of your *headphones* while keeping it for a player, set
+**click output** on page 3 of **Setup** to a channel pair your interface actually
+has. A channel it does not have quietly falls back to the main mix rather than
+routing the click into silence.
+
+### The browser will not delete a project
+
+Two guards, both deliberate:
+
+- **The button must be held** for about a second. Deleting a project is the one
+  action in this program that **Undo** cannot reach.
+- **You cannot delete the project you have open.** Open another one first.
+
 ### Undo will not go back far enough
 
-The journal is 64 edits deep. Also, runs of similar edits made within about a
+The journal is 64 edits deep, and **opening another project clears it** — it
+described the other song. Also, runs of similar edits made within about a
 second and a half of each other merge into one step — so a sweep of the tempo
 encoder is one undo, not forty. That is a feature, but it means the number of
 presses needed is not the number of changes you made.

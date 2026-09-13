@@ -16,9 +16,13 @@ SR = 8000
 
 
 def song(**kwargs):
-    project = Project(samplerate=SR, bpm=120.0, **kwargs)
-    project.song_bars = 4  # a short song keeps the renders quick
-    return project
+    """A project whose renders are quick.
+
+    Nothing shortens the song any more -- its length is four pages of 64 bars,
+    derived rather than set -- but a bounce only renders up to the last bar in
+    use, so a fixture that triggers inside the first few bars is already fast.
+    """
+    return Project(samplerate=SR, bpm=120.0, **kwargs)
 
 
 def tone(project, bars=1, value=0.5):
@@ -31,12 +35,13 @@ def test_a_bounce_puts_each_sample_on_its_own_bars():
     audio = render_song(project)
     fpbar = int(project.frames_per_bar)
     assert audio.shape[1] == 2  # stereo mix
-    assert audio.shape[0] >= fpbar * 4
-    # Bars 0 and 2 sound; bars 1 and 3 are silent.
+    # Triggers on bars 1 and 3, so the body is three bars: the render stops at
+    # the last bar in use rather than at the nominal song length.
+    assert audio.shape[0] >= fpbar * 3
+    # Bars 0 and 2 sound; bar 1 between them is silent.
     assert np.abs(audio[fpbar // 2]).max() > 0.4
     assert np.abs(audio[fpbar + fpbar // 2]).max() == pytest.approx(0.0)
     assert np.abs(audio[2 * fpbar + fpbar // 2]).max() > 0.4
-    assert np.abs(audio[3 * fpbar + fpbar // 2]).max() == pytest.approx(0.0)
 
 
 def test_overlapping_samples_sum_in_the_bounce():
@@ -134,8 +139,18 @@ def test_a_job_reports_progress_as_it_goes():
 
 def test_an_empty_song_renders_silence_not_a_crash():
     audio = render_song(song())
-    assert audio.shape[0] == int(4 * song().frames_per_bar)
+    # Nothing is in use, so there is one bar of it rather than zero frames.
+    assert audio.shape[0] == int(song().frames_per_bar)
     assert np.all(audio == 0.0)
+
+
+def test_a_bounce_stops_at_the_last_bar_in_use():
+    """A song using 4 of its 256 bars must not render 252 bars of silence."""
+    project = song()
+    project.put(0, tone(project), bars=1, triggers={0, 3})
+    assert project.used_bars == 4
+    audio = render_song(project, tail=False)
+    assert audio.shape[0] == int(4 * project.frames_per_bar)
 
 
 def test_bouncing_does_not_disturb_the_project():
@@ -151,7 +166,7 @@ def test_stems_are_written_with_readable_names(tmp_path):
     project.put(3, tone(project), bars=1, triggers={0})
     project[3].name = "kick"
     written = stems_to(project, tmp_path)
-    assert [p.name for p in written] == ["slot_03_kick.wav"]
+    assert [p.name for p in written] == ["slot_003_kick.wav"]
     assert written[0].exists()
 
 

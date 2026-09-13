@@ -13,7 +13,13 @@ from push2sampler.app import TAP_MINIMUM, App, _bpm_from_taps
 from push2sampler.audio import Engine
 from push2sampler.constants import ENCODER_TEMPO, Btn
 from push2sampler.modes.sample import DOUBLE_TAP_S, PHRASE_BARS
-from push2sampler.project import FULL_VELOCITY, Project, format_bpm
+from push2sampler.project import (
+    BANK_SLOTS,
+    FULL_VELOCITY,
+    SLOT_COUNT,
+    Project,
+    format_bpm,
+)
 from push2sampler.push2 import SimPush
 from push2sampler.settings import Settings
 
@@ -335,7 +341,7 @@ def test_undoing_a_slot_move_puts_it_back(rig):
 
 def test_duplicating_into_a_full_library_says_so(rig):
     app, push, engine, project = rig
-    for slot in range(64):
+    for slot in range(SLOT_COUNT):
         project.put(slot, take(engine), bars=1)
     push.press_button(Btn.DUPLICATE)
     pump(app)
@@ -493,14 +499,22 @@ def test_a_fine_nudge_is_visible_in_the_undo_label(rig):
 # ------------------------------------------------------- the project helpers
 def test_next_empty_wraps_round_the_grid(rig):
     _, _, engine, project = rig
-    for slot in range(1, 64):
+    for slot in range(1, SLOT_COUNT):
         project.put(slot, take(engine), bars=1)
     assert project.next_empty(10) == 0
 
 
+def test_next_empty_crosses_a_bank_boundary(rig):
+    _, _, engine, project = rig
+    for slot in range(0, BANK_SLOTS):
+        project.put(slot, take(engine), bars=1)
+    # Bank A is full, so the next empty slot is the first of bank B.
+    assert project.next_empty(0) == BANK_SLOTS
+
+
 def test_next_empty_is_none_when_the_library_is_full(rig):
     _, _, engine, project = rig
-    for slot in range(64):
+    for slot in range(SLOT_COUNT):
         project.put(slot, take(engine), bars=1)
     assert project.next_empty(0) is None
 

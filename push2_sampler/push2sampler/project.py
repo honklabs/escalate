@@ -1,14 +1,20 @@
-"""The song: 64 sample slots, each with its own trigger map over 64 bars.
+"""The song: 256 sample slots, each with its own trigger map over 256 bars.
 
 A project is a directory::
 
     my-song/
       project.json
-      samples/slot_00.wav
-      samples/slot_07.wav
+      samples/slot_000.wav
+      samples/slot_007.wav
 
 ``project.json`` holds the tempo and, per filled slot, the take length in bars,
 the bars it is triggered on, whether it is audible, and its gain.
+
+Slots and bars are addressed by one flat integer each, and the grid shows a
+window of 64 at a time: slots in **banks** (a view of one library, so a bank is
+not a song section) and bars in **pages** (consecutive stretches of one song).
+Keeping identity a single integer is what lets every undo command, velocity map
+and schedule entry stay keyed exactly as it was when there were only 64.
 """
 
 from __future__ import annotations
@@ -20,17 +26,78 @@ from pathlib import Path
 import numpy as np
 
 from . import wavio
-from .constants import PAD_COUNT
 from .edits import DEFAULT_EDITS, Edits, render_edits
 
-SONG_BARS = 64
+#: Bars on one song page, and slots in one library bank: both are one gridful.
+PAGE_BARS = 64
+BANK_SLOTS = 64
+#: How many of each.  Banks are a *view* of one library -- a bank is not a song
+#: section -- while pages are consecutive stretches of one song.
+BANKS = 4
+SONG_PAGES = 4
+#: Total addressable slots and bars.  Slot and bar identity stays a single
+#: integer: ``bank = slot // BANK_SLOTS``, ``page = bar // PAGE_BARS``.  The
+#: plan offered a list-of-lists or a ``(bank, slot)`` key; one flat index is a
+#: third option that keeps every command, velocity map and schedule entry in
+#: this program keyed the way it already was.
+SLOT_COUNT = BANKS * BANK_SLOTS
+SONG_BARS = SONG_PAGES * PAGE_BARS
 #: A take may be this far from its declared length before it is flagged.
 LENGTH_TOLERANCE = 0.01
 #: Velocity of a bar that was not played in by hand: as hard as it goes.
 FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
+#: How many scene snapshots a project keeps.
+SCENE_COUNT = 8
+#: User colours a slot can be tagged with, as palette indices; see colors.py.
+SLOT_COLORS = 8
+
+
+def _load_color(value) -> int | None:
+    """A slot's user colour, or None for the default.  Never raises on junk."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value < SLOT_COLORS else None
+
+
+def _load_scenes(value) -> list[dict | None]:
+    """Scene snapshots from JSON, dropping anything malformed.
+
+    A snapshot is a convenience for comparing arrangements; one that will not
+    parse is worth losing silently rather than refusing to open the song.
+    """
+    scenes: list[dict | None] = [None] * SCENE_COUNT
+    if not isinstance(value, list):
+        return scenes
+    for index, entry in enumerate(value[:SCENE_COUNT]):
+        if not isinstance(entry, dict):
+            continue
+        slots = entry.get("slots")
+        if not isinstance(slots, dict):
+            continue
+        restored: dict[int, dict] = {}
+        for key, state in slots.items():
+            try:
+                slot = int(key)
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= slot < SLOT_COUNT or not isinstance(state, dict):
+                continue
+            bars = state.get("triggers")
+            restored[slot] = {
+                "enabled": bool(state.get("enabled", True)),
+                "triggers": sorted(
+                    int(b) for b in (bars or []) if 0 <= int(b) < SONG_BARS
+                ),
+                "velocities": {
+                    str(bar): int(v)
+                    for bar, v in (state.get("velocities") or {}).items()
+                },
+            }
+        scenes[index] = {"name": str(entry.get("name", "")), "slots": restored}
+    return scenes
 
 
 def format_bpm(bpm: float) -> str:
@@ -63,6 +130,8 @@ class Sample:
     source_samplerate: int = 0
     #: Non-destructive trim/fade/pitch/reverse/normalise.
     edits: Edits = DEFAULT_EDITS
+    #: One of the eight user colours, or None for the default green (CC-18).
+    color: int | None = None
     #: Sound-on-sound layers, kept individually so the last one can be removed.
     #: Empty means "the take is just ``audio``"; otherwise ``audio`` is their
     #: sum and that invariant is maintained by :meth:`set_layers`.
@@ -211,7 +280,7 @@ class Sample:
         if not self.layers:
             return []
         return [
-            f"{SAMPLES_DIR}/slot_{self.slot:02d}_L{i + 1}.wav"
+            f"{SAMPLES_DIR}/slot_{self.slot:03d}_L{i + 1}.wav"
             for i in range(len(self.layers))
         ]
 
@@ -224,6 +293,7 @@ class Sample:
             "triggers": sorted(self.triggers),
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
+            "color": self.color,
             "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
             "edits": self.edits.as_dict(),
             "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
@@ -233,16 +303,63 @@ class Sample:
         }
 
 
+@dataclass(frozen=True)
+class ProjectSummary:
+    """What the browser needs to know about a project it has not opened."""
+
+    path: Path
+    name: str
+    bpm: float
+    slots: int
+    pages: int
+    modified: float
+
+    @property
+    def has_audio(self) -> bool:
+        return self.slots > 0
+
+    @classmethod
+    def read(cls, directory: Path) -> "ProjectSummary | None":
+        """Read one project's metadata, or None if that is not a project."""
+        path = Path(directory)
+        manifest = path / PROJECT_FILE
+        if not path.is_dir() or not manifest.exists():
+            return None
+        try:
+            payload = json.loads(manifest.read_text())
+            if not isinstance(payload, dict):
+                raise ValueError("not a JSON object")
+        except Exception:
+            # A project whose manifest will not parse is still a directory
+            # someone made, so it is listed -- as empty, which is what the
+            # browser can honestly say about it.
+            payload = {}
+        slots = payload.get("slots")
+        return cls(
+            path=path,
+            name=path.name,
+            bpm=float(payload.get("bpm") or 120.0),
+            slots=len(slots) if isinstance(slots, list) else 0,
+            pages=int(payload.get("pages") or 1),
+            modified=manifest.stat().st_mtime,
+        )
+
+
 class Project:
-    """Tempo plus the 64-slot sample library."""
+    """Tempo plus the 256-slot sample library."""
 
     def __init__(self, samplerate: int = 48_000, bpm: float = 120.0,
                  beats_per_bar: int = 4) -> None:
         self.samplerate = samplerate
         self.bpm = float(bpm)
         self.beats_per_bar = beats_per_bar
-        self.song_bars = SONG_BARS
-        self.slots: list[Sample | None] = [None] * PAD_COUNT
+        #: Song pages of PAGE_BARS bars each, played consecutively.
+        self.pages = SONG_PAGES
+        self.slots: list[Sample | None] = [None] * SLOT_COUNT
+        #: Eight snapshots of the arrangement; see :meth:`store_scene`.
+        self.scenes: list[dict | None] = [None] * SCENE_COUNT
+        #: Anything worth saying about how this project loaded; see load().
+        self.warning: str | None = None
         #: Gain on the whole mix.
         self.master_gain = 1.0
         #: Slot being soloed, or None.  Kept separate from ``Sample.enabled`` so
@@ -252,6 +369,15 @@ class Project:
         self.dirty = False
 
     # ------------------------------------------------------------------
+    @property
+    def song_bars(self) -> int:
+        """Total bars: the pages, end to end."""
+        return self.pages * PAGE_BARS
+
+    @property
+    def banks(self) -> int:
+        return BANKS
+
     @property
     def frames_per_bar(self) -> float:
         return 60.0 / self.bpm * self.samplerate * self.beats_per_bar
@@ -343,9 +469,9 @@ class Project:
         return sample  # layers default to empty: this is a new recording
 
     def next_empty(self, after: int) -> int | None:
-        """The first empty slot after ``after``, wrapping round the grid."""
-        for offset in range(1, PAD_COUNT + 1):
-            candidate = (after + offset) % PAD_COUNT
+        """The first empty slot after ``after``, wrapping round every bank."""
+        for offset in range(1, SLOT_COUNT + 1):
+            candidate = (after + offset) % SLOT_COUNT
             if self.slots[candidate] is None:
                 return candidate
         return None
@@ -433,11 +559,79 @@ class Project:
         self.soloed = None if slot is None or slot == self.soloed else slot
         self.dirty = True
 
+    # ------------------------------------------------------------------
+    # scenes: snapshots of the arrangement, for A/B and live variation
+    # ------------------------------------------------------------------
+    def snapshot(self) -> dict:
+        """The whole arrangement -- what is audible, and where it plays."""
+        return {
+            "name": "",
+            "slots": {
+                sample.slot: {
+                    "enabled": sample.enabled,
+                    "triggers": sorted(sample.triggers),
+                    "velocities": {str(b): v for b, v in sorted(sample.velocities.items())},
+                }
+                for sample in self.filled()
+            },
+        }
+
+    def store_scene(self, index: int) -> None:
+        self.scenes[index] = self.snapshot()
+        self.dirty = True
+
+    def restore(self, snapshot: dict) -> None:
+        """Apply a snapshot taken by :meth:`snapshot`."""
+        for slot, state in snapshot["slots"].items():
+            sample = self.slots[slot]
+            if sample is None:
+                continue
+            sample.enabled = bool(state.get("enabled", True))
+            sample.triggers = {
+                int(b) for b in state.get("triggers", ()) if 0 <= int(b) < self.song_bars
+            }
+            sample.velocities = {
+                int(bar): int(v)
+                for bar, v in (state.get("velocities") or {}).items()
+                if int(bar) in sample.triggers
+            }
+        self.dirty = True
+
+    def recall_scene(self, index: int) -> bool:
+        """Put a stored arrangement back.  False if that scene is empty.
+
+        Only the enable map and the trigger sets move: audio, gain, edits and
+        layers are properties of the *take*, not of the arrangement, and a scene
+        that silently re-pitched your samples would be a trap.
+
+        Slots recorded since the snapshot are left alone rather than emptied --
+        a scene is a variation, not a rollback of the whole library.
+        """
+        scene = self.scenes[index]
+        if scene is None:
+            return False
+        self.restore(scene)
+        return True
+
+    def scene_filled(self, index: int) -> bool:
+        return self.scenes[index] is not None
+
     def slots_at_bar(self, bar: int) -> set[int]:
         """Slots of the audible samples triggered on ``bar``."""
         if not 0 <= bar < self.song_bars:
             return set()
         return {s.slot for s in self.filled() if self.audible(s) and bar in s.triggers}
+
+    @property
+    def used_bars(self) -> int:
+        """Bars up to and including the last one anything plays on.
+
+        With four pages available most songs use one, so this is what a bounce
+        renders rather than the nominal length -- otherwise a 16-bar song would
+        come out with two minutes of silence stuck on the end.
+        """
+        used = self.bars_in_use()
+        return max(used) + 1 if used else 0
 
     def bars_in_use(self) -> set[int]:
         """Every bar on which some audible sample is triggered."""
@@ -473,7 +667,7 @@ class Project:
         (directory / SAMPLES_DIR).mkdir(parents=True, exist_ok=True)
         slots = []
         for sample in self.filled():
-            rel = f"{SAMPLES_DIR}/slot_{sample.slot:02d}.wav"
+            rel = f"{SAMPLES_DIR}/slot_{sample.slot:03d}.wav"
             paths = sample.layer_paths()
             # Audio never changes in place, so only write takes we haven't yet.
             if not sample.audio_saved or not (directory / rel).exists():
@@ -488,7 +682,11 @@ class Project:
             "bpm": round(self.bpm, 3),
             "master_gain": round(float(self.master_gain), 4),
             "beats_per_bar": self.beats_per_bar,
+            "pages": self.pages,
+            # Kept for readers older than format 6, which derive the length from
+            # it; format 6 and up use "pages".
             "song_bars": self.song_bars,
+            "scenes": [scene for scene in self.scenes],
             "slots": slots,
         }
         path = directory / PROJECT_FILE
@@ -497,6 +695,24 @@ class Project:
         tmp.replace(path)
         self.dirty = False
         return path
+
+    @staticmethod
+    def scan(root: str | Path) -> list["ProjectSummary"]:
+        """Summarise every project under ``root``, without loading any audio.
+
+        The browser shows sixty-four of these at once, so reading the WAVs would
+        mean loading a gigabyte to draw a grid.  Everything shown comes out of
+        ``project.json``.
+        """
+        root = Path(root)
+        if not root.is_dir():
+            return []
+        found = []
+        for entry in sorted(root.iterdir()):
+            summary = ProjectSummary.read(entry)
+            if summary is not None:
+                found.append(summary)
+        return found
 
     @classmethod
     def load(cls, directory: str | Path, samplerate: int | None = None) -> "Project":
@@ -510,8 +726,17 @@ class Project:
             bpm=float(payload.get("bpm", 120.0)),
             beats_per_bar=int(payload.get("beats_per_bar", 4)),
         )
-        project.song_bars = int(payload.get("song_bars", SONG_BARS))
+        # Format 6 stores the page count; before that a project was one page of
+        # 64 bars, whatever "song_bars" happened to say.
+        if "pages" in payload:
+            project.pages = max(1, min(SONG_PAGES, int(payload["pages"] or 1)))
+        else:
+            declared = int(payload.get("song_bars") or PAGE_BARS)
+            project.pages = max(1, min(SONG_PAGES, -(-declared // PAGE_BARS)))
         project.master_gain = float(payload.get("master_gain", 1.0) or 1.0)
+        project.scenes = _load_scenes(payload.get("scenes"))
+        dropped_bars = 0
+        dropped_slots: list[int] = []
         for entry in payload.get("slots", []):
             audio_rel = entry.get("audio")
             if not audio_rel or not (directory / audio_rel).exists():
@@ -538,23 +763,41 @@ class Project:
             # that does not flag every existing project as mismatched.
             source_bpm = float(entry.get("source_bpm") or project.bpm)
             source_rate = int(entry.get("source_samplerate") or project.samplerate)
+            if not 0 <= slot < SLOT_COUNT:
+                dropped_slots.append(slot)
+                continue
+            # A trigger beyond the last page cannot play, so it is dropped
+            # rather than kept as a silent surprise -- but loudly, on the way in.
+            limit = project.song_bars
+            triggers = {int(b) for b in entry.get("triggers", [])}
+            kept = {b for b in triggers if 0 <= b < limit}
+            dropped_bars += len(triggers) - len(kept)
             project.slots[slot] = Sample(
                 slot=slot,
                 bars=int(entry.get("bars", 1)),
                 audio=audio,
-                triggers={int(b) for b in entry.get("triggers", [])},
+                triggers=kept,
                 velocities={
-                    int(bar): int(v) for bar, v in (entry.get("velocities") or {}).items()
+                    int(bar): int(v)
+                    for bar, v in (entry.get("velocities") or {}).items()
+                    if int(bar) in kept
                 },
                 velocity_sensitivity=float(entry.get("velocity_sensitivity", 0.0) or 0.0),
                 edits=Edits.from_dict(entry.get("edits")),
                 enabled=bool(entry.get("enabled", True)),
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),
+                color=_load_color(entry.get("color")),
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
                 layers=layers,
                 audio_saved=True,
             )
+        notes = []
+        if dropped_bars:
+            notes.append(f"dropped {dropped_bars} trigger(s) past bar {project.song_bars}")
+        if dropped_slots:
+            notes.append(f"dropped {len(dropped_slots)} slot(s) outside 1-{SLOT_COUNT}")
+        project.warning = "; ".join(notes) or None
         project.dirty = False
         return project

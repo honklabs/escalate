@@ -1,4 +1,10 @@
-"""One sample's page: the 64 pads are the 64 bars of the song."""
+"""One sample's page: the 64 pads are the 64 bars of one page of the song.
+
+A song is up to four pages of 64 bars, so the pads are a window onto it.
+``app.bar_at`` and ``app.pad_of_bar`` are the only places that know which
+window, and every gesture below works in absolute bar numbers -- which is why
+adding pages barely touched this file.
+"""
 
 from __future__ import annotations
 
@@ -26,9 +32,10 @@ from ..history import (
     SetVelocitySensitivity,
     ToggleTrigger,
 )
-from ..project import FULL_VELOCITY
+from ..project import FULL_VELOCITY, PAGE_BARS
 from .base import Mode
 from .sample_edit import SampleEditMode
+from .tag import TagMode
 
 #: Bottom display-row button that fits an off-grid take to its bars.
 REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
@@ -73,7 +80,7 @@ class SampleMode(Mode):
     # -- input -------------------------------------------------------------
     def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
         if not pressed:
-            if self._held_bar == index:
+            if self._held_bar == self.app.bar_at(index):
                 self._held_bar = None
             return True
         sample = self.sample
@@ -83,23 +90,24 @@ class SampleMode(Mode):
             self.app.delete_armed = False
             self.app.do(ClearTriggers(self.slot))
             return True
+        bar = self.app.bar_at(index)
         if self.app.duplicate_armed:
-            self._duplicate(sample, index)
+            self._duplicate(sample, bar)
             return True
-        if self._held_bar is not None and self._held_bar != index:
+        if self._held_bar is not None and self._held_bar != bar:
             # Hold one bar, press another: paint everything between them to
             # whatever the held bar's own press made it.
-            self._paint(sample, self._held_bar, index)
+            self._paint(sample, self._held_bar, bar)
             return True
         now = time.monotonic()
-        if index == self._tapped_bar and now - self._tapped_at <= DOUBLE_TAP_S:
+        if bar == self._tapped_bar and now - self._tapped_at <= DOUBLE_TAP_S:
             self._tapped_bar = None
-            self._phrase(sample, index)
+            self._phrase(sample, bar)
             return True
-        self.app.do(ToggleTrigger(self.slot, index, index not in sample.triggers))
-        self._held_bar = index
-        self._paint_on = index in sample.triggers
-        self._tapped_bar, self._tapped_at = index, now
+        self.app.do(ToggleTrigger(self.slot, bar, bar not in sample.triggers))
+        self._held_bar = bar
+        self._paint_on = bar in sample.triggers
+        self._tapped_bar, self._tapped_at = bar, now
         return True
 
     def _paint(self, sample, anchor: int, other: int) -> None:
@@ -122,7 +130,8 @@ class SampleMode(Mode):
         The first tap of the double tap has already toggled the bar, so which way
         this goes is simply whether that left the bar playing.
         """
-        end = min(bar + PHRASE_BARS, PAD_COUNT)
+        page_end = (bar // PAGE_BARS + 1) * PAGE_BARS
+        end = min(bar + PHRASE_BARS, page_end, self.project.song_bars)
         filling = bar in sample.triggers
         if filling:
             stride = max(1, sample.bars)
@@ -194,6 +203,9 @@ class SampleMode(Mode):
                 self.app.delete_armed = True
                 self.app.notify("press any pad to clear all bars")
             return True
+        if cc == Btn.SELECT and sample is not None:
+            self.app.push_mode(TagMode(self.app, self.slot))
+            return True
         if cc == Btn.NEW and sample is not None:
             self._overdub(sample)
             return True
@@ -241,7 +253,10 @@ class SampleMode(Mode):
             self.app.notify("layer cancelled")
             return
         self._layering = True
-        self.engine.arm_record(sample.bars, self.app.count_in_beats)
+        self.engine.arm_record(
+            sample.bars, self.app.count_in_beats,
+            pre_roll_bars=self.app.pre_roll_bars,
+        )
         extra = "" if sample.triggers else " (not arranged, so you will hear nothing)"
         self.app.notify(f"layering {sample.bars} bar(s) onto slot {self.slot + 1}{extra}")
 
@@ -273,21 +288,25 @@ class SampleMode(Mode):
             return
         others = self._other_trigger_bars()
         mine = sample.triggers
-        for bar in range(PAD_COUNT):
+        for pad in range(PAD_COUNT):
+            bar = self.app.bar_at(pad)
             if bar in mine:
-                pads[bar] = self._trigger_color(sample, bar)
+                pads[pad] = self._trigger_color(sample, bar)
             elif bar in others:
-                pads[bar] = colors.BLUE_DIM.index
+                pads[pad] = colors.BLUE_DIM.index
             else:
-                pads[bar] = _grid_tint(bar)
+                pads[pad] = _grid_tint(bar)
         if self._copy_from is not None:
-            pads[self._copy_from] = (
-                colors.BLUE.index if self.app.blink else colors.WHITE.index
-            )
+            pad = self.app.pad_of_bar(self._copy_from)
+            if pad is not None:
+                pads[pad] = (
+                    colors.BLUE.index if self.app.blink else colors.WHITE.index
+                )
         if self.engine.is_playing:
-            bar = self.engine.current_bar
-            if 0 <= bar < PAD_COUNT:
-                pads[bar] = colors.AMBER.index if bar in mine else colors.WHITE.index
+            pad = self.app.pad_of_bar(self.engine.current_bar)
+            if pad is not None:
+                bar = self.app.bar_at(pad)
+                pads[pad] = colors.AMBER.index if bar in mine else colors.WHITE.index
 
     @staticmethod
     def _trigger_color(sample, bar: int) -> int:
@@ -323,6 +342,7 @@ class SampleMode(Mode):
             BTN_BRIGHT if sample and not sample.edits.is_default else BTN_ON
         )
         buttons[Btn.DUPLICATE] = BTN_BRIGHT if self.app.duplicate_armed else BTN_DIM
+        buttons[Btn.SELECT] = BTN_DIM
         buttons[Btn.NEW] = (
             colors.RED.index if self._layering and self.app.blink else BTN_DIM
         )
@@ -360,7 +380,8 @@ class SampleMode(Mode):
         if sample.layer_count > 1:
             layers = f"  {sample.layer_count} layers"
         lines = [
-            f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}{layers}",
+            f"SLOT {self.slot + 1} {sample.name}  {sample.bars} bar(s)  "
+            f"{state}{layers}   page {self.app.page_letter}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "Record: re-record   New: layer   Mute: hear   Device: edit"

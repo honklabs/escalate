@@ -59,8 +59,8 @@ FADE_MS = 3.0
 RELEASE_MS = 10.0
 #: How fast the input peak meter falls back, per block.
 METER_DECAY = 0.85
-#: Sample slots the engine keeps a level meter for: the whole library.
-MAX_SLOTS = 64
+#: Sample slots the engine keeps a level meter for: the whole library, all banks.
+MAX_SLOTS = 256
 
 MONITOR_OFF = "off"
 MONITOR_ON = "on"
@@ -88,6 +88,9 @@ class Voice:
     pos: int = 0
     #: Frames of release fade applied so far; ``None`` while playing normally.
     releasing: int | None = None
+    #: First output channel to mix into, for a click on its own pair.  None
+    #: means the whole output, which is what every sample wants.
+    channel: int | None = None
 
 
 @dataclass
@@ -154,13 +157,31 @@ class Transport:
         return self.frames_per_bar * self.song_bars
 
 
+#: How the click can sound.  A metronome you dislike is a metronome you switch
+#: off, and a player with the click off plays worse.
+CLICK_SOUNDS = ("sine", "tick", "cowbell")
+
+
 def make_click(samplerate: int, freq: float, channels: int, ms: float = 28.0,
-               gain: float = 0.4) -> np.ndarray:
-    """A short decaying sine used for the metronome and the count-in."""
+               gain: float = 0.4, sound: str = "sine") -> np.ndarray:
+    """One metronome or count-in click.
+
+    ``sine`` is a soft decaying tone, ``tick`` a very short burst of noise that
+    cuts through a dense mix, and ``cowbell`` two detuned partials -- the sound
+    every drum machine has because it is audible against anything.
+    """
     n = max(1, int(samplerate * ms / 1000.0))
     t = np.arange(n, dtype=np.float32) / samplerate
-    wave = np.sin(2 * np.pi * freq * t) * np.exp(-t * 45.0) * gain
-    return np.repeat(wave.astype(np.float32)[:, None], channels, axis=1)
+    if sound == "tick":
+        rng = np.random.default_rng(int(freq))
+        wave = rng.normal(0.0, 0.5, n).astype(np.float32) * np.exp(-t * 400.0)
+    elif sound == "cowbell":
+        wave = (np.sin(2 * np.pi * freq * t) + np.sin(2 * np.pi * freq * 1.5 * t))
+        wave = wave * 0.5 * np.exp(-t * 18.0)
+    else:
+        wave = np.sin(2 * np.pi * freq * t) * np.exp(-t * 45.0)
+    wave = (wave * gain).astype(np.float32)
+    return np.repeat(wave[:, None], channels, axis=1)
 
 
 def make_fade(frames: int) -> tuple[np.ndarray, np.ndarray]:
@@ -221,6 +242,10 @@ class Engine:
         #: Gain on the whole mix, applied last.  Plain attribute: a one-block
         #: stale read is inaudible, so it does not need to be a command.
         self.master_gain = 1.0
+        #: Bars the loop covers, as one tuple so the callback can never read a
+        #: half-updated range: assigning a tuple is a single atomic store, where
+        #: two separate ints could be torn into a start past its own end.
+        self.loop_range: tuple[int, int] = (0, song_bars)
         self.null_input = null_input
 
         self.events: queue.SimpleQueue = queue.SimpleQueue()
@@ -255,7 +280,17 @@ class Engine:
         self._rec_written = 0
         self._rec_keep = 0
         self._rec_bars = 0
+        #: Frames of the arm that are count-in rather than pre-roll.
+        self._count_in_frames = 0.0
 
+        #: Click options, rebuilt by set_click() when any of them changes.
+        self.click_sound = "sine"
+        self.click_gain = 1.0
+        self.click_while_recording_only = False
+        #: First output channel the click goes to, or None for the main mix.
+        #: A separate pair keeps the click out of what you are bouncing and out
+        #: of what a drummer's headphones share with the room.
+        self.click_channel: int | None = None
         self._click = make_click(samplerate, 1000.0, out_channels)
         self._click_accent = make_click(samplerate, 1600.0, out_channels, gain=0.5)
         self._null_phase = 0.0
@@ -436,6 +471,25 @@ class Engine:
         return self.frames_per_bar * self.transport.song_bars
 
     @property
+    def loop_frames(self) -> tuple[float, float]:
+        """The loop range in frames, clamped to the song and never empty."""
+        start, end = self.loop_range
+        bars = self.transport.song_bars
+        start = max(0, min(bars - 1, int(start)))
+        end = max(start + 1, min(bars, int(end)))
+        fpbar = self.frames_per_bar
+        return start * fpbar, end * fpbar
+
+    @property
+    def end_frames(self) -> float:
+        """Where playback turns round, or stops: the one boundary that matters.
+
+        Looping honours the range, so you can work on one page of a long song.
+        Not looping plays to the end of the song and stops, whatever the range.
+        """
+        return self.loop_frames[1] if self.loop else self.song_frames
+
+    @property
     def is_playing(self) -> bool:
         intent = self._intent
         return intent.running if intent else self._running
@@ -468,10 +522,47 @@ class Engine:
         return (self.position_frames / self.frames_per_beat) % 1.0
 
     @property
+    def beat_in_bar(self) -> int:
+        """Beat within the current bar, 0-based.  Negative during a count-in."""
+        pos = self.position_frames
+        if pos < 0:
+            return 0
+        beat = int(pos // self.frames_per_beat)
+        return beat % self.transport.beats_per_bar
+
+    @property
     def count_in_beats_left(self) -> int:
         if self.rec_state != COUNT_IN:
             return 0
         return max(0, int(math.ceil(-self.position_frames / self.frames_per_beat)))
+
+    @property
+    def in_pre_roll(self) -> bool:
+        """True while the run-up is playing but the count-in has not started."""
+        return (
+            self.rec_state == COUNT_IN
+            and self.position_frames < -self._count_in_frames
+        )
+
+    def set_click(self, sound: str | None = None, gain: float | None = None,
+                  channel: int | None = -1) -> None:
+        """Rebuild the click buffers.  Safe from the UI thread: it allocates
+        here and swaps two references, which the callback only ever reads."""
+        if sound is not None:
+            self.click_sound = sound if sound in CLICK_SOUNDS else "sine"
+        if gain is not None:
+            self.click_gain = max(0.0, min(2.0, float(gain)))
+        if channel != -1:
+            self.click_channel = channel
+        level = 0.4 * self.click_gain
+        self._click = make_click(
+            self.transport.samplerate, 1000.0, self.out_channels,
+            gain=level, sound=self.click_sound,
+        )
+        self._click_accent = make_click(
+            self.transport.samplerate, 1600.0, self.out_channels,
+            gain=level * 1.25, sound=self.click_sound,
+        )
 
     def set_schedule(self, schedule) -> None:
         """Install the bar -> samples map.  Replaced atomically by reference."""
@@ -548,16 +639,25 @@ class Engine:
         else:
             self.play(0)
 
-    def arm_record(self, bars: int, count_in_beats: int = 4) -> None:
-        """Rewind to the count-in and start capturing ``bars`` bars at bar 0."""
+    def arm_record(self, bars: int, count_in_beats: int = 4,
+                   pre_roll_bars: int = 0) -> None:
+        """Rewind to the count-in and start capturing ``bars`` bars at bar 0.
+
+        ``pre_roll_bars`` rewinds further still and plays the song over those
+        bars first, which is how you arrive at a take already in the groove
+        rather than starting cold on the downbeat.  Only the count-in beats
+        click; the pre-roll is the song itself.
+        """
         bars = max(1, min(self.transport.song_bars, int(bars)))
         keep = int(round(bars * self.frames_per_bar))
         # The take buffer is allocated here, on the UI thread: it can be tens of
         # megabytes, which is exactly the work that must stay out of the callback.
         buf = np.zeros((keep + self.rec_latency_frames, self.in_channels), dtype=np.float32)
         count_in = max(0, int(count_in_beats))
-        pos = -count_in * self.frames_per_beat
-        state = COUNT_IN if count_in else RECORDING
+        pre_roll = max(0, int(pre_roll_bars))
+        pos = -(count_in * self.frames_per_beat + pre_roll * self.frames_per_bar)
+        self._count_in_frames = count_in * self.frames_per_beat
+        state = COUNT_IN if (count_in or pre_roll) else RECORDING
         self._post(
             ("arm", bars, keep, buf, pos),
             self._intend(running=True, rec_state=state, pos=pos),
@@ -596,9 +696,10 @@ class Engine:
         if quantize_beats > 0:
             grid = quantize_beats * self.frames_per_beat
             pos = math.ceil(pos / grid) * grid
-        song = self.song_frames
-        if self.loop and song > 0 and pos >= song:
-            pos -= song
+        if self.loop:
+            start, end = self.loop_frames
+            if pos >= end > start:
+                pos = start + (pos - end) % (end - start)
         return int(pos // self.frames_per_bar)
 
     # ------------------------------------------------------------------
@@ -740,9 +841,9 @@ class Engine:
             fpbar = self.transport.frames_per_bar
             next_bar = (math.floor(pos / fpbar) + 1) * fpbar
             limit = min(limit, max(1, int(math.ceil(next_bar - pos))))
-            song = self.transport.song_frames
-            if pos < song:
-                limit = min(limit, max(1, int(math.ceil(song - pos))))
+            end = self.end_frames
+            if pos < end:
+                limit = min(limit, max(1, int(math.ceil(end - pos))))
         if self._rec_state == RECORDING and self._rec_buf is not None:
             left = self._rec_buf.shape[0] - self._rec_written
             if left > 0:
@@ -756,10 +857,19 @@ class Engine:
         if beat != self._last_beat:
             self._last_beat = beat
             accent = beat % self.transport.beats_per_bar == 0
-            if self.metronome or self._rec_state == COUNT_IN:
-                self._add_voice(
-                    Voice(self._click_accent if accent else self._click, 1.0, slot=-1)
-                )
+            wanted = self.metronome and not (
+                self.click_while_recording_only and self._rec_state == IDLE
+            )
+            # During a pre-roll the song plays but the click waits: the count-in
+            # is the last few beats, not the whole run-up.
+            counting = (
+                self._rec_state == COUNT_IN and pos >= -self._count_in_frames
+            )
+            if wanted or counting:
+                self._add_voice(Voice(
+                    self._click_accent if accent else self._click,
+                    1.0, slot=-1, channel=self.click_channel,
+                ))
         if pos < 0:
             return
         fpbar = self.transport.frames_per_bar
@@ -783,13 +893,16 @@ class Engine:
                 self._add_voice(Voice(entry.buf, entry.gain, entry.slot))
 
     def _wrap_song(self) -> None:
-        song = self.transport.song_frames
-        if self._pos < song:
+        end = self.end_frames
+        if self._pos < end:
             return
         if self._rec_state != IDLE:
             return  # a take always runs to its full length first
         if self.loop:
-            self._pos -= song
+            start, _ = self.loop_frames
+            # Carry the overshoot across, so looping does not quantise the
+            # playhead to a block boundary once per pass.
+            self._pos = start + (self._pos - end)
             self._last_beat = self._last_bar = None
         else:
             self._running = False
@@ -841,6 +954,14 @@ class Engine:
                 if chunk.shape[1] > self.out_channels:
                     chunk = chunk[:, : self.out_channels]
                 env = self._envelope(voice, k, total)
+                if voice.channel is not None:
+                    self._mix_routed(seg, chunk, voice, k, env)
+                    voice.pos += k
+                    if voice.releasing is not None:
+                        voice.releasing += k
+                    if not self._voice_done(voice, total):
+                        keep.append(voice)
+                    continue
                 # A mono (k, 1) chunk broadcasts across the output channels.
                 if env is None:
                     seg[:k] += chunk * voice.gain
@@ -867,6 +988,23 @@ class Engine:
             faded = levels[slot] * METER_DECAY
             fresh = peaks.get(slot, 0.0) if peaks else 0.0
             levels[slot] = fresh if fresh > faded else faded
+
+    def _mix_routed(self, seg: np.ndarray, chunk: np.ndarray, voice: Voice,
+                    k: int, env) -> None:
+        """Mix one voice into its own output pair only.
+
+        Used for a click on a separate output: the main mix -- and therefore
+        anything you bounce -- stays free of it, while a pair of headphones fed
+        from those channels still hears it.
+        """
+        first = voice.channel
+        if first is None or first >= self.out_channels:
+            return
+        width = min(2, self.out_channels - first)
+        mono = chunk[:, 0] if chunk.shape[1] else chunk.reshape(k)
+        scaled = mono * voice.gain if env is None else mono * (voice.gain * env)
+        for offset in range(width):
+            seg[:k, first + offset] += scaled
 
     def _voice_done(self, voice: Voice, total: int) -> bool:
         if voice.pos >= total:

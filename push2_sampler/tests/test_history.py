@@ -45,8 +45,10 @@ def test_toggling_off_round_trips(project):
 
 
 def test_trigger_commands_still_validate_the_bar(project):
+    from push2sampler.project import SONG_BARS
+
     with pytest.raises(ValueError):
-        History().do(project, ToggleTrigger(0, 99, True))
+        History().do(project, ToggleTrigger(0, SONG_BARS, True))
 
 
 def test_clear_triggers_remembers_every_bar(project):

@@ -1,9 +1,9 @@
 # push2sampler
 
-A Python program that turns an **Ableton Push 2** into a standalone sample
-library and 64-bar looper. No Ableton Live involved: the program talks to the
-Push 2 directly over its User MIDI port, and does its own recording, mixing and
-bar-accurate playback.
+A Python program that turns an **Ableton Push 2** into a standalone sampler and
+song sketchpad: **256 samples over 256 bars**, about eight minutes of music. No
+Ableton Live involved -- the program talks to the Push 2 directly over its User
+MIDI port, and does its own recording, mixing and bar-accurate playback.
 
 ```
 pip install -r requirements.txt
@@ -64,11 +64,13 @@ guesses.
 
 ### 1. Sample Library
 
-All 64 pads are sample slots.
+All 64 pads are sample slots -- one **bank** of the four. `Page ◀/▶` switches
+bank and the grid flashes so you know you moved; a bank is a *view*, so
+everything in every bank plays regardless of which one you are looking at.
 
 | Pad | Meaning |
 | --- | --- |
-| **white** | blank slot |
+| dim white | blank slot |
 | **green** | filled slot |
 | dim green | filled, but muted (you won't hear it) |
 | amber | that sample is sounding right now |
@@ -84,6 +86,9 @@ All 64 pads are sample slots.
   and all; `Shift` on the pad press moves it instead. The copy shares the
   original's audio until either one's edits are applied, so duplicating a long
   take is free.
+* The eight buttons **below the display** are scenes: `Shift` stores the whole
+  arrangement in one, a plain press recalls it. For A/B-ing two versions of a
+  chorus, or switching between them live.
 
 ### 2. Record mode
 
@@ -104,8 +109,11 @@ in time with what is already there (`--no-play-while-recording` turns that off).
 
 ### 3. Sample page
 
-The 64 pads are now the **64 bars of the song**. Press a pad to enable or
-disable this sample on that bar:
+The 64 pads are now **64 bars of the song** -- one of four pages, moved with
+`Shift`+`Page ◀/▶`. `Repeat` cycles what the loop covers: this page, the whole
+song, or off.
+
+Press a pad to enable or disable this sample on that bar:
 
 | Pad | Meaning |
 | --- | --- |
@@ -199,6 +207,32 @@ than no fader. `Up`/`Down`, or pressing any pad, moves rows.
 back exactly the mix you had -- which is the whole point of a solo button. Solo
 is not undoable (it is a listening decision, not an edit); master gain is, and it
 is saved with the project.
+
+### 3d. Naming and colouring a slot
+
+`Select` on a sample page. The top seven rows of pads are words -- eight
+categories of eight, drums through field recordings -- and the bottom row is
+eight colours. A library of `S01`..`S64` is unfindable; `kick` in orange is not.
+A second `kick` names itself `kick 2`. Both are undoable and both persist.
+
+### 3e. The song overview
+
+`Clip`. The whole arrangement at once, as a heat map: each pad is eight bars by
+eight slots, coloured by how much happens in it, with the playing column
+brightened. Press a pad to zoom in and each pad is one bar of one slot, toggling
+the same triggers the sample page does.
+
+It cannot be one pad per bar per slot -- that is 4096 cells on 64 pads -- and a
+density map is the honest compromise: you see the shape of the song, then zoom
+for the detail.
+
+### 3f. The project browser
+
+`Browse`. The songs on disk as pads: open, create, duplicate, or hold to delete.
+Opening one saves what you were working on, stops the transport, and swaps the
+project **without restarting the audio stream**, so the change is silent. Only
+each `project.json` is read -- never the audio -- so sixty-four projects draw
+instantly.
 
 ### 4. Perform mode -- play the song in
 
@@ -312,7 +346,12 @@ means resampling every take that is already loaded.
 | `Metronome` | click on/off · `Shift`+`Metronome` cycles input monitoring |
 | button 1 below the display | Sample page: fit an off-grid take to its bars |
 | the 8 buttons above the display | input level meter |
-| `Repeat` | loop the 64-bar song on/off |
+| `Repeat` | loop scope: this page / the whole song / off |
+| `Page ◀` / `Page ▶` | bank A-D · `Shift`+`Page` moves the song page instead |
+| `Clip` | the song overview -- again to zoom out, then to leave |
+| `Browse` | the project browser |
+| `Select` | Sample page: name and colour this slot |
+| buttons below the display | Library: the eight scenes (`Shift` stores) |
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
 | `Tap Tempo` | four taps set the tempo · `Shift`+`Tap` discards them |
 | Tempo encoder | BPM (hold `Shift` for ±10, hold `Tap Tempo` for ±0.1) |
@@ -422,7 +461,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-459 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+565 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -435,13 +474,19 @@ pad-by-pad workflow through the simulated surface, the block-arranging gestures
 (gain, mute, solo, master gain, meter decay), overdub layers (summing, removal,
 persistence), post-take processing, latency calibration against a synthetic
 delayed loopback, surviving a surface that stops answering, and the scripted
-simulator driving a whole record-arrange-play flow non-interactively. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+simulator driving a whole record-arrange-play flow non-interactively, and this
+release's widening: bank and page windowing, loop ranges, the song heat map and
+its zoom, scenes, click routing and pre-roll, the project browser's metadata-only
+scan, and every older project format still loading. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
 `plans.md` is the product plan: 58 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **32 are shipped, completing the v1.1 and
-v1.2 trains**; each carries a status note saying what was built and where it
+several people work on it at once. **42 are shipped, completing the v1.1, v1.2
+and v1.3 trains**; each carries a status note saying what was built and where it
 deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release record.
+
+`v1.4 — Plays with others` is next: MIDI clock and Link, importing audio from
+disk, per-sample playback behaviour, swing, and the hardware pass.
