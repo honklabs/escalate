@@ -12,6 +12,48 @@ plan.
 
 ## Unreleased
 
+### Send a slot to its own output pair (`NH-11`)
+
+With more than two output channels, **Shift** + a mixer strip button walks that
+slot through `main` (1/2), `3/4`, `5/6`, `7/8` and back. A kick on 3/4 is a kick
+on its own in a pair of headphones while the main outputs carry the rest — which
+is what a cue bus is for. Per slot, saved with the project (format 8; every
+older format still loads), one undo step, and the mixer's third line lists
+whatever is routed and nothing when nothing is.
+
+It only offers the pairs the **open stream** really has, asked of the engine
+rather than the settings: a device configured for eight channels that would only
+open two has two, and a two-channel device says `only 2 output channels -
+nowhere to route slot 5 to` instead of offering a choice that does nothing. A
+pair that has *become* unavailable — a project made on an eight-output interface
+and opened on a laptop — falls back to the main mix rather than into silence,
+flagged `!` and explained in words, the same rule `click_channel` has followed
+since v1.2.
+
+#### The main mix was every channel, not the first pair
+
+The bug this item existed to expose. `_mix` wrote a mono take into **every**
+output channel: correct on a stereo device, and exactly wrong the moment there
+are four, because the whole main mix would then appear on the cue pair too. You
+would route a kick to 3/4 and hear the kick *and everything else*. The main mix
+is the first pair; `Engine.main_width` now bounds it, in the one-shot path, the
+looping path and the input monitor.
+
+#### A routed slot is out of the bounce, and in its stem
+
+A bounce is what comes out of the main outputs, and a cue pair is by definition
+not that — so `BounceJob` drops routed slots from the mix rather than letting the
+engine's fallback carry them into the file with no way to tell. Its **stem**
+keeps the full audio: a stem is what the slot played, and where you were
+listening does not change that.
+
+Writing that down corrected a claim that had been in the reference since v1.3:
+muted slots were documented as "still exported as stems", and they are — as
+silence, because `build_schedule` drops them before a stem is rendered. Both
+behaviours are right (a mute says the take does not belong in the song; a route
+says only that you are listening elsewhere), and both now have a test and a
+table in `docs/reference.md` instead of one sentence that was half true.
+
 ### v1.5 — Watch it play
 
 Three features you asked for, and one bug they uncovered.

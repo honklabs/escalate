@@ -249,11 +249,26 @@ Eight strips at a time: the current row of the library, as vertical level meters
 | **Solo**, then a button below | solo that strip |
 | **Solo** again | clear the solo |
 | **Master encoder** | gain on the whole mix |
+| **Shift** + a button below | send that slot to the next output pair |
 | **Up** / **Down**, or any pad | another row of eight |
 | **Mix** | close |
 
 Meters fill upwards: green, amber in the top quarter, red at the very top. Solo
 overrides mute without destroying it — un-solo and your mix is exactly as it was.
+
+### Output pairs
+
+**Shift** + a strip button cycles `main` → `3/4` → `5/6` → `7/8` → `main`,
+stopping at the pairs your device really has. A routed slot leaves the main mix,
+so headphones on that pair hear it alone.
+
+| | |
+| --- | --- |
+| A routed slot in a bounce | no — a bounce is the main outputs |
+| A routed slot in its stem | yes — full audio |
+| A pair the device hasn't got | falls back to `main`, flagged with `!` |
+
+Needs `--out-channels 4` (or more) for there to be anywhere to route to.
 
 ---
 

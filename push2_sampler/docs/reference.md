@@ -519,6 +519,7 @@ fader.
 | **Solo** | Arm soloing; press it again to clear a solo |
 | **Solo**, then a button below | Solo that strip |
 | Master encoder | Gain on the whole mix (0–2) |
+| **Shift** + a button below | Send that slot to the next [output pair](#output-routing) |
 | **▲** / **▼** | Another row of eight |
 | Any pad | Select that pad's row |
 | **Mix**, **Session**, **Note**, **◀** | Close |
@@ -541,6 +542,52 @@ project.
 | Faint white | An empty segment of a strip that exists |
 | Dim green | A muted strip's level |
 | Off | No sample in that slot |
+
+### Output routing
+
+By default every slot goes to the **main mix**, which is output channels 1/2 —
+the first pair, and only the first pair, however many channels the device has.
+
+**Shift** + a button below the display walks that slot through the pairs your
+interface actually has: `main` → `3/4` → `5/6` → `7/8` → back to `main`. It
+stops at what is really open rather than offering pairs that would silently fall
+back, so on a two-channel device the press says so instead:
+
+```
+only 2 output channels - nowhere to route slot 5 to
+```
+
+The mixer's third status line lists whatever is routed, and nothing when nothing
+is — a row reading `main main main main` is noise on a four-line display.
+
+```
+out 3:3/4  7:5/6
+```
+
+A routed slot leaves the main mix entirely. That is the point: send a kick to
+3/4 and a pair of headphones fed from those channels hears the kick alone, while
+1/2 carries the rest. Three consequences follow, and all three are deliberate:
+
+| | |
+| --- | --- |
+| It is **not** in a [bounce](#bouncing) | A bounce is what comes out of the main outputs, and a cue pair is by definition not that |
+| It **is** in its own [stem](#bouncing) | A stem is one slot's audio; where it was listening does not change what it played |
+| It is **not** in the main meters' sum | The per-slot meters still show it — it is playing, just not there |
+
+A pair the device turns out not to have (a project made on an eight-output
+interface, opened on a laptop) **falls back to the main mix** rather than into
+silence, the same way [the click channel](#the-click) does. The mixer marks it
+with a `!` and says plainly what happened:
+
+```
+out 3:5/6!
+! this device has 2 channel(s), so those fall back to the main mix
+```
+
+Routing is per slot, saved with the project, and on the undo stack. It needs
+`--out-channels` to be set high enough for the pairs to exist — that count is
+[a command-line setting](#settings), because a stream's channel count is fixed
+when the stream opens.
 
 ### Project browser
 
@@ -1203,8 +1250,24 @@ With four pages available and most songs using one, rendering the full length
 would put minutes of silence on the end of every export.
 
 Both the on-device bounce and `--bounce` keep the tails of samples that overrun
-the last bar (up to 20 seconds). Muted samples are left out of the mix but are
-still exported as stems. Stems sum back to the mix exactly.
+the last bar (up to 20 seconds).
+
+**A bounce is what you are hearing out of the main outputs**, so two kinds of
+slot are absent from it:
+
+| | In the mix? | In its stem? |
+| --- | --- | --- |
+| A muted slot | No | No — the file is written, and it is silence |
+| A slot on [another output pair](#output-routing) | No | **Yes** |
+| Everything else | Yes | Yes |
+
+Muting is a statement about whether a take belongs in the song at all, so it
+silences the stem too — a stem of something you have muted is a stem of
+nothing. Routing is a statement about *where you are listening*, which does not
+change what the take played, so the stem is the full audio. Un-mute a slot, or
+set it back to `main`, to hear it in the next bounce.
+
+With nothing muted and nothing routed, the stems sum back to the mix exactly.
 
 ### Settings
 

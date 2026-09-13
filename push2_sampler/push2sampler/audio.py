@@ -114,6 +114,8 @@ class ScheduledSample:
     gain: float = 1.0
     play_mode: str = ONE_SHOT
     choke_group: int | None = None
+    #: First output channel, or None for the main mix (NH-11).
+    channel: int | None = None
 
 
 @dataclass(frozen=True)
@@ -983,6 +985,7 @@ class Engine:
         self._add_voice(Voice(
             entry.buf, entry.gain, entry.slot,
             play_mode=mode, choke_group=entry.choke_group, start_bar=bar,
+            channel=entry.channel,
         ))
 
     def _slot_sounding(self, slot: int) -> bool:
@@ -1063,6 +1066,10 @@ class Engine:
         keep: list[Voice] = []
         sounding: set[int] = set()
         peaks: dict[int, float] = {}
+        # The main mix is the FIRST PAIR, not every channel the device has.
+        # Broadcasting a mono take across all of them would put the whole mix
+        # on every cue pair, which is the opposite of what routing is for.
+        main = self.main_width
         for voice in self._voices:
             buf = voice.buf
             total = buf.shape[0]
@@ -1079,23 +1086,25 @@ class Engine:
                 if chunk.shape[1] > self.out_channels:
                     chunk = chunk[:, : self.out_channels]
                 env = self._envelope(voice, k, total)
-                if voice.channel is not None:
-                    self._mix_routed(seg, chunk, voice, k, env)
-                    voice.pos += k
-                    if voice.releasing is not None:
-                        voice.releasing += k
-                    if not self._voice_done(voice, total):
-                        keep.append(voice)
-                    continue
-                # A mono (k, 1) chunk broadcasts across the output channels.
-                if env is None:
-                    seg[:k] += chunk * voice.gain
-                else:
-                    seg[:k] += chunk * (voice.gain * env[:, None])
+                routed = (
+                    voice.channel is not None
+                    and self._mix_routed(seg, chunk, voice, k, env)
+                )
+                if not routed:
+                    # A mono (k, 1) chunk broadcasts across the pair.
+                    src = chunk if chunk.shape[1] <= main else chunk[:, :main]
+                    if env is None:
+                        seg[:k, :main] += src * voice.gain
+                    else:
+                        seg[:k, :main] += src * (voice.gain * env[:, None])
                 voice.pos += k
                 if voice.releasing is not None:
                     voice.releasing += k
                 if voice.slot >= 0:
+                    # Routed voices are counted too.  A slot sent to another
+                    # pair still has to light its pad in the library and move
+                    # its meter in the mixer -- it is playing, it is just not
+                    # coming out of the main outputs.
                     sounding.add(voice.slot)
                     if voice.slot < MAX_SLOTS:
                         level = float(np.max(np.abs(chunk))) * abs(voice.gain)
@@ -1134,13 +1143,20 @@ class Engine:
             if chunk.shape[1] > self.out_channels:
                 chunk = chunk[:, : self.out_channels]
             env = self._envelope(voice, k, total)
-            if voice.channel is not None:
-                self._mix_routed(seg[filled:], chunk, voice, k, env)
-            elif env is None:
-                seg[filled : filled + k] += chunk * voice.gain
-            else:
-                seg[filled : filled + k] += chunk * (voice.gain * env[:, None])
-            if voice.slot >= 0 and voice.channel is None:
+            routed = (
+                voice.channel is not None
+                and self._mix_routed(seg[filled:], chunk, voice, k, env)
+            )
+            if not routed:
+                main = self.main_width
+                src = chunk if chunk.shape[1] <= main else chunk[:, :main]
+                if env is None:
+                    seg[filled : filled + k, :main] += src * voice.gain
+                else:
+                    seg[filled : filled + k, :main] += src * (
+                        voice.gain * env[:, None]
+                    )
+            if voice.slot >= 0:
                 sounding.add(voice.slot)
                 if voice.slot < MAX_SLOTS:
                     level = float(np.max(np.abs(chunk))) * abs(voice.gain)
@@ -1158,21 +1174,33 @@ class Engine:
             levels[slot] = fresh if fresh > faded else faded
 
     def _mix_routed(self, seg: np.ndarray, chunk: np.ndarray, voice: Voice,
-                    k: int, env) -> None:
-        """Mix one voice into its own output pair only.
+                    k: int, env) -> bool:
+        """Mix one voice into its own output pair only.  False if it cannot.
 
-        Used for a click on a separate output: the main mix -- and therefore
-        anything you bounce -- stays free of it, while a pair of headphones fed
-        from those channels still hears it.
+        Used for a click on a separate output, and for a slot routed to a cue
+        pair (NH-11): the main mix -- and therefore anything you bounce --
+        stays free of it, while a pair of headphones fed from those channels
+        hears it.
+
+        Returns False when the pair does not exist on this device, so the
+        caller falls back to the main mix.  Going silent instead would be the
+        worse failure by far: a slot you cannot hear at all is harder to
+        diagnose than a slot coming out of the wrong socket, and the mixer says
+        which slots are affected.
         """
         first = voice.channel
         if first is None or first >= self.out_channels:
-            return
+            return False
         width = min(2, self.out_channels - first)
-        mono = chunk[:, 0] if chunk.shape[1] else chunk.reshape(k)
-        scaled = mono * voice.gain if env is None else mono * (voice.gain * env)
+        scale = voice.gain if env is None else voice.gain * env
+        channels = chunk.shape[1]
         for offset in range(width):
-            seg[:k, first + offset] += scaled
+            # Keep stereo where there is stereo to keep: the click is mono and
+            # duplicates across the pair, but a stereo take routed to a cue
+            # pair should arrive in stereo rather than folded down.
+            source = chunk[:, min(offset, channels - 1)]
+            seg[:k, first + offset] += source * scale
+        return True
 
     def _voice_done(self, voice: Voice, total: int) -> bool:
         if voice.pos >= total:
@@ -1213,9 +1241,19 @@ class Engine:
             return True
         return self.monitor == MONITOR_AUTO and self._rec_state != IDLE
 
+    @property
+    def main_width(self) -> int:
+        """Channels the main mix occupies: the first pair, or one if that is all.
+
+        Everything above it belongs to whatever has been routed there -- a cue
+        pair, or the click on its own output.
+        """
+        return min(2, self.out_channels)
+
     def _monitor(self, seg: np.ndarray, inp: np.ndarray) -> None:
-        chunk = inp[:, : self.out_channels]
-        seg += chunk * self.monitor_gain
+        main = self.main_width
+        chunk = inp[:, :main] if inp.shape[1] >= main else inp[:, :1]
+        seg[:, :main] += chunk * self.monitor_gain
 
     def _meter_input(self, inp: np.ndarray) -> None:
         peak = float(np.abs(inp).max())

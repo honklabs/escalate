@@ -20,10 +20,12 @@ from ..constants import (
     ENCODER_TRACK,
     GRID_H,
     GRID_W,
+    OUTPUT_PAIRS,
     PAD_COUNT,
     Btn,
+    pair_label,
 )
-from ..history import SetEnabled, SetGain, SetMasterGain
+from ..history import SetEnabled, SetGain, SetMasterGain, SetOutput
 from ..project import BANK_SLOTS
 from .base import Mode
 
@@ -111,6 +113,9 @@ class MixerMode(Mode):
         if sample is None:
             self.app.notify(f"slot {slot + 1} is empty")
             return
+        if self.app.shift:
+            self._cycle_output(slot, sample)
+            return
         if self.solo_armed:
             # Solo is a listening decision, not an edit to the song, so it is
             # not on the undo stack -- there is nothing to restore.
@@ -121,6 +126,33 @@ class MixerMode(Mode):
             self.app.notify(f"solo slot {soloed + 1}" if soloed is not None else "solo off")
             return
         self.app.do(SetEnabled(slot, not sample.enabled))
+
+    @property
+    def pairs_available(self) -> int:
+        """How many output pairs this device actually has, main mix included.
+
+        Asked of the engine rather than the settings, because what matters is
+        the stream that is open: a device configured for eight channels that
+        would only open two has two.
+        """
+        return max(1, self.engine.out_channels // 2)
+
+    def _cycle_output(self, slot: int, sample) -> None:
+        """Shift + a strip button: send that slot to the next output pair.
+
+        Stops at what the device has rather than wrapping through pairs that
+        would fall back to the main mix anyway -- offering a choice that does
+        nothing is worse than not offering it.
+        """
+        available = min(OUTPUT_PAIRS, self.pairs_available)
+        if available < 2:
+            self.app.notify(
+                f"only 2 output channels - nowhere to route slot {slot + 1} to"
+            )
+            return
+        wanted = (sample.output + 1) % available
+        self.app.do(SetOutput(slot, wanted, sample.output))
+        self.app.notify(f"slot {slot + 1} out {pair_label(wanted)}")
 
     def on_encoder(self, cc: int, delta: int) -> bool:
         if cc == ENCODER_MASTER:
@@ -206,9 +238,34 @@ class MixerMode(Mode):
                 gains.append("mute")
             else:
                 gains.append(f"{sample.gain:.2f}")
-        return [
+        lines = [
             head,
             " ".join(f"{g:>5}" for g in gains),
-            "encoder above each strip: gain   button below: mute",
-            "Solo then a button: solo it   up/down: another row   Mix: close",
         ]
+        routed = [
+            (slot, self.project[slot].output) for slot in self.slots
+            if self.project[slot] is not None and self.project[slot].output
+        ]
+        if routed:
+            # Only shown when something is routed: a row of "main main main" is
+            # noise, and this display has four lines.
+            available = min(OUTPUT_PAIRS, self.pairs_available)
+            shown = "  ".join(
+                f"{slot + 1}:{pair_label(pair)}"
+                + ("!" if pair >= available else "")
+                for slot, pair in routed
+            )
+            lines.append(f"out {shown}")
+            if any(pair >= available for _slot, pair in routed):
+                # "!" above, and said plainly here: the slot is audible, just
+                # not where it was asked to be.
+                lines.append(
+                    f"! this device has {self.engine.out_channels} channel(s), "
+                    "so those fall back to the main mix"
+                )
+                return lines
+        lines.append("encoder above each strip: gain   button below: mute")
+        lines.append(
+            "Solo then a button: solo   Shift+button: output pair   Mix: close"
+        )
+        return lines

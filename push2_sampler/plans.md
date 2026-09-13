@@ -1,9 +1,10 @@
 # push2sampler — product plan
 
-Status: **48 of the 61 items below are shipped**, which completes the `v1.1`,
-`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has three items left. One of the 42 (`CC-13`) shipped only
-the half that does not need unverified hardware. Each shipped item carries a status note saying
-what was built and where it deviated from this plan and why.
+Status: **49 of the 61 items below are shipped**, which completes the `v1.1`,
+`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has two items left. One of the 49
+(`CC-13`) shipped only the half that does not need unverified hardware, and
+`NF-09` shipped MIDI clock but left Link a seam. Each shipped item carries a
+status note saying what was built and where it deviated from this plan and why.
 
 An earlier version of this line claimed "v1.1 shipped and most of v1.2" while
 seven of `v1.1`'s own items were still open — a reminder to count against
@@ -340,7 +341,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ `NH-02` `NH-11` `NH-12` |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-11`~~ `NH-02` `NH-12` |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
@@ -1632,7 +1633,7 @@ from a seeded RNG held on the engine), `modes/sample.py`. **Tests:** p=0 never
 fires, p=100 always; with a fixed seed a 64-bar pass is reproducible;
 `every_n=2` fires on passes 2, 4, 6. **Deps:** `NF-10` (shared trigger record).
 
-### NH-11 — Multiple output pairs and a cue bus `size: M`
+### ~~NH-11 — Multiple output pairs and a cue bus~~ `size: M` — **shipped**
 
 Route a slot to output pair 1/2 or 3/4, and send the metronome to the cue pair
 so the click stays out of the mix. Needs `out_channels` > 2 and a per-slot
@@ -1640,6 +1641,42 @@ so the click stays out of the mix. Needs `out_channels` > 2 and a per-slot
 `project.py`, `modes/mixer.py`, `settings.py`. **Tests:** a slot routed to 3/4 is
 silent on 1/2 and present on 3/4; with a 2-channel device, routing falls back to
 1/2 with a warning. **Deps:** `NH-01`.
+
+**Status: shipped.** Per-slot `Sample.output` (a pair index, 0 = main), format
+version 8, `SetOutput` on the undo stack, `Shift` + a mixer strip button to
+cycle, and `pair_first_channel`/`pair_label` in `constants.py` so the pair→channel
+arithmetic lives in one place. The click already had its own `click_channel`
+from `F-07`, so the cue half of this item was done before it started.
+
+**The plan said `_mix` "writes into the right column slice" and that was the
+whole bug.** The existing mixer wrote a mono take into *every* output channel,
+which is correct on a stereo device and catastrophic on a four-output one: the
+main mix would appear on the cue pair, so routing a kick to 3/4 would give you
+the kick *and everything else*. The main mix is the **first pair**, not every
+channel the device has. `Engine.main_width` (`min(2, out_channels)`) now bounds
+it, in the one-shot path, the looping path and `_monitor`.
+
+Three decisions the plan did not reach:
+
+1. **A routed slot leaves the main mix entirely** rather than being copied to
+   both. Doubling it would make routing a send, and what the item is for is a
+   cue: hearing one thing on its own.
+2. **So it is excluded from a bounce**, by filtering the schedule in
+   `BounceJob._schedule` rather than trusting the engine's fallback — a bounce
+   is what comes out of the main outputs, and a cue pair is by definition not
+   that. Its *stem* keeps it: a stem is what the slot played, and where you were
+   listening does not change that. Writing this up turned out to correct a
+   pre-existing doc claim that muted slots are "still exported as stems" — they
+   are, as silence, because `build_schedule` drops them. Both facts are now in
+   `docs/reference.md` with tests behind them.
+3. **Cycling stops at the pairs the stream really opened**, asked of
+   `Engine.out_channels` rather than the settings: a device configured for eight
+   channels that would only open two has two. Offering a choice that does
+   nothing is worse than not offering it, so a two-channel device says "nowhere
+   to route slot 5 to" instead. A pair that has *become* unavailable (a project
+   made on an 8-out interface, opened on a laptop) still falls back to the main
+   mix and is flagged `!` with a plain explanation — the same fallback rule
+   `click_channel` uses.
 
 ### NH-12 — Remote monitor page `size: M`
 

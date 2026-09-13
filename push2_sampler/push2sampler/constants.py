@@ -114,6 +114,35 @@ PLAY_MODE_LABELS: dict[str, str] = {
 #: Samples sharing a group cut each other, the way a closed hat cuts an open one.
 CHOKE_GROUPS = 8
 
+# --------------------------------------------------------------------------
+# Output routing (NH-11)
+# --------------------------------------------------------------------------
+#: Output pairs a slot can be sent to.  Pair 0 is the main mix; 1 and up are
+#: cue pairs, which the main mix -- and therefore a bounce -- never carries.
+OUTPUT_PAIRS = 4
+
+
+def pair_first_channel(pair: int) -> int | None:
+    """First output channel of ``pair``, or None for the main mix.
+
+    Pair 0 deliberately means "the main mix" rather than "channels 1 and 2":
+    the main path applies master gain and is what a bounce renders, so routing
+    a slot to pair 0 has to be the *absence* of routing, not a route that
+    happens to land on the same sockets.
+    """
+    if not pair:
+        return None
+    return int(pair) * 2
+
+
+def pair_label(pair: int) -> str:
+    """How a pair is named to a person: outputs count from one."""
+    if not pair:
+        return "main"
+    first = int(pair) * 2
+    return f"{first + 1}/{first + 2}"
+
+
 #: Every button LED this program can light.
 #:
 #: Used to blank the surface on startup and after a diagnostic.  ``clear()``

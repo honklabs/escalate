@@ -234,6 +234,16 @@ back exactly the mix you had -- which is the whole point of a solo button. Solo
 is not undoable (it is a listening decision, not an edit); master gain is, and it
 is saved with the project.
 
+`Shift` + a strip button sends that slot to **its own output pair** -- `main`
+(channels 1/2) through `3/4`, `5/6`, `7/8` -- cycling only through the pairs the
+open stream actually has, so it never offers you a choice that would do nothing.
+A routed slot leaves the main mix entirely, which is the point: a kick on 3/4 is
+a kick on its own in a pair of headphones while 1/2 carries the rest. It is
+therefore **not in a bounce** (a bounce is the main outputs) but **is in its own
+stem** (a stem is what the slot played). A pair the device turns out not to have
+falls back to the main mix rather than into silence, marked `!` on the display.
+Needs `--out-channels 4` or more for there to be anywhere to go.
+
 ### 3d. Naming and colouring a slot
 
 `Select` on a sample page. The top seven rows of pads are words -- eight
@@ -366,6 +376,7 @@ means resampling every take that is already loaded.
 | `New` | Sample page: overdub another pass -- `Shift`+`New` removes the last layer |
 | `Mix` | open/close the mixer: eight strips of gain, mute, solo and meters |
 | `Solo` | Mixer: arm solo (press again to clear it) |
+| `Shift` + a button below the display | Mixer: send that slot to the next output pair |
 | Master encoder | Mixer: gain on the whole mix |
 | `Delete` | arm delete (then press a pad) · `Shift`+`Delete` on a sample page deletes it |
 | `Undo` | take back the last edit · `Shift`+`Undo` redoes it |
@@ -514,7 +525,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-565 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+865 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -530,16 +541,23 @@ delayed loopback, surviving a surface that stops answering, and the scripted
 simulator driving a whole record-arrange-play flow non-interactively, and this
 release's widening: bank and page windowing, loop ranges, the song heat map and
 its zoom, scenes, click routing and pre-roll, the project browser's metadata-only
-scan, and every older project format still loading. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+scan, the MIDI clock PLL against a synthetic sender, importing from disk, play
+modes and choke groups, master playback, swapping two slots, per-slot output
+routing, and every older project format still loading. No hardware, PortAudio or
+MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
-`plans.md` is the product plan: 58 items across foundations, new features,
+`plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **42 are shipped, completing the v1.1, v1.2
-and v1.3 trains**; each carries a status note saying what was built and where it
-deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release record.
+several people work on it at once. **49 are shipped, completing the v1.1, v1.2,
+v1.3 and v1.5 trains**; each carries a status note saying what was built and
+where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
+record.
 
-`v1.4 — Plays with others` is next: MIDI clock and Link, importing audio from
-disk, per-sample playback behaviour, swing, and the hardware pass.
+`v1.4 — Plays with others` has two items left: swing, and a remote monitor page.
+MIDI clock, importing from disk, per-sample playback behaviour, output routing
+and the hardware probe have all shipped. The one thing this project cannot do
+for itself is the human hardware pass — the display protocol and most of the
+button map are still taken from Ableton's document rather than from a device.

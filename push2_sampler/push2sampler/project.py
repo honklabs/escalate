@@ -26,7 +26,13 @@ from pathlib import Path
 import numpy as np
 
 from . import wavio
-from .constants import CHOKE_GROUPS, ONE_SHOT, PLAY_MODES
+from .constants import (
+    CHOKE_GROUPS,
+    ONE_SHOT,
+    OUTPUT_PAIRS,
+    PLAY_MODES,
+    pair_first_channel,
+)
 from .edits import DEFAULT_EDITS, Edits, render_edits
 
 #: Bars on one song page, and slots in one library bank: both are one gridful.
@@ -49,7 +55,7 @@ LENGTH_TOLERANCE = 0.01
 FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 #: How many scene snapshots a project keeps.
 SCENE_COUNT = 8
 #: User colours a slot can be tagged with, as palette indices; see colors.py.
@@ -78,6 +84,13 @@ def _load_choke_group(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return group if 1 <= group <= CHOKE_GROUPS else None
+
+
+def _load_output(value) -> int:
+    """An output pair from a project file, defaulting to the main mix."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if 0 <= value < OUTPUT_PAIRS else 0
 
 
 def _load_scenes(value) -> list[dict | None]:
@@ -154,6 +167,8 @@ class Sample:
     play_mode: str = ONE_SHOT
     #: 1-8, or None.  Samples sharing a group cut each other.
     choke_group: int | None = None
+    #: Output pair: 0 is the main mix, 1 and up are cue pairs (NH-11).
+    output: int = 0
     #: Sound-on-sound layers, kept individually so the last one can be removed.
     #: Empty means "the take is just ``audio``"; otherwise ``audio`` is their
     #: sum and that invariant is maintained by :meth:`set_layers`.
@@ -318,6 +333,7 @@ class Sample:
             "color": self.color,
             "play_mode": self.play_mode,
             "choke_group": self.choke_group,
+            "output": self.output,
             "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
             "edits": self.edits.as_dict(),
             "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
@@ -527,6 +543,7 @@ class Project:
             color=source.color,
             play_mode=source.play_mode,
             choke_group=source.choke_group,
+            output=source.output,
             layers=list(source.layers),
         )
         self.slots[dst] = copy
@@ -727,6 +744,7 @@ class Project:
                             sample.gain * sample.velocity_scale(bar),
                             play_mode=sample.play_mode,
                             choke_group=sample.choke_group,
+                            channel=pair_first_channel(sample.output),
                         )
                     )
         return [tuple(entries) for entries in schedule]
@@ -860,6 +878,7 @@ class Project:
                 color=_load_color(entry.get("color")),
                 play_mode=_load_play_mode(entry.get("play_mode")),
                 choke_group=_load_choke_group(entry.get("choke_group")),
+                output=_load_output(entry.get("output")),
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
                 layers=layers,

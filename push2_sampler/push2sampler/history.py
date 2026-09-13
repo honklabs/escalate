@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .constants import PLAY_MODE_LABELS
+from .constants import PLAY_MODE_LABELS, pair_label
 from .project import format_bpm
 
 #: How many edits can be taken back.
@@ -326,6 +326,29 @@ class ImportSample(Command):
 
     def revert(self, project) -> None:
         project.install(self.slot, self._previous)
+
+
+@dataclass
+class SetOutput(Command):
+    """Send a slot to a different output pair (NH-11)."""
+
+    slot: int
+    output: int
+    previous: int
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1} out {pair_label(self.output)}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.output = self.output
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.output = self.previous
 
 
 @dataclass

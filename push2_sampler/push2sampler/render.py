@@ -66,12 +66,26 @@ class BounceJob:
         self._rendered = 0
 
     def _schedule(self):
-        """The project's schedule, or just one slot's when exporting a stem."""
-        if self.only_slot is None:
-            return self.project.build_schedule()
+        """The project's schedule, or just one slot's when exporting a stem.
+
+        A full bounce drops anything **routed to a cue pair** (NH-11): a bounce
+        is what comes out of the main outputs, and a cue pair is by definition
+        not that -- it is the click, or the part you are auditioning to
+        yourself.  Letting the engine's fallback carry it into the mix instead
+        would put it in the file with no way to tell.
+
+        A *stem* keeps it: a stem is one slot's own audio rather than a mix
+        bus, so where that slot is routed is beside the point.
+        """
+        schedule = self.project.build_schedule()
+        if self.only_slot is not None:
+            return [
+                tuple(entry for entry in bar if entry.slot == self.only_slot)
+                for bar in schedule
+            ]
         return [
-            tuple(entry for entry in bar if entry.slot == self.only_slot)
-            for bar in self.project.build_schedule()
+            tuple(entry for entry in bar if entry.channel is None)
+            for bar in schedule
         ]
 
     @property

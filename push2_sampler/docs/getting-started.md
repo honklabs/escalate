@@ -334,6 +334,16 @@ loud.
 
 Muting here changes the bounce too. The master gain is saved with the project.
 
+**If your interface has more than two outputs**, **Shift** + one of those eight
+buttons sends that slot to its own pair — `main` (1/2), then `3/4`, `5/6`, `7/8`,
+then back to `main`. It only offers the pairs you really have; on a laptop's
+built-in output it will tell you there is nowhere to go. This is how you cue:
+a click or a loop you are playing along to goes to `3/4`, headphones go to
+`3/4`, and the main outputs — and anything you bounce from them — stay clean.
+Start the program with `--out-channels 4` (or 6, or 8) to open those channels in
+the first place. A routed slot is left out of a bounce on purpose, but its stem
+is the full recording.
+
 ### Step 11b: decide how each sample ends
 
 Everything so far has played to the end of its recording. That is right for a

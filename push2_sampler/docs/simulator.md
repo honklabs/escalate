@@ -280,6 +280,9 @@ b1               # and back
 solo
 b1               # hear slot 1 alone
 solo             # clear the solo
+shift on
+b1               # send slot 1 to outputs 3/4 (needs --out-channels 4)
+shift off
 mix              # close
 
 # shape it in the editor
