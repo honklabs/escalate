@@ -46,6 +46,11 @@ class Spec:
             return bool(value)
         if value is None and self.kind is int and self.lo is None:
             return None  # "default device"
+        if value is None and self.kind is str:
+            # Without this, str(None) stores the literal text "None" -- the same
+            # shape of bug as the swallowed --samplerate: a coercion that
+            # succeeds at producing nonsense.
+            return self.default
         try:
             value = self.kind(value)
         except (TypeError, ValueError):
@@ -104,6 +109,10 @@ SPECS: dict[str, Spec] = {
     "click_gain": Spec(1.0, float, 0.0, 2.0, step=0.05, label="click vol"),
     "click_when_recording": Spec(False, bool, label="click on rec only"),
     "click_channel": Spec(None, int, 0, 14, label="click out"),
+    # Where Shift+Browse starts looking (NF-08).  Not on an editable page:
+    # there is no text entry on a Push, so this is set in the file or on the
+    # command line, and an empty value means "beside the project".
+    "samples_root": Spec("", str, label="samples root"),
     #: Blank library pads at full white is glare on 64 pads at once (CC-13).
     "dim_library": Spec(True, bool, label="dim library"),
     "monitor": Spec("off", str, choices=("off", "auto", "on"), label="monitor"),

@@ -279,6 +279,33 @@ class SetEnabled(Command):
 
 
 @dataclass
+class ImportSample(Command):
+    """Put a file from disk into a slot (NF-08).
+
+    The built sample is held rather than rebuilt, so redo installs the very
+    object the first import made -- re-reading the file would be slower and,
+    if it had been moved meanwhile, would fail in the middle of a redo.
+    """
+
+    slot: int
+    sample: object
+    source: str = ""
+    _previous: object = None
+
+    @property
+    def label(self) -> str:
+        name = getattr(self.sample, "name", "") or "file"
+        return f"imported {name} to slot {self.slot + 1}"
+
+    def apply(self, project) -> None:
+        self._previous = project[self.slot]
+        project.install(self.slot, self.sample)
+
+    def revert(self, project) -> None:
+        project.install(self.slot, self._previous)
+
+
+@dataclass
 class SetPlayMode(Command):
     """Change how a sample ends when it is triggered (NF-02)."""
 

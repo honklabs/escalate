@@ -340,7 +340,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
-| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
+| **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
@@ -1085,6 +1085,48 @@ bank boundaries; the library renders bank B independently of bank A.
 **Deps.** `F-04`, `F-09`. Collides with `NF-11` in `project.py` — sequence them.
 
 ### NF-08 — Import samples from disk `size: M`
+
+**Status: shipped.** `importer.py` holds the part with no UI in it -- `probe`
+(a header read, so drawing a folder does not load gigabytes, the same reason
+`Project.scan` reads `project.json` rather than the takes), `listing`,
+`bars_for` and `make_sample` -- and `modes/import_browser.py` draws it on the
+pads. `Shift`+`Browse` opens it; `--import FILE [--slot N]` does the same with
+no hardware at all.
+
+It refuses two things on purpose, and both refusals are the feature:
+
+- **No stretching.** A 3.5-bar file goes in at 3.5 bars and is flagged off-grid
+  by `F-09`'s existing machinery, with the same one-button repair. Silently
+  time-stretching someone's audio to fit a grid it was never on would be
+  unrecoverable, and nobody asked for it.
+- **No pretending about formats.** `.wav` through the standard library always;
+  everything else only with `soundfile`, and without it the pad is still listed
+  and says `needs soundfile for .flac files -- pip install soundfile` when
+  highlighted, rather than failing when pressed.
+
+Deviations: the browser is one page of 64 and says how many entries it left out,
+rather than paging -- paging needs somewhere to put a page number and nothing
+else on this surface has one yet. The shared list/paging helper the plan wanted
+factored out of `modes/browser.py` was **not** built: the two browsers turned
+out to share almost nothing but "64 pads, highlight then act", and a helper
+abstracting that would have been longer than either.
+
+Two bugs it introduced and had to have fixed before it shipped:
+
+- **`App.import_target` had a dead branch.** It preferred "the slot you are
+  looking at" when empty -- but `goto_sample` sends an empty slot back to the
+  library, so a sample page only ever shows a *filled* slot and the branch could
+  never fire. Removed rather than kept as a comforting no-op.
+- **The first press on the top-left pad acted instead of highlighting**, because
+  `selected` defaulted to 0. Every other pad took two presses, and the action can
+  be an import, so the inconsistency was also the dangerous direction.
+  `selected` starts at `None` now, and a test pins it.
+
+And one already-known bug repeated itself: `_go` notified the directory name
+straight after `refresh` notified "nothing to import", burying the useful
+message behind the useless one -- exactly what hid the auto-normalise note
+behind a page change in `v1.2`. There is now one `_announce` that says whichever
+is true.
 
 **Problem.** You can only use what you record. Drum hits, one-shots and stems
 you already own are unreachable.

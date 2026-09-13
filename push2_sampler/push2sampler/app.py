@@ -33,6 +33,7 @@ from .project import (
     BANK_SLOTS,
     PAGE_BARS,
     PROJECT_FILE,
+    SLOT_COUNT,
     Project,
     format_bpm,
 )
@@ -436,6 +437,42 @@ class App:
             return Path(self.project_dir).resolve().parent
         return Path(DEFAULT_PROJECT_ROOT).expanduser()
 
+    @property
+    def samples_root(self):
+        """Where the import browser starts (NF-08).
+
+        The setting when there is one, else the project's own folder -- which is
+        usually where the takes you want to reuse already are.
+        """
+        configured = self.settings["samples_root"] if self.settings else ""
+        if configured:
+            return Path(configured).expanduser()
+        if self.project_dir is not None:
+            return Path(self.project_dir).resolve().parent
+        return Path.home()
+
+    def import_target(self) -> int | None:
+        """Slot an import should land in: the first empty one, or None.
+
+        Deliberately not "the slot you are looking at": a sample page only ever
+        shows a *filled* slot, because ``goto_sample`` sends an empty one back
+        to the library, so such a preference could never fire.  Choosing a
+        particular slot is what ``--import --slot N`` is for.  An import never
+        overwrites a take.
+        """
+        for slot in range(SLOT_COUNT):
+            if self.project[slot] is None:
+                return slot
+        return None
+
+    def open_import(self) -> None:
+        from .modes.import_browser import ImportBrowserMode
+
+        if self.mode.name == "import":
+            self.pop_mode()
+            return
+        self.push_mode(ImportBrowserMode(self))
+
     def new_project_path(self):
         """A fresh directory name, dated and worded, needing no typing."""
         from .modes.browser import project_word
@@ -776,7 +813,10 @@ class App:
         elif cc == Btn.CLIP:
             self.open_song()
         elif cc == Btn.BROWSE:
-            self.open_browser()
+            if self.shift:
+                self.open_import()
+            else:
+                self.open_browser()
         elif cc == Btn.SETUP:
             if self.shift:
                 self.save_now()

@@ -364,6 +364,43 @@ for.
 
 All of it is per sample, saved with the song, and one **Undo** each.
 
+### Step 11c: bring in a sample you already have
+
+Not everything has to be recorded. **Shift**+**Browse** opens a file browser on
+the pads.
+
+1. **Shift**+**Browse**. White pads are folders, blue pads are audio files.
+2. **Press a blue pad.** The display names it, with its length, rate and
+   channels. Nothing has happened yet — the first press only highlights.
+3. **Press the same pad again.** It is imported into the first empty slot,
+   resampled to your session rate if it needs it, and its sample page opens.
+
+Buttons below the display move around: **2** goes up a folder, **3** back to
+the start, **5** to your home folder. **Browse** again leaves.
+
+Two things it will not do. It will not put a sample over one of your takes —
+imports always land in an empty slot. And it will not **stretch** audio: if the
+file is not a whole number of bars at your tempo, the display says `OFF GRID`
+and the take goes in at its real length. **Button 1** on its sample page fits it
+to its bars if that is what you want; leaving it is fine too, and is the right
+answer for a one-shot hit that was never meant to fill a bar.
+
+`.wav` always works. Other formats need `soundfile` (`pip install soundfile`);
+without it those files are still listed but say so when you highlight them.
+
+By default the browser starts in the folder your song lives in. Point it
+somewhere better once and forget about it:
+
+```
+python -m push2sampler --samples-root ~/Music/samples my-first-song
+```
+
+And from the terminal, when a browser is more trouble than it is worth:
+
+```
+python -m push2sampler --import ~/Music/samples/kick.wav my-first-song
+```
+
 ### Step 12: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of

@@ -27,6 +27,7 @@ need it. This is the *what*, for when you have already done that once.
 | **Clip** | song overview (open / close) |
 | **Mix** | mixer page (open / close) |
 | **Browse** | project browser (open / close) |
+| **Shift**+**Browse** | import audio from disk (open / close) |
 | **Setup** | settings page (open / close) |
 | **Shift**+**Setup** | save the project right now |
 | **Delete** | arm delete, then press a pad |
@@ -237,6 +238,34 @@ the cell, **Clip** zooms back out then leaves.
 
 ---
 
+## Import (**Shift**+**Browse**)
+
+A file browser on the pads, starting at the samples root.
+
+| Control | Does |
+| --- | --- |
+| a pad | highlight it; the display says what it is |
+| the same pad again | open the folder, or import the file |
+| **Up** / **Down** | previous / next |
+| **button 1** | import / open the highlighted one |
+| **button 2** | up one folder |
+| **button 3** | back to the samples root |
+| **button 5** | your home folder |
+| **Browse** or **Session** | leave |
+
+White = folder, blue = audio file, bright = highlighted. Nothing is highlighted
+until you press something, so a first press never imports.
+
+The file is resampled to the session rate and claims the nearest whole number of
+bars. It is **never stretched**: a 3.5-bar file stays 3.5 bars and is flagged
+off-grid, and **button 1** on its sample page fits it if you want that. Imports
+land in the first empty slot, never over a take, and are one **Undo**.
+
+`.wav` always works. `.flac`, `.aiff`, `.mp3` and friends need `soundfile`
+installed — without it those pads say so rather than failing when pressed.
+
+---
+
 ## Browser (**Browse**)
 
 | Control | Does |
@@ -302,6 +331,9 @@ the display says why.
 | `--midi-probe` | nothing in either direction: facts about the MIDI link, writes `midi-report.json` |
 | `--calibrate` | measure input latency and store it |
 | `--lights-off` | blank every pad and button LED and exit |
+| `--import FILE` | import an audio file into the project and exit |
+| `--slot N` | with `--import`, which slot (1-256); default the first empty |
+| `--samples-root DIR` | where **Shift**+**Browse** starts looking |
 | `--midi-port NAME` | force the Push port (`live`, `user`, any substring) |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |

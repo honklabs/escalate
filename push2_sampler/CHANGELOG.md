@@ -12,6 +12,49 @@ plan.
 
 ## Unreleased
 
+### Import audio from disk (`NF-08`)
+
+You could only use what you recorded. `Shift`+`Browse` now opens a file browser
+on the pads — white folders, blue audio files — and `--import FILE [--slot N]`
+does the same from a terminal with no hardware at all.
+
+One press highlights an entry and the display names it, with length, rate and
+channels; a second press opens the folder or imports the file into the first
+empty slot, resampled to the session rate.
+
+The two refusals are the feature:
+
+- **It never stretches.** A 3.5-bar file goes in at 3.5 bars and is flagged
+  off-grid by the machinery that already flags a take recorded at another tempo
+  — same one-button repair on its sample page, and leaving it alone is the right
+  answer for a one-shot hit. Silently time-stretching someone's audio to fit a
+  grid it was never on would be unrecoverable.
+- **It is honest about formats.** `.wav` always; `.flac`, `.aiff`, `.mp3` and
+  friends only with `soundfile`. Without it those files are still listed, and
+  highlighting one says `needs soundfile for .flac files -- pip install
+  soundfile` rather than failing when you press it.
+
+Imports never land over a take, and each is one undo step — with redo putting
+back the very sample the import built rather than re-reading a file that may
+have moved. New `samples_root` setting (and `--samples-root`) for where the
+browser starts; it defaults to the folder your project lives in.
+
+Three bugs found while building it, all fixed before it shipped:
+
+- **`import_target` had a branch that could never run**, preferring "the slot
+  you are looking at" when a sample page only ever shows a filled slot. Removed
+  rather than left as a comforting no-op.
+- **The first press on the top-left pad imported** instead of highlighting,
+  because the selection defaulted to index 0 while every other pad needed two
+  presses. The inconsistency was also the dangerous direction.
+- **A "nothing to import" message was buried** by the folder name notified
+  immediately after it — the same burying that hid the auto-normalise note
+  behind a page change in v1.2. One `_announce` now says whichever is true.
+
+`Spec.coerce` also gained a `str` guard: `str(None)` was storing the literal
+text `"None"`, the same shape of bug as the swallowed `--samplerate` — a
+coercion that succeeds at producing nonsense.
+
 ### Play modes and choke groups (`NF-02`)
 
 A sample used to play to the end of its recording no matter what else happened.

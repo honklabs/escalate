@@ -303,6 +303,14 @@ wait 3
 delete
 session
 
+# import a file from disk, if there is one to import
+shift on
+browse           # the import browser; --samples-root says where it starts
+shift off
+p 0              # highlight the first entry
+p 0              # and open it, or import it
+session
+
 # settings
 setup
 k 1 +2           # count-in beats
@@ -337,6 +345,9 @@ what a script can usefully show is that the taps are counted (`tap 2/4`), that t
 fourth sets a tempo, and that `hold tap` + `t +3` moves it by 0.3.
 
 Two things that script teaches better than prose:
+
+That import block does nothing when the folder is empty, which is the point: it
+says `nothing to import` rather than failing, so the tour runs anywhere.
 
 - **Perform mode and the settings page are layers.** You entered them from the
   sample page, so leaving them puts you back on the sample page — not in the

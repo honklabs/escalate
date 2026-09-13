@@ -90,6 +90,14 @@ everything in every bank plays regardless of which one you are looking at.
   arrangement in one, a plain press recalls it. For A/B-ing two versions of a
   chorus, or switching between them live.
 
+* `Shift`+`Browse` opens an **import browser**: a file browser on the pads,
+  white for folders and blue for audio. One press highlights and describes, a
+  second imports into the first empty slot, resampling to the session rate. It
+  never lands over a take and it never *stretches* -- audio that is not a whole
+  number of bars is flagged off-grid at its real length, with the same one-button
+  repair as a take recorded at another tempo. `--import FILE [--slot N]` does the
+  same from a terminal.
+
 ### 2. Record mode
 
 The pads show the length of the take **in bars**: white = included, off = not.

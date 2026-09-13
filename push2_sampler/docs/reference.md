@@ -503,6 +503,73 @@ Only each `project.json` is read, never the audio, so a directory of sixty-four
 songs draws instantly. A project whose manifest will not parse is still listed,
 honestly showing zero samples.
 
+### Import browser
+
+**Shift**+**Browse** opens a file browser over the **samples root**: the
+`samples_root` setting when there is one, otherwise the folder your project
+lives in — which is usually where the takes you want to reuse already are.
+`--samples-root DIR` sets it for a run.
+
+Folders are white, audio files blue, and the highlighted entry is bright. One
+press highlights and describes; a second press opens the folder or imports the
+file. Nothing is highlighted when you arrive, so the first press on any pad —
+including the top-left one — can never import something by accident.
+
+| Control | Does |
+| --- | --- |
+| a pad | highlight it |
+| the same pad again | open the folder, or import the file |
+| **Up** / **Down** | previous / next entry |
+| **button 1** | import / open the highlighted entry |
+| **button 2** | up one folder |
+| **button 3** | back to the samples root |
+| **button 5** | your home folder |
+| **Browse**, **Session**, **Note**, **Left** | leave |
+
+Hidden entries and non-audio files are not shown — a samples folder full of
+`.DS_Store` is not something worth looking at on 64 pads. More than 64 entries
+in one folder shows the first 64 and says how many it left out.
+
+#### What an import does, and what it refuses to do
+
+The file is read, **resampled** to the session rate if it differs, and given the
+nearest whole number of bars at the session tempo — at least one, so a short hit
+is a one-bar slot rather than a zero-bar one. It claims the session's tempo as
+its own, so the off-grid check compares it against *this* session rather than a
+tempo it never had.
+
+It is **not stretched**. A 3.5-bar file stays 3.5 bars long and is flagged
+off-grid by exactly the machinery that flags a take recorded at another tempo,
+with the same repair on **button 1** of its sample page. Silently time-stretching
+someone's audio to fit a grid it was never on is the kind of helpfulness nobody
+asks for, and it would be unrecoverable.
+
+It never lands **over** a take: the target is the first empty slot, and if every
+slot is full it says so. `--import FILE --slot N` is how you choose a particular
+one, and it refuses rather than overwriting.
+
+The whole import is one **Undo** step, and redo puts back the very sample the
+import built rather than re-reading the file — which would be slower and would
+fail mid-redo if the file had moved.
+
+#### Formats
+
+`.wav` always, through the standard library. `.flac`, `.aiff`, `.aif`, `.ogg`,
+`.oga`, `.opus`, `.mp3`, `.w64` and `.caf` only when `soundfile` is installed.
+Without it, those pads are still listed but highlighting one says
+`needs soundfile for .flac files -- pip install soundfile` instead of failing
+when you press it. A corrupt file, or an empty one, gives a sentence too.
+
+#### From the command line
+
+```
+python -m push2sampler --import kick.wav my-song
+python -m push2sampler --import pad.wav --slot 12 my-song
+```
+
+Needs no hardware and no audio device. It prints the slot, the bar count and the
+tempo, saves the project, and says so when the file lands off grid.
+
 ### Naming and colouring a slot
 
 **Select** on a sample page. There is no text entry on a Push 2 and there should
@@ -642,6 +709,7 @@ is reported, so a flag can never silently do nothing.
 | `click_gain` | 1.0 | 0–2 | yes |
 | `click_when_recording` | off | on/off | yes |
 | `click_channel` | none | 0–14, or none for the main mix | yes |
+| `samples_root` | `""` | a folder path; empty means beside the project | no |
 | `dim_library` | on | on/off | yes |
 | `auto_trim` | off | on/off | yes |
 | `auto_normalize` | off | on/off | yes |

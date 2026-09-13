@@ -137,6 +137,18 @@ def build_parser() -> argparse.ArgumentParser:
              "midi-report.json",
     )
     parser.add_argument(
+        "--import", dest="import_file", metavar="FILE", default=None,
+        help="import an audio file into the project and exit (needs no hardware)",
+    )
+    parser.add_argument(
+        "--slot", type=int, default=None, metavar="N",
+        help="with --import, the slot (1-256) to import into; default the first empty",
+    )
+    parser.add_argument(
+        "--samples-root", default=None, metavar="DIR",
+        help="where Shift+Browse starts looking for audio to import",
+    )
+    parser.add_argument(
         "--lights-off", action="store_true",
         help="turn every pad and button LED off and exit; use it after a "
              "diagnostic or a crash left the surface lit",
@@ -171,6 +183,7 @@ def resolve_settings(args) -> Settings:
         "monitor": args.monitor,
         "monitor_gain": args.monitor_gain,
         "count_in_beats": args.count_in,
+        "samples_root": args.samples_root,
     }
     given = {name: value for name, value in overrides.items() if value is not None}
     if args.no_play_while_recording:
@@ -229,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.script:
         args.sim = True
 
+    if args.import_file:
+        return _import_file(args)
     if args.bounce or args.stems:
         return _render(args)
     if args.lights_off:
@@ -349,6 +364,50 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"push2sampler: project {project_dir}, {project.bpm:.0f} BPM. Ctrl-C to quit.")
     app.run()
+    return 0
+
+
+def _import_file(args) -> int:
+    """``--import FILE``: bring audio in without hardware or a surface."""
+    from .importer import make_sample
+    from .project import SLOT_COUNT
+
+    settings = resolve_settings(args)
+    directory = Path(_resolve_project(args, settings))
+    project = Project.load(directory, samplerate=settings["samplerate"])
+    if args.bpm is not None:
+        project.bpm = args.bpm
+
+    if args.slot is not None:
+        if not 1 <= args.slot <= SLOT_COUNT:
+            print(f"--slot must be 1-{SLOT_COUNT}, not {args.slot}", file=sys.stderr)
+            return 2
+        slot = args.slot - 1
+        if project[slot] is not None:
+            print(f"slot {args.slot} already holds {project[slot].name}; "
+                  "delete it first or pick another", file=sys.stderr)
+            return 1
+    else:
+        slot = next((s for s in range(SLOT_COUNT) if project[s] is None), None)
+        if slot is None:
+            print("every slot is full", file=sys.stderr)
+            return 1
+
+    try:
+        sample = make_sample(project, args.import_file, slot)
+    except ImportError as exc:
+        print(f"cannot import {args.import_file}: {exc}", file=sys.stderr)
+        return 1
+    project.install(slot, sample)
+    project.save(directory)
+    exact = sample.bars_at(project.bpm, project.samplerate, project.beats_per_bar)
+    print(f"imported {args.import_file} into slot {slot + 1} "
+          f"as {sample.name!r}: {sample.bars} bar(s) at {project.bpm:g} BPM")
+    if project.mismatched(sample):
+        # Said plainly rather than stretched to fit: the repair is the player's
+        # call, and it is one button on the sample page.
+        print(f"  note: it is {exact:.2f} bars long, so it is flagged off grid "
+              f"-- button 1 on its sample page fits it to {sample.bars}")
     return 0
 
 
