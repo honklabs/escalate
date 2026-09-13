@@ -50,6 +50,7 @@ from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
 from .sample_edit import SampleEditMode
+from .slice import SliceMode
 from .song import SongMode
 from .tag import TagMode
 from .settings import SettingsMode
@@ -63,6 +64,7 @@ __all__ = [
     "PerformMode",
     "RecordMode",
     "SampleEditMode",
+    "SliceMode",
     "SampleMode",
     "SettingsMode",
     "SongMode",

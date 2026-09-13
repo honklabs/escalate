@@ -101,6 +101,7 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
+`convert`/`slice`
 `clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
@@ -295,6 +296,12 @@ shift on
 b1               # send slot 1 to outputs 3/4 (needs --out-channels 4)
 shift off
 mix              # close
+
+# slice an 8-bar take into a kit
+slice            # the take, with its cuts marked
+b2               # by beats: 32 slices instead of 8
+b1               # back to bars
+convert          # written into the next 8 free slots, one undo step
 
 # shape it in the editor
 device

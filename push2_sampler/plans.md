@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **51 of the 61 items below are shipped** — every train up to and
-including `v1.5`, leaving only the ten `v2.0` ideas. Three of those 51 shipped
+Status: **52 of the 61 items below are shipped** — every train up to and
+including `v1.5`, and the first of the ten `v2.0` ideas. Three of those shipped
 in part or in a different shape, and each says so in its own note: `CC-13`
 shipped only the half that needs no unverified hardware, `NF-09` shipped MIDI
 clock and left Link a seam, and `NH-02` shipped as two features because the one
@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← next | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -1838,6 +1838,73 @@ slicing of 8 bars produces 8 buffers of exactly `frames_per_bar`; committing is
 one undo step; no free slots produces a clear refusal.
 
 **Deps.** `F-04`, `F-09`, `NF-03` (shares the waveform display widget).
+
+**Status: shipped.** `analysis.onsets` (added alongside NH-08's existing
+post-take helpers in the same module), `modes/slice.py`, and `SliceTake` in
+`history.py` for the bulk write. `Convert` on a sample page opens it; `Convert`
+again commits; `Shift`+`Convert` consumes the original.
+
+**"Budget a day of prototyping inside the item" was the most valuable line in
+this section, exactly as it was for `NF-09`.** Five rounds against synthetic
+signals with *chosen* onset frames, so every claim below is a measurement:
+
+1. **Onsets landed 10-15 ms early.** The reported position was the analysis
+   window's *start*, and a 1024-sample window can begin long before the hit
+   inside it. The acceptance test was +/-5 ms, so the first version could not
+   have passed at any setting. Fixed by refining the frame index against the
+   signal.
+2. **Refining on energy *level* found the previous hit's tail.** "Where does
+   this neighbourhood first reach a quarter of its peak" is right for a hit in
+   silence and wrong the moment hits overlap: 1 of 8 matched on sustained
+   material. An onset is where energy goes *up*; a decaying tail is going down.
+3. **A constant 440 Hz tone produced 59 onsets.** A sine that is not
+   bin-centred leaks, the leakage wobbles frame to frame, and dividing the flux
+   curve by its own maximum turns that wobble into full-scale signal. Fixed by
+   a peak-to-median structure gate; measured, a held tone is about 3.6 and a
+   drum take over 30.
+4. **A global prominence floor changed nothing** on any of eleven signals, and
+   was deleted rather than kept as a knob that does not turn.
+5. **The sharpness test is what makes the sensitivity encoder mean anything**
+   on sustained material. Without it the slice count was identical at every
+   setting.
+
+A sixth thing the prototype nearly hid: at the strictest sensitivity the
+sustained-material *count* came out exactly right, which looked like success
+until the positions were checked -- it was two misses cancelling two extras.
+Counting is not matching, and the test suite matches.
+
+**Measured, at the default sensitivity:** a 16th-note drum pattern is 31 of 31
+within 0.7 ms; the same at a fifth the level is identical; a ghost note at a
+tenth the level survives at every sensitivity; two hits 50 ms apart are two;
+silence, white noise and a held tone all yield nothing. **Overlapping sustained
+notes are approximate** -- extra cuts in the decay -- and no threshold work
+moved that, because the tail of a sustained note genuinely looks like a small
+attack. **bars** and **beats** are the answer to it: a choice of three, not a
+better curve.
+
+Five decisions the spec left open:
+
+1. **The original is kept by default**, `Shift`+`Convert` consumes it. The
+   slices share the source's audio, the source is what you re-slice from at
+   another sensitivity, and the pad you pressed `Convert` on is where your
+   hands expect it to still be.
+2. **A slice is one bar whatever its real length.** A slice is a hit, not a bar
+   of music; giving each its true length would have `F-09`'s off-grid check
+   flag all sixteen of them yellow.
+3. **Slices carry the sound and not the arrangement** -- gain, colour, play
+   mode, choke group, output pair and nudge, but no triggers. Where the source
+   played is not where its pieces play, and a kit that arrived pre-arranged
+   would be a mess to undo by hand.
+4. **Destinations are searched from the slot after the source**, wrapping, so a
+   kit lands next to the take it came from rather than at slot 1. Too few free
+   slots is a refusal with the numbers in it rather than a partial write.
+5. **A one-bar take opens on beats**, because opening on bars would land you on
+   a page that can only refuse.
+
+**The destination row the spec offered was not built.** Choosing where a kit
+lands is a second gesture on a page whose whole job is choosing *cuts*, and
+"the slots after this one" is right nearly always -- `Duplicate` already moves
+a slot afterwards if it is not.
 
 ### IN-02 — Listening assistant `size: L`
 

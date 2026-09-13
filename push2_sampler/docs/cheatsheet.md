@@ -125,6 +125,7 @@ to another page of 64.
 | **Mute** | mute this sample (`MUTED` on the display) |
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
 | **Device** | open the editor |
+| **Convert** | slice this take across the pads |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
 | **Delete** then a pad | clear every bar of this sample |
@@ -210,6 +211,35 @@ is the earliest moment the engine knows about.
 
 Recording is untouched: the nudge is applied on the way to the speakers, so it
 affects playback and bounces but never where a take was captured.
+
+---
+
+## Slice — one take becomes a kit (**Convert** on a sample page)
+
+The pads are the take; every cut is marked white. **Press a pad to hear that
+slice.**
+
+| Control | Does |
+| --- | --- |
+| **button 1 below** | cut by **bars** — one slice per bar |
+| **button 2** | cut by **beats** |
+| **button 3** | cut at **transients** (where the hits are) |
+| **encoder 1** | transient sensitivity, 0.00–1.00 |
+| **Convert** | write the slices, keep the original |
+| **Shift**+**Convert** | write them and remove the original |
+| **Session** | leave, changing nothing |
+
+Slices land in the free slots **after** the source. Each is **1 bar** whatever
+its length, named `take/1`, `take/2`…, and carries the source's gain, colour,
+play mode, choke group, output and nudge but **none of its bars**. The whole
+conversion is **one Undo**.
+
+A one-bar take opens on **beats**. Not enough free slots refuses and says how
+many there are. At most 64 slices; two hits closer than 30 ms are one hit.
+
+Transients are excellent on percussive material (measured: 31 of 31 within
+0.7 ms) and approximate on overlapping sustained notes — turn sensitivity down,
+or use bars/beats.
 
 ---
 

@@ -10,6 +10,79 @@ plan.
 
 ---
 
+## Unreleased
+
+### Slice a take across the pads (`IN-01`)
+
+The first of the `v2.0` ideas. `Convert` on a sample page turns one take into a
+kit: eight bars of drumming into eight one-bar samples, or one pad per hit.
+
+The pads are the take with every cut marked in white, the cut you last
+auditioned flashing amber, and **pressing a pad plays the slice it falls in** —
+you check the cuts before committing to them. Three buttons cut by **bars**, by
+**beats**, or at **transients** with a sensitivity encoder; `Convert` again
+writes the slices into the free slots after the source, as **one undo step**,
+because "slice this into a kit" is one decision. `Shift`+`Convert` removes the
+original, and that is undoable too.
+
+A slice carries the source's gain, colour, play mode, choke group, output pair
+and nudge — every slice is the same sound — and **none of its bars**, because
+where the whole loop played is not where its pieces should. Each is 1 bar
+whatever its real length: a slice is a hit, not a bar of music, and its true
+length would have the off-grid check flag every one of them yellow.
+
+#### Prototyping first paid for itself again
+
+The plan's advice for the `IN-*` items was to budget a day of prototyping
+inside each one, and, as with the clock's PLL, the throwaway found four things
+before any of this existed — each a measurement against synthetic signals with
+*chosen* onset frames, and each a bad day inside a UI:
+
+- **Onsets landed 10–15 ms early.** The reported position was the analysis
+  window's *start*, and a 1024-sample window can begin long before the hit
+  inside it. The target was ±5 ms, so the first version could not have met it
+  at any setting.
+- **Refining on energy *level* found the previous hit's tail.** Right for a hit
+  in silence, wrong the moment hits overlap: 1 of 8 matched on sustained
+  material. An onset is where energy goes *up*, and a decaying tail is going
+  down.
+- **A held 440 Hz tone produced 59 onsets.** A sine that is not bin-centred
+  leaks, the leakage wobbles frame to frame, and dividing the flux curve by its
+  own maximum turns that wobble into full-scale signal. A peak-to-median
+  structure gate fixes it: measured, a held tone is about 3.6 and a drum take
+  over 30.
+- **A global prominence floor changed nothing** on any of eleven signals, and
+  was deleted rather than kept as a knob that does not turn.
+
+A fifth thing the prototype nearly hid: at the strictest sensitivity the
+sustained-material slice *count* came out exactly right, which looked like
+success until the positions were checked — it was two misses cancelling two
+extras. Counting is not matching.
+
+#### What it does well, and what it does not
+
+Measured at the default sensitivity: a 16th-note drum pattern is **31 of 31
+within 0.7 ms**; the same at a fifth the level is identical; a ghost note at a
+tenth the level survives at every sensitivity; two hits 50 ms apart are two
+hits; and silence, white noise and a held tone all yield nothing.
+
+**Overlapping sustained notes are approximate** — extra cuts in the decay — and
+no amount of threshold work moved that, because the tail of a sustained note
+genuinely looks like a small attack. **bars** and **beats** are the answer to
+it: a choice of three, not a better curve. The sensitivity encoder says when it
+cannot do anything, because a knob that turns silently in two of three modes
+looks broken.
+
+#### One mistake worth recording
+
+`analysis.py` already existed — NH-08's post-take trim, normalise and fade —
+and the first version of this work **overwrote it** instead of adding to it.
+Thirteen tests caught it immediately, and it was recovered from git and merged
+rather than rewritten. The lesson is the one the file itself is about: look at
+what is there before writing over it.
+
+---
+
 ## v1.5.0
 
 Two release trains, finished together: **`v1.4` Plays with others** (sync,

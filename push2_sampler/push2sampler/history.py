@@ -329,6 +329,54 @@ class ImportSample(Command):
 
 
 @dataclass
+class SliceTake(Command):
+    """Write several slices into several slots at once (IN-01).
+
+    One command for the whole conversion, because "slice this take into a kit"
+    is one decision: undoing it a pad at a time would be sixteen presses to
+    take back one.  It holds the built samples rather than re-slicing, for the
+    reason ``ImportSample`` does -- redo must install the very objects the
+    first commit made, not recompute them from a take that may since have been
+    edited.
+
+    ``replaced`` is the source slot when the original was consumed, and None
+    when it was kept.  Reverting restores whatever each destination held,
+    including the source, so a slice that overwrote something is fully
+    reversible.
+    """
+
+    samples: list           # the Sample objects, in destination order
+    slots: list             # the destination slot numbers, same order
+    source: int = -1
+    replaced: bool = False
+    _previous: list = field(default_factory=list)
+    _source_before: object = None
+
+    @property
+    def label(self) -> str:
+        count = len(self.slots)
+        where = f"slot{'s' if count != 1 else ''} "
+        where += ", ".join(str(s + 1) for s in self.slots[:3])
+        if count > 3:
+            where += f" +{count - 3}"
+        return f"sliced into {where}"
+
+    def apply(self, project) -> None:
+        self._previous = [project[slot] for slot in self.slots]
+        self._source_before = project[self.source] if self.source >= 0 else None
+        for slot, sample in zip(self.slots, self.samples):
+            project.install(slot, sample)
+        if self.replaced and self.source >= 0 and self.source not in self.slots:
+            project.install(self.source, None)
+
+    def revert(self, project) -> None:
+        for slot, before in zip(self.slots, self._previous):
+            project.install(slot, before)
+        if self.replaced and self.source >= 0 and self.source not in self.slots:
+            project.install(self.source, self._source_before)
+
+
+@dataclass
 class SetOutput(Command):
     """Send a slot to a different output pair (NH-11)."""
 

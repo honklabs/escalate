@@ -504,9 +504,49 @@ gains, play modes. One **Undo** puts it back.
 Picking an *empty* pad second moves the sample there instead, which is the same
 gesture and does what you would expect.
 
+### Step 23: turn one take into a kit
+
+Record eight bars of drumming — or tapping the desk, or beatboxing — in one
+pass. On its sample page, **press Convert.**
+
+The grid is your take drawn as a waveform, with every cut marked in white. The
+buttons below the display choose how it is cut:
+
+1. **Button 1 — bars.** Eight bars becomes eight one-bar slices.
+2. **Button 2 — beats.** Thirty-two of them.
+3. **Button 3 — transients.** Cut where the hits actually are, which is the one
+   to use when what you played is not on the grid. **Encoder 1** is the
+   sensitivity: turn it up to catch quieter hits, down if it is finding hits
+   that are not there. The display counts the slices as you turn.
+
+**Press any pad to hear the slice under it.** That is the point of this page —
+you check the cuts before you commit to them, and the one you just heard
+flashes amber so you know which it was.
+
+**Press Convert again** and the slices are written into the free slots after
+your take. Go back to the library and you have a kit: one hit per pad, each
+ready to put wherever you like. It is **one Undo** if you do not like it.
+
+Three things worth knowing:
+
+- **Your original take is still there.** It is what you would re-slice from at
+  a different sensitivity. **Shift**+**Convert** removes it when you are
+  certain, and even that is undoable.
+- **The slices do not inherit the bars the take played on.** Where the whole
+  loop played is not where its pieces should play — that is for you to
+  arrange.
+- Each slice carries the take's gain, colour, play mode, choke group and
+  nudge, because they are all the same sound. A slice is also always **1 bar**
+  whatever its real length: it is a hit, not a bar of music.
+
+If the transient mode finds nothing it says so rather than showing you one
+slice and leaving you guessing. It is very good on percussive material and only
+approximate on sustained overlapping notes — for those, bars or beats is the
+better cut.
+
 <a id="settings"></a>
 
-### Step 23: the settings worth knowing
+### Step 24: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -541,7 +581,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 24: tempo, click, loop
+### Step 25: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -577,7 +617,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 25: shape a take
+### Step 26: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -607,7 +647,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 26: name it, colour it
+### Step 27: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -623,7 +663,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 27: keep two versions of the arrangement
+### Step 28: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -637,7 +677,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 28: start another song, without a terminal
+### Step 29: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -653,7 +693,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 29: undo
+### Step 30: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -675,7 +715,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 30: bounce it
+### Step 31: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

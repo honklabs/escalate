@@ -306,6 +306,36 @@ Everything you play in or erase is one undo step.
 
 `Session` goes back to the library.
 
+### 4b. Slicing: one take becomes a kit
+
+`Convert` on a sample page opens the slice page. The pads are the take with
+every cut marked, **pressing a pad plays the slice it falls in**, and the three
+buttons below the display cut by **bars**, by **beats**, or at **transients**
+with a sensitivity encoder. `Convert` again writes the slices into the free
+slots after the source, as **one undo step** -- "slice this into a kit" is one
+decision, and taking it back a pad at a time would be sixteen presses to undo
+one. The original is kept unless you hold `Shift`.
+
+Each slice carries the source's gain, colour, play mode, choke group, output and
+nudge and **none of its bars**: those first things describe how the sound
+behaves and every slice is the same sound, while where the whole loop played is
+not where its pieces should. A slice is always 1 bar whatever its real length --
+it is a hit, not a bar of music, and its true length would have the off-grid
+check flag every one of them.
+
+Transients come from a spectral-flux novelty curve in `analysis.py`, numpy only.
+**Five rounds of prototyping against signals with chosen onset frames** found
+four things first, each of which would have been a bad day inside a UI: onsets
+landing 10-15 ms early (the analysis window's start, not the hit in it);
+refinement on energy *level* finding the previous hit's tail rather than the
+new attack; a held 440 Hz tone producing 59 onsets, because leakage wobble
+divided by its own maximum looks like signal; and a global prominence floor
+that changed nothing on any of eleven signals and was deleted rather than kept
+as a knob that does not turn. Measured at the default: a 16th-note drum pattern
+is 31 of 31 within 0.7 ms, a ghost note at a tenth the level survives, and
+silence, noise and a held tone all yield nothing. Overlapping sustained notes
+are approximate, which is why bars and beats exist.
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -575,7 +605,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-973 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1026 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -593,7 +623,8 @@ release's widening: bank and page windowing, loop ranges, the song heat map and
 its zoom, scenes, click routing and pre-roll, the project browser's metadata-only
 scan, the MIDI clock PLL against a synthetic sender, importing from disk, play
 modes and choke groups, master playback, swapping two slots, per-slot output
-routing, swing and per-sample nudges measured in frames, the monitor page's
+routing, swing and per-sample nudges measured in frames, onset detection against
+signals with chosen onset frames, the slice page's refusals, the monitor page's
 refusals, every internal doc link, and every older project format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
@@ -602,14 +633,14 @@ No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **51 are shipped, completing every train up
-to v1.5**; each carries a status note saying what was built and
+several people work on it at once. **52 are shipped: every train up to v1.5,
+and the first v2.0 idea**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v1.4 — Plays with others` is complete, so `v2.0 — Instrument` is next: slicing
-a take across the pads, local analysis that can tell you something about what
-you played, and the rest of the ideas in `plans.md` §8. The one thing this
+`v2.0 — Instrument` is under way: slicing shipped, and the rest — local
+analysis that can tell you something about what you played, and the other ideas
+in `plans.md` §8 — has not. The one thing this
 project cannot do for itself is the human hardware pass — the display protocol
 and most of the button map are still taken from Ableton's document rather than
 from a device.

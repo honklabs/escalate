@@ -8,7 +8,8 @@ same material, read [Getting started](getting-started.md) instead.
 - [Banks and pages](#banks-and-pages)
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
-  [Swap](#swapping-two-samples) · [Editor](#sample-editor) ·
+  [Swap](#swapping-two-samples) · [Slice](#slice-page) ·
+  [Editor](#sample-editor) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
   [Output routing](#output-routing) · [Browser](#project-browser) ·
   [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
@@ -436,6 +437,95 @@ to the hands, so refusing it would only be surprising. The whole thing is one
 
 A sounding voice keeps its own buffer, so swapping while the song plays cuts
 nothing; the next bar line picks up the new arrangement.
+
+### Slice page
+
+**Convert** from a sample page. One take becomes a kit: eight bars of drumming
+into eight one-bar samples, or one pad per hit.
+
+The pads are the take, drawn the way [the editor](#sample-editor) draws it, with
+every cut marked in **white** — and the cut you last auditioned flashing amber,
+so "which one did I just hear" has an answer. **Pressing a pad plays the slice
+it falls in**, which is how you check a cut before committing to it.
+
+| Control | Action |
+| --- | --- |
+| Any pad | Hear the slice under it |
+| Button 1 below the display | Cut by **bars** — one slice per bar of the take |
+| Button 2 | Cut by **beats** |
+| Button 3 | Cut at **transients** — where the hits actually are |
+| Track encoder 1 | Transient sensitivity, 0.00–1.00 |
+| **Convert** | Write the slices, and go back |
+| **Shift**+**Convert** | Write them **and** remove the original |
+| **Session**, **Note**, **◀** | Leave, having changed nothing |
+
+**bars** and **beats** divide evenly, which is the right answer for anything
+played to the grid. **transients** is the right answer for a take whose rhythm
+is not the grid's. A one-bar take opens on **beats**, because there is nothing
+to cut a single bar into by bars.
+
+Slices go to the free slots **after** the source and wrap round, so a kit lands
+next to the take it came from rather than at slot 1. Not enough free slots is a
+refusal with the numbers in it:
+
+```
+8 slices need 8 empty slots and there are 3 - delete something, or slice into fewer
+```
+
+**The whole conversion is one undo step.** "Slice this into a kit" is one
+decision, and taking it back a pad at a time would be sixteen presses to undo
+one.
+
+#### What a slice carries
+
+| Carried from the source | Not carried |
+| --- | --- |
+| Gain, colour, play mode, choke group, output pair, [nudge](#groove--laying-a-sample-back-behind-the-beat) | The bars it played on |
+
+Those first things describe how the *sound* behaves and every slice is the same
+sound. The arrangement is not: where the source played is not where its pieces
+play, and a kit that arrived already arranged would be a mess to undo by hand.
+Slices are named after the source — `kit/1`, `kit/2` — and each is **1 bar**
+whatever its real length, because a slice is a hit rather than a bar of music;
+giving each its true length would have the [off-grid](#off-grid-takes) check
+flag all sixteen of them yellow.
+
+**The original is kept** unless you hold **Shift**. Slicing is the one gesture
+here that turns one take into many, and the instinct to tidy up after it is
+wrong: the slices share the source's audio, the source is what you would
+re-slice from at another sensitivity, and the pad you pressed **Convert** on is
+where your hands expect it to still be.
+
+#### How transient detection works, and where it does not
+
+A spectral-flux novelty curve with an adaptive threshold, in numpy only — no
+scientific stack to install. Measured against signals whose onsets were chosen
+rather than guessed:
+
+| Material | Result |
+| --- | --- |
+| A 16th-note drum pattern | 31 of 31, worst error **0.7 ms** |
+| The same at a fifth the level | 31 of 31, worst error 0.7 ms |
+| Two hits 50 ms apart | Both, separately |
+| A ghost note at a tenth the level | Found, at every sensitivity |
+| Silence, white noise, a held tone | **Nothing**, which is the right answer |
+| Overlapping sustained notes | Approximate: a few extra cuts in the decay |
+
+That last row is the honest limit, and no amount of threshold work moved it:
+the tail of a sustained note genuinely looks like a small attack. Turning
+sensitivity down helps — and **bars** and **beats** exist for material that
+transients suit badly. A choice of three is the answer to this, not a better
+curve.
+
+Two hits closer than **30 ms** are treated as one: below that a flam is one
+attack, and two slices would be wrong. At most **64** slices are made, so a
+take full of transients cannot outrun the grid; when there are more, the
+loudest are kept **in time order**, because a kit built from the first 64 of
+200 hits would stop halfway through the take.
+
+The sensitivity encoder says so when it cannot do anything — it applies to
+transient slicing only, and a knob that turns silently in two of three modes
+would look broken.
 
 ### Sample editor
 
@@ -1467,14 +1557,15 @@ So you do not go looking:
   did ship, in the two places a bar grid can carry them.
 - **No per-layer editing** of an overdub: layers can be added and removed, not
   soloed or re-balanced against each other.
-- **No slicing** a take across the pads, and nothing that listens to your audio
-  and suggests anything. Those are the `v2.0` ideas in `plans.md`.
+- **Nothing that listens to your audio and suggests anything** — no tempo or
+  key detection, no naming from what it hears. [Slicing](#slice-page) did ship;
+  the rest of the `v2.0` ideas in `plans.md` have not.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: a mode banner, transport, levels and
   messages. No waveform drawing, no graphics — and it has never rendered on
   real hardware.
 
-`plans.md` in the project root tracks all of it: 51 of the 61 planned items are
-shipped, which completes every release train up to `v1.5` and leaves the ten
-`v2.0` ideas.
+`plans.md` in the project root tracks all of it: 52 of the 61 planned items are
+shipped — every release train up to `v1.5`, and the first of the ten `v2.0`
+ideas.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

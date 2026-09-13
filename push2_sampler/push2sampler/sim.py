@@ -66,6 +66,8 @@ BUTTONS = {
     "accent": Btn.ACCENT,
     "device": Btn.DEVICE,
     "edit": Btn.DEVICE,
+    "convert": Btn.CONVERT,
+    "slice": Btn.CONVERT,
     "duplicate": Btn.DUPLICATE,
     "dup": Btn.DUPLICATE,
     "tap": Btn.TAP_TEMPO,
