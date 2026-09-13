@@ -99,6 +99,11 @@ SPECS: dict[str, Spec] = {
     "rec_latency_ms": Spec(0.0, float, 0.0, 250.0, step=1.0, label="rec lat", unit="ms"),
     "play_while_recording": Spec(True, bool, label="play while rec"),
     "autosave_delay_s": Spec(2.0, float, 0.5, 30.0, step=0.5, label="autosave", unit="s"),
+    # Post-take processing.  Off by default: a take should be what you played
+    # until you ask for something else.
+    "auto_trim": Spec(False, bool, label="auto trim"),
+    "auto_normalize": Spec(False, bool, label="auto norm"),
+    "auto_fade": Spec(False, bool, label="auto fade"),
     "input_device": Spec(None, int, label="in dev", restarts_audio=True),
     "output_device": Spec(None, int, label="out dev", restarts_audio=True),
     "blocksize": Spec(
@@ -125,17 +130,67 @@ ENGINE_SETTINGS: tuple[str, ...] = (
     "blocksize",
 )
 
-#: The settings the on-device page exposes, one per button under the display.
-EDITABLE: tuple[str, ...] = (
-    "count_in_beats",
-    "monitor",
-    "monitor_gain",
-    "rec_latency_ms",
-    "play_while_recording",
-    "autosave_delay_s",
-    "input_device",
-    "blocksize",
+#: The settings the on-device page exposes, one per button under the display,
+#: in pages of eight.  There are more settings than buttons now, so the page
+#: scrolls with the up/down arrows rather than leaving any of them unreachable.
+EDITABLE_PAGES: tuple[tuple[str, ...], ...] = (
+    (
+        "count_in_beats",
+        "monitor",
+        "monitor_gain",
+        "rec_latency_ms",
+        "play_while_recording",
+        "autosave_delay_s",
+        "input_device",
+        "blocksize",
+    ),
+    (
+        "auto_trim",
+        "auto_normalize",
+        "auto_fade",
+    ),
 )
+
+#: Everything the device can edit, flattened.
+EDITABLE: tuple[str, ...] = tuple(n for page in EDITABLE_PAGES for n in page)
+
+
+#: Remembered session state, so powering on resumes where you left off.  Kept
+#: out of :data:`SPECS` on purpose: these are not settings anyone edits, they
+#: are a bookmark, and the settings page is built from SPECS.
+UI_DEFAULTS: dict = {
+    "project": None,
+    "mode": "library",
+    "slot": None,
+    "loop": True,
+    "metronome": False,
+}
+#: What each bookmark field must be.  Stated rather than inferred from the
+#: default, because two of the defaults are ``None`` and inferring from that
+#: accepts anything -- which is how a string ends up where a slot number goes.
+UI_TYPES: dict = {
+    "project": str,
+    "mode": str,
+    "slot": int,
+    "loop": bool,
+    "metronome": bool,
+}
+UI_KEY = "ui"
+
+
+def _ui_ok(value, wanted: type, default) -> bool:
+    """Whether ``value`` is an acceptable bookmark for a field of ``wanted``.
+
+    ``bool`` is a subclass of ``int`` in Python, so a plain isinstance check
+    would let ``True`` through as a slot number; both directions are excluded.
+    """
+    if value is None:
+        return default is None
+    if wanted is bool:
+        return isinstance(value, bool)
+    if wanted is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, wanted)
 
 
 def default_path() -> Path:
@@ -150,8 +205,11 @@ class Settings:
         self.path = path
         self.warning: str | None = None
         self._values = {name: spec.default for name, spec in SPECS.items()}
+        #: Where you were last time; see :data:`UI_DEFAULTS`.
+        self.ui: dict = dict(UI_DEFAULTS)
         if values:
             self.apply(values)
+            self.apply_ui(values.get(UI_KEY))
         self.dirty = False
 
     # ------------------------------------------------------------------
@@ -185,8 +243,27 @@ class Settings:
         self.apply(values)
         self.dirty = was_dirty
 
+    def apply_ui(self, values) -> None:
+        """Merge remembered session state, ignoring anything unrecognisable.
+
+        A bookmark is never worth a crash, so a malformed or foreign value is
+        dropped rather than validated loudly.
+        """
+        if not isinstance(values, dict):
+            return
+        for name, wanted in UI_TYPES.items():
+            if name in values and _ui_ok(values[name], wanted, UI_DEFAULTS[name]):
+                self.ui[name] = values[name]
+
+    def remember(self, **values) -> None:
+        """Record session state, marking the file as needing a write."""
+        for name, value in values.items():
+            if name in UI_DEFAULTS and self.ui.get(name) != value:
+                self.ui[name] = value
+                self.dirty = True
+
     def as_dict(self) -> dict:
-        return dict(self._values)
+        return {**self._values, UI_KEY: dict(self.ui)}
 
     def spec(self, name: str) -> Spec:
         return SPECS[name]
@@ -211,6 +288,7 @@ class Settings:
             settings.warning = f"ignoring {resolved}: {exc}"
             return settings
         settings.apply(payload)
+        settings.apply_ui(payload.get(UI_KEY))
         settings.dirty = False
         return settings
 

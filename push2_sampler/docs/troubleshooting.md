@@ -3,14 +3,20 @@
 Symptom → cause → fix. Read the relevant row before concluding something is
 broken; most of these are configuration, not faults.
 
-Two things first:
+Three things first:
 
-1. **Run the probe.** `python -m push2sampler --selftest` tests the MIDI ports,
+1. **Ask the program.** `python -m push2sampler doctor` prints one row per thing
+   that matters — Python, each optional package, the MIDI ports and audio devices
+   it can see, whether it can write where you are — with a one-line fix beside
+   anything missing. It always exits 0, so it is safe to run before you know
+   what is wrong. Most of the rows below are things it will tell you in a
+   second.
+2. **Run the probe.** `python -m push2sampler --selftest` tests the MIDI ports,
    the pads, the buttons, the encoders and the display one at a time and writes
    down what it found. If a control does nothing, the probe will tell you whether
    the program is looking at the wrong control change number — which is likely,
    because [nobody has run this on real hardware yet](README.md#one-thing-to-know-before-you-trust-it).
-2. **Read the display.** Nearly every failure in this program announces itself
+3. **Read the display.** Nearly every failure in this program announces itself
    there: a device that would not open, a bounce that failed, a take that does
    not fit its bars, a clipping input. The program does not fail silently on
    purpose.
@@ -70,6 +76,27 @@ If you see that, the value was rejected and the previous one kept. Otherwise,
 note that command-line values apply to **that run only** and are never written
 to the settings file — if you expected a setting to stick, set it on the
 **Setup** page instead.
+
+---
+
+## The surface
+
+### The grid went dark and nothing responds
+
+Look at the display. If it says
+
+```
+SURFACE OFFLINE - check the cable; the audio is still running
+```
+
+then the Push stopped accepting writes — almost always the USB cable. **The
+audio is genuinely still running**: the song keeps playing, a take in progress
+keeps recording, and nothing is lost. Reseat the cable and it reconnects by
+itself within a couple of seconds, relights the whole grid, and says
+`surface back`.
+
+If the display is dark too, you have no display (see below), so run with
+`--no-display` or watch the terminal.
 
 ---
 
@@ -155,7 +182,25 @@ timing they were recorded with.
 
 ### Takes land early
 
-Record latency is set too high. Lower it.
+Record latency is set too high. Lower it — or measure it:
+
+```
+python -m push2sampler --calibrate
+```
+
+### Calibration says it heard nothing
+
+The output is not reaching the input. Connect a cable from out to in, or point a
+microphone at the speaker, and raise both a little. It needs to actually hear the
+click.
+
+### Calibration refuses its own measurement
+
+`too much to be latency` means it found something more than 250 ms out, which is
+a room reflection rather than the click itself. Move the microphone closer to the
+speaker, or use a cable.
+
+`varying by N ms` means the rounds disagreed. Somewhere quieter, or a cable.
 
 ### The count-in is too long, or I want none
 
@@ -317,6 +362,60 @@ Hold **Tap Tempo** while turning the tempo encoder: that is the ±0.1 nudge.
 Without it the encoder moves in whole BPM, or tens with **Shift**. When the tempo
 is not a whole number the readout shows a decimal, so you can tell which you got.
 
+### Delete did nothing
+
+Two deliberate gates:
+
+- **The arm lapses after three seconds.** If you armed **Delete**, got
+  distracted, and then pressed a pad, nothing happens — which is the point. Arm
+  it again.
+- **A slot that plays somewhere takes two presses.** The first says
+  `slot 7 plays on 12 bars - press again`. Press the *same* pad again to go
+  ahead; press a different one and it warns about that one instead. A slot that
+  plays nowhere deletes on the first press, because there is nothing to regret.
+
+### A take came out quieter or shorter than I played
+
+Check page 2 of the **Setup** page: **auto trim**, **auto normalise** and **auto
+fade** are off by default, but if one is on it processes every take as it lands.
+The display says what it did (`trimmed 30ms, normalised x1.4`) — if you missed
+that message, this is where it came from.
+
+Auto-trim never changes a take's *length* (it pads the end by as much as it took
+off the front), so it cannot put a slot off the grid.
+
+### Overdubbing recorded silence
+
+**New** plays the take along while you record, so it needs the take to be
+arranged somewhere to hear it — but that only affects what you *hear*, not what
+is captured. If the layer itself is silent, your input is the problem, not the
+overdub: see [I cannot hear myself while recording](#i-cannot-hear-myself-while-recording).
+
+If you meant to *replace* the take rather than add to it, that is **Record**,
+not **New**.
+
+### Shift+New will not remove a layer
+
+The original recording is not removable — only overdubs are, and the display
+says `only one layer; nothing to remove`.
+
+Note that **applying edits** (Shift+Device) or **fitting an off-grid take**
+collapses the layers into one, because both replace the audio with something
+that is no longer their sum. The sound does not change, but the passes can no
+longer be separated.
+
+### Soloing wiped my mutes
+
+It did not. Solo is stored separately from each sample's own mute state
+precisely so that this cannot happen: press **Solo** again and the mix comes
+back exactly as it was. While a solo is on, it overrides mute — that is standard
+and intended.
+
+### The mixer only shows eight slots
+
+By design: there are eight encoders. **Up**/**Down**, or pressing any pad, moves
+to another row of eight. The display names which slots you are looking at.
+
 ### Undo will not go back far enough
 
 The journal is 64 edits deep. Also, runs of similar edits made within about a
@@ -355,9 +454,28 @@ If something else differs, that is a bug worth reporting — see below.
 
 ### Did it save?
 
-It saves itself a couple of seconds after the last change and again on exit.
-**Shift**+**Setup** saves immediately and says `project saved`. If you started
-with `--no-save`, nothing is ever written.
+Look at the end of the transport line: a `*` means something is unwritten. It
+saves itself a couple of seconds after the last change and again on exit, and
+says `saved` when it does. **Shift**+**Setup** saves immediately.
+
+If a save *fails*, the reason is on the display (`could not save: ...`) and the
+pending write is dropped rather than retried every frame. Fix the cause — a full
+disk, a read-only directory — and press **Shift**+**Setup**.
+
+If you started with `--no-save`, nothing is ever written and there is never a
+`*`.
+
+### It opened the wrong project
+
+With no project named, it reopens the one you had last. Name one explicitly to
+override that. A remembered directory that no longer exists falls back to
+`./song` rather than recreating it.
+
+### It came back on the wrong page
+
+It restores the library or a sample page, and nothing else — a record arm or a
+bounce is never resumed. If the slot you were on has been deleted since, you get
+the library.
 
 ### Bounced WAVs are 16-bit, not float
 

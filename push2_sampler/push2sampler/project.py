@@ -30,7 +30,7 @@ LENGTH_TOLERANCE = 0.01
 FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 
 
 def format_bpm(bpm: float) -> str:
@@ -63,6 +63,10 @@ class Sample:
     source_samplerate: int = 0
     #: Non-destructive trim/fade/pitch/reverse/normalise.
     edits: Edits = DEFAULT_EDITS
+    #: Sound-on-sound layers, kept individually so the last one can be removed.
+    #: Empty means "the take is just ``audio``"; otherwise ``audio`` is their
+    #: sum and that invariant is maintained by :meth:`set_layers`.
+    layers: list = field(default_factory=list)
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
@@ -98,6 +102,50 @@ class Sample:
         self._rendered = rendered
         return rendered
 
+    @property
+    def layer_count(self) -> int:
+        """How many layers make up this take; 1 for an ordinary recording."""
+        return len(self.layers) or 1
+
+    def add_layer(self, audio: np.ndarray) -> None:
+        """Sum another pass into this take, keeping it removable.
+
+        The first overdub promotes the existing recording to layer 1, so a take
+        never silently loses the ability to be peeled back.
+        """
+        layers = list(self.layers) or [self.audio]
+        layers.append(np.ascontiguousarray(audio, dtype=np.float32))
+        self.set_layers(layers)
+
+    def remove_layer(self) -> bool:
+        """Drop the most recent layer.  False when there is only one."""
+        if len(self.layers) <= 1:
+            return False
+        self.set_layers(list(self.layers[:-1]))
+        return True
+
+    def set_layers(self, layers: list) -> None:
+        """Install layers and re-sum them into ``audio``."""
+        self.layers = layers
+        frames = max((int(layer.shape[0]) for layer in layers), default=0)
+        channels = max((int(layer.shape[1]) for layer in layers), default=1)
+        summed = np.zeros((frames, channels), dtype=np.float32)
+        for layer in layers:
+            summed[: layer.shape[0], : layer.shape[1]] += layer
+        self.audio = summed
+        self.audio_saved = False
+        self._rendered_key = None
+        self._rendered = None
+
+    def flatten(self) -> None:
+        """Forget the layer breakdown, keeping the audio as it now sounds.
+
+        Called wherever ``audio`` is replaced by something that is no longer the
+        sum of the layers -- applying edits, or fitting an off-grid take -- so
+        the invariant can never quietly go stale.
+        """
+        self.layers = []
+
     def set_edits(self, edits: Edits) -> None:
         self.edits = edits
         self._rendered_key = None
@@ -109,6 +157,7 @@ class Sample:
             return False
         self.audio = np.ascontiguousarray(self.effective_audio(), dtype=np.float32)
         self.set_edits(DEFAULT_EDITS)
+        self.flatten()
         self.audio_saved = False
         return True
 
@@ -157,8 +206,18 @@ class Sample:
             return float(self.bars)
         return self.frames / frames_per_bar
 
+    def layer_paths(self) -> list[str]:
+        """Relative WAV path per layer; empty for a take with no overdubs."""
+        if not self.layers:
+            return []
+        return [
+            f"{SAMPLES_DIR}/slot_{self.slot:02d}_L{i + 1}.wav"
+            for i in range(len(self.layers))
+        ]
+
     def to_json(self, audio_path: str) -> dict:
         return {
+            "layers": self.layer_paths(),
             "slot": self.slot,
             "name": self.name,
             "bars": self.bars,
@@ -184,6 +243,12 @@ class Project:
         self.beats_per_bar = beats_per_bar
         self.song_bars = SONG_BARS
         self.slots: list[Sample | None] = [None] * PAD_COUNT
+        #: Gain on the whole mix.
+        self.master_gain = 1.0
+        #: Slot being soloed, or None.  Kept separate from ``Sample.enabled`` so
+        #: that soloing and un-soloing never destroys the mute state you set by
+        #: hand -- that is the whole point of a solo button.
+        self.soloed: int | None = None
         self.dirty = False
 
     # ------------------------------------------------------------------
@@ -236,6 +301,7 @@ class Project:
             return False
         sample.audio = self.fitted_audio(sample)
         sample.set_edits(DEFAULT_EDITS)
+        sample.flatten()
         sample.source_bpm = self.bpm
         sample.source_samplerate = self.samplerate
         sample.audio_saved = False
@@ -274,7 +340,7 @@ class Project:
         )
         self.slots[slot] = sample
         self.dirty = True
-        return sample
+        return sample  # layers default to empty: this is a new recording
 
     def next_empty(self, after: int) -> int | None:
         """The first empty slot after ``after``, wrapping round the grid."""
@@ -356,17 +422,28 @@ class Project:
             self.slots[slot] = None
             self.dirty = True
 
+    def audible(self, sample: "Sample") -> bool:
+        """Whether this sample is heard, taking mute *and* solo into account."""
+        if self.soloed is not None:
+            return sample.slot == self.soloed
+        return sample.enabled
+
+    def solo(self, slot: int | None) -> None:
+        """Solo a slot, or clear it.  Soloing the soloed slot clears it."""
+        self.soloed = None if slot is None or slot == self.soloed else slot
+        self.dirty = True
+
     def slots_at_bar(self, bar: int) -> set[int]:
         """Slots of the audible samples triggered on ``bar``."""
         if not 0 <= bar < self.song_bars:
             return set()
-        return {s.slot for s in self.filled() if s.enabled and bar in s.triggers}
+        return {s.slot for s in self.filled() if self.audible(s) and bar in s.triggers}
 
     def bars_in_use(self) -> set[int]:
         """Every bar on which some audible sample is triggered."""
         used: set[int] = set()
         for sample in self.filled():
-            if sample.enabled:
+            if self.audible(sample):
                 used |= sample.triggers
         return used
 
@@ -376,7 +453,7 @@ class Project:
 
         schedule: list[list[ScheduledSample]] = [[] for _ in range(self.song_bars)]
         for sample in self.filled():
-            if not sample.enabled or sample.frames == 0:
+            if not self.audible(sample) or sample.frames == 0:
                 continue
             audio = sample.effective_audio(self.samplerate)
             for bar in sorted(sample.triggers):
@@ -397,15 +474,19 @@ class Project:
         slots = []
         for sample in self.filled():
             rel = f"{SAMPLES_DIR}/slot_{sample.slot:02d}.wav"
+            paths = sample.layer_paths()
             # Audio never changes in place, so only write takes we haven't yet.
             if not sample.audio_saved or not (directory / rel).exists():
                 wavio.write(directory / rel, sample.audio, self.samplerate)
+                for layer, path in zip(sample.layers, paths):
+                    wavio.write(directory / path, layer, self.samplerate)
                 sample.audio_saved = True
             slots.append(sample.to_json(rel))
         payload = {
             "version": FORMAT_VERSION,
             "samplerate": self.samplerate,
             "bpm": round(self.bpm, 3),
+            "master_gain": round(float(self.master_gain), 4),
             "beats_per_bar": self.beats_per_bar,
             "song_bars": self.song_bars,
             "slots": slots,
@@ -430,6 +511,7 @@ class Project:
             beats_per_bar=int(payload.get("beats_per_bar", 4)),
         )
         project.song_bars = int(payload.get("song_bars", SONG_BARS))
+        project.master_gain = float(payload.get("master_gain", 1.0) or 1.0)
         for entry in payload.get("slots", []):
             audio_rel = entry.get("audio")
             if not audio_rel or not (directory / audio_rel).exists():
@@ -438,6 +520,19 @@ class Project:
             if rate != project.samplerate:
                 audio = wavio.resample(audio, rate, project.samplerate)
             slot = int(entry["slot"])
+            # Layers are optional and best-effort: a take whose layer files have
+            # gone keeps playing as the summed audio, it just cannot be peeled
+            # back any more.  Losing the breakdown must not lose the take.
+            layers = []
+            for rel in entry.get("layers") or []:
+                path = directory / rel
+                if not path.exists():
+                    layers = []
+                    break
+                layer, layer_rate = wavio.read(path)
+                if layer_rate != project.samplerate:
+                    layer = wavio.resample(layer, layer_rate, project.samplerate)
+                layers.append(layer)
             # Format 1 stored no provenance.  Assume such a take was recorded at
             # this project's own tempo -- the best guess available, and the one
             # that does not flag every existing project as mismatched.
@@ -458,6 +553,7 @@ class Project:
                 name=str(entry.get("name", "")),
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
+                layers=layers,
                 audio_saved=True,
             )
         project.dirty = False

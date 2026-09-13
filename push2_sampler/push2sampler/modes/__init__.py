@@ -18,6 +18,10 @@ Edit
     One take's shape: trim, fades, pitch, reverse, normalise, all undoable and
     none of it touching the recording until you say so.
 
+Mixer
+    Eight slots at a time as vertical level meters, with an encoder of gain and
+    a mute button per strip, plus solo and a master gain.
+
 Sample
     The 64 pads are now the 64 bars of the song.  Lit pads are the bars where
     this sample plays; they may overlap freely with other samples.  Record
@@ -32,6 +36,7 @@ from __future__ import annotations
 
 from .base import COUNT_IN_BEATS, Mode
 from .library import LibraryMode
+from .mixer import MixerMode
 from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
@@ -41,6 +46,7 @@ from .settings import SettingsMode
 __all__ = [
     "COUNT_IN_BEATS",
     "LibraryMode",
+    "MixerMode",
     "Mode",
     "PerformMode",
     "RecordMode",

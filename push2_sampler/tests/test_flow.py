@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from push2sampler import colors
-from push2sampler.app import CLIP_WARNING_S, App
+from push2sampler.app import CLIP_WARNING_S, PRESS_FLASH_S, App
 from push2sampler.audio import FADE_MS, Engine
 from push2sampler.constants import (
     DISPLAY_ROW_BOTTOM,
@@ -20,7 +20,7 @@ from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
 from push2sampler.push2 import PadEvent, SimPush
-from push2sampler.settings import EDITABLE, Settings
+from push2sampler.settings import EDITABLE, EDITABLE_PAGES, Settings
 
 SR = 8000
 FADE = int(SR * FADE_MS / 1000.0)
@@ -56,6 +56,12 @@ def pump(app):
         app.notify("input clipping")
     app.mode.on_tick()
     app.render()
+
+
+def settle(app):
+    """Let the press-feedback flash lapse, then render the mode's own value."""
+    time.sleep(PRESS_FLASH_S)
+    pump(app)
 
 
 def take(engine, bars=1, value=0.5):
@@ -555,6 +561,11 @@ def test_undo_brings_back_a_deleted_sample(rig):
     pump(app)
     push.press_pad(0)
     pump(app)
+    # It plays on a bar, so the first press names the cost and waits (CC-03).
+    assert project[0] is not None
+    assert "plays on 1 bar" in app.message
+    push.press_pad(0)
+    pump(app)
     assert project[0] is None
     assert engine._schedule[5] == ()
 
@@ -604,6 +615,7 @@ def test_the_undo_button_shows_whether_there_is_anything_to_undo(rig):
     assert push.button_leds[Btn.UNDO] > 0
     push.press_button(Btn.UNDO)
     pump(app)
+    settle(app)
     assert push.button_leds[Btn.UNDO] == 0
 
 
@@ -972,11 +984,26 @@ def test_editable_settings_all_fit_the_button_row(rig):
     app, push, _, _ = rig
     push.press_button(Btn.SETUP)
     pump(app)
+    settle(app)  # the Setup press flashes its own LED, not the row's
     lit = [cc for cc in DISPLAY_ROW_BOTTOM if push.button_leds.get(cc, 0) > 0]
-    assert len(lit) == len(EDITABLE)
+    assert len(lit) == len(EDITABLE_PAGES[0])
     lines = app.status_lines()
     assert lines[0].startswith("SETTINGS")
     assert any("count-in" in line for line in lines)
+
+
+def test_the_settings_page_scrolls_to_reach_every_setting(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    seen = set()
+    for _ in range(len(EDITABLE_PAGES)):
+        seen |= set(app.mode.names)
+        push.press_button(Btn.DOWN)
+        pump(app)
+    assert seen == set(EDITABLE)
+    # ...and it wraps back to where it started.
+    assert app.mode.page == 0
 
 
 # ------------------------------------------------------ perform mode (NF-04)

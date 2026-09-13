@@ -287,6 +287,32 @@ class SetGain(Command):
 
 
 @dataclass
+class SetMasterGain(Command):
+    """Change the gain on the whole mix; encoder steps coalesce."""
+
+    gain: float
+    previous: float
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        return f"master {self.gain:.2f}"
+
+    def apply(self, project) -> None:
+        project.master_gain = self.gain
+
+    def revert(self, project) -> None:
+        project.master_gain = self.previous
+
+    def merge(self, newer: Command) -> bool:
+        if not isinstance(newer, SetMasterGain) or newer.at - self.at > MERGE_WINDOW_S:
+            return False
+        self.gain = newer.gain
+        self.at = newer.at
+        return True
+
+
+@dataclass
 class SetBpm(Command):
     """Change the tempo; consecutive encoder steps coalesce."""
 
@@ -336,6 +362,67 @@ class PutSample(Command):
 
     def revert(self, project) -> None:
         project.install(self.slot, self._previous)
+
+
+@dataclass
+class AddLayer(Command):
+    """Sum another pass into an existing take, keeping the old sum for undo."""
+
+    slot: int
+    audio: np.ndarray
+    _previous_layers: object = None
+    _previous_audio: object = None
+
+    @property
+    def label(self) -> str:
+        return f"layered slot {self.slot + 1}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous_layers = list(sample.layers)
+        self._previous_audio = sample.audio
+        sample.add_layer(self.audio)
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or self._previous_audio is None:
+            return
+        sample.layers = list(self._previous_layers or [])
+        sample.audio = self._previous_audio
+        sample.audio_saved = False
+        sample.set_edits(sample.edits)  # drops the render cache
+
+
+@dataclass
+class RemoveLayer(Command):
+    """Peel the most recent layer off a take."""
+
+    slot: int
+    _previous_layers: object = None
+    _previous_audio: object = None
+
+    @property
+    def label(self) -> str:
+        return f"removed a layer from slot {self.slot + 1}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous_layers = list(sample.layers)
+        self._previous_audio = sample.audio
+        sample.remove_layer()
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or self._previous_audio is None:
+            return
+        sample.layers = list(self._previous_layers or [])
+        sample.audio = self._previous_audio
+        sample.audio_saved = False
+        sample.set_edits(sample.edits)
 
 
 @dataclass

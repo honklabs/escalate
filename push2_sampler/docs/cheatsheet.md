@@ -22,6 +22,7 @@ need it. This is the *what*, for when you have already done that once.
 | **Undo** | take back the last edit (64 deep) |
 | **Shift**+**Undo** | redo |
 | **Session** / **Note** / **Left arrow** | back — leave this page |
+| **Mix** | mixer page (open / close) |
 | **Setup** | settings page (open / close) |
 | **Shift**+**Setup** | save the project right now |
 | **Delete** | arm delete, then press a pad |
@@ -31,6 +32,7 @@ need it. This is the *what*, for when you have already done that once.
 | **Shift**+**Tempo encoder** | BPM ±10 per click |
 | hold **Tap Tempo** + **Tempo encoder** | BPM ±0.1 per click (beat-matching) |
 | **Row above the display** | input level meter (not buttons) |
+| any button | briefly lights its own LED, so a dead button is obvious |
 
 A lit **Undo** means there is something to take back. A dark one means there
 isn't.
@@ -52,6 +54,9 @@ The page you start on, and the one **Session** always returns you to.
 | **Mute** then a pad | mute / unmute that slot |
 | **Duplicate** then a pad | copy that slot to the next empty one |
 | **Duplicate** then **Shift** + a pad | move it instead of copying |
+
+**Delete** disarms itself after 3 seconds. Deleting a slot that *plays* somewhere
+takes two presses — the first says `slot 7 plays on 12 bars - press again`.
 
 | Pad colour | Means |
 | --- | --- |
@@ -105,6 +110,8 @@ is bar 9, bottom-right is bar 64.
 | double-tap a playing pad | clear it from those 4 bars |
 | **Duplicate**, bar A, bar B | copy the block A…B-1 onto B (the gap is its length) |
 | **Duplicate**, bar A, **Shift**+bar B | move it instead of copying |
+| **New** | overdub another pass on top (sound-on-sound) |
+| **Shift**+**New** | remove the last overdubbed layer |
 | **Mute** | mute this sample (`MUTED` on the display) |
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
 | **Device** | open the editor |
@@ -168,6 +175,25 @@ page).
 
 ---
 
+## Mixer (**Mix**)
+
+Eight strips at a time: the current row of the library, as vertical level meters.
+
+| Control | Does |
+| --- | --- |
+| **encoders 1–8** | gain of each strip |
+| **buttons below the display** | mute each strip |
+| **Solo**, then a button below | solo that strip |
+| **Solo** again | clear the solo |
+| **Master encoder** | gain on the whole mix |
+| **Up** / **Down**, or any pad | another row of eight |
+| **Mix** | close |
+
+Meters fill upwards: green, amber in the top quarter, red at the very top. Solo
+overrides mute without destroying it — un-solo and your mix is exactly as it was.
+
+---
+
 ## Settings (**Setup**)
 
 The pads go dark on purpose. Each button *below* the display owns one setting;
@@ -180,6 +206,9 @@ the encoder above it changes the value, pressing the button resets or cycles it.
 | 5 | 6 | 7 | 8 |
 | --- | --- | --- | --- |
 | play while recording | autosave delay | input device | audio block size |
+
+**Up** / **Down** reaches page 2: **auto trim**, **auto normalise**, **auto
+fade** — post-take processing, all off by default.
 
 **Setup** again closes the page and writes
 `~/.config/push2sampler/settings.json`. Changing the input device or block size
@@ -194,7 +223,11 @@ the display says why.
 | --- | --- |
 | `python -m push2sampler SONG` | run it |
 | `--sim` | no hardware: terminal simulator ([docs](simulator.md)) |
+| `--script F` | run a simulator command file and exit (add `--quiet`, `--until-idle`) |
+| `doctor` | what is installed, what is missing, and how to fix it |
+| `--version` | print the version |
 | `--selftest` | guided hardware probe, writes `hardware-report.json` |
+| `--calibrate` | measure input latency and store it |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |
 | `--stems DIR SONG` | one WAV per filled slot |
@@ -224,4 +257,9 @@ SONG/bounces/*.wav           what you have bounced
 ~/.config/push2sampler/settings.json
 ```
 
-Saves itself a couple of seconds after any change, and on exit.
+Saves itself a couple of seconds after any change, and on exit. A `*` on the
+transport line means there is something unsaved; `saved` appears when it writes.
+
+Start with no project name and you get the project, page and slot you were last
+in. `SURFACE OFFLINE` on the display means the Push stopped answering — the audio
+carries on, and it reconnects by itself.

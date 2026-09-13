@@ -40,15 +40,22 @@ w . . . w . . .
 W m w white  G h g green  A a amber  R r red  B b blue  Y yellow  . off
   SLOT 1  2 bar(s)  audible
   plays on 2 bar(s)  gain 1.00  flat
-  pad: toggle bar   Record: re-record   Mute: hear   Accent: velocity
-  Device: edit the take
-  PLAY  120 BPM  bar 1/64  loop
+  pad: toggle   hold+pad: paint   double tap: fill 4 bars
+  Record: re-record   New: layer   Mute: hear   Device: edit
+  PLAY  120 BPM  bar 1/64  loop  *
   in [###.........] mon off
 ```
+
+The `*` at the end of the transport line means there are changes not yet written
+to disk; it goes away a couple of seconds later when the autosave fires.
 
 Upper case is bright, lower case is dim. That grid is a sample page: amber is the
 playhead, green is a bar this sample plays on, and the dim white marks are the
 4-bar and 16-bar ruler.
+
+When a terminal is watching, the glyphs come out in the colour they name. Piped
+to a file, or with `NO_COLOR` set, they stay plain — so the grids in a bug report
+paste cleanly.
 
 The `in [###...]` bar is the input meter. In the simulator it does not move,
 because there is no input.
@@ -82,9 +89,9 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 | `b1` … `b8` | the eight buttons *below* the display, whatever the current mode has put there |
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
-`delete` `duplicate`/`dup` `tap` `session`/`library`/`back` `left` `up` `down`
-`setup` `undo` `quantize`/`fixed` `accent`/`velocity` `device`/`edit`
-`repair`/`fit`.
+`delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
+`session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
+`accent`/`velocity` `device`/`edit` `repair`/`fit`.
 
 ### Shift
 
@@ -116,8 +123,13 @@ depends on the mode — on the settings and editor pages, one per column.
 | --- | --- |
 | `wait 2.5` | let the transport run 2.5 seconds |
 | `g` / `s` | print the grid and status again |
+| `?` | print the command list |
+| `macro NAME cmd; cmd` | name a sequence, then run it by typing `NAME` |
 | `q` | quit (and save) |
 | `# anything` | a comment; ignored |
+
+A macro may not shadow a real command or button name — it refuses rather than
+quietly taking over `play`.
 
 `wait` is the one to understand. Nothing advances while the REPL is waiting for
 you to type, so to hear a count-in finish, or a take complete, or a playhead
@@ -128,7 +140,27 @@ count-in takes 6 seconds: `wait 7`.
 
 ## A scripted session
 
-Commands can come from a file or a pipe, which makes a reproducible demo:
+Commands can come from a file, which makes a reproducible demo — and, because it
+exits with a status, something CI can run:
+
+```
+python -m push2sampler --script demo.sim --quiet --until-idle my-song
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--script FILE` | Run FILE and exit. Implies `--sim`; `-` reads stdin |
+| `--quiet` | Do not print the grid after every command |
+| `--until-idle` | Once the script runs out, wait for the transport to stop |
+
+The exit status is **0** unless a command failed, so a typo in a script is a
+test failure rather than a silent no-op.
+
+`--until-idle` applies *after* the script is exhausted, not between its lines —
+a take finishing mid-script is not the end of the script. It is bounded at a
+minute, because a looping transport never goes idle on its own.
+
+Or pipe it, which works just as well for a one-liner:
 
 ```
 printf 'p 0\np 1\nrecord\nwait 7\np 0\np 8\nplay\nwait 4\nq\n' \
@@ -210,6 +242,24 @@ dup
 p 0
 p 8
 
+# overdub a second pass onto the same take
+new
+wait 3
+s                # the display now says "2 layers"
+shift on
+new              # ...and this peels it back off
+shift off
+
+# the mixer: gain, mute, solo, master
+mix
+k 1 -5           # turn slot 1 down
+b1               # mute it
+b1               # and back
+solo
+b1               # hear slot 1 alone
+solo             # clear the solo
+mix              # close
+
 # shape it in the editor
 device
 k 1 +10          # trim 50ms off the front
@@ -272,9 +322,10 @@ Two things that script teaches better than prose:
   bounces in the library, but re-records the take on a sample page. The status
   line always names the page you are on; read it before pressing something
   destructive.
-- **Undo reports what it undid.** Watch for `undo: erased bar 3` then
-  `undo: bar 3 on` in the status line. If it says `nothing to undo`, the history
-  is empty, not stuck.
+- **Undo reports what it undid**, by name — `undo: bar 3 on`, `undo: velocity
+  on`. Which two things the tour's pair of `undo`s takes back depends on
+  everything above them, so read the messages rather than counting presses. If
+  it says `nothing to undo`, the history is empty, not stuck.
 
 ---
 
@@ -308,3 +359,10 @@ See [Getting started, step 2](getting-started.md#step-2-run-the-probe).
 - **Whether the hardware matches.** Every control change number, palette colour
   and display byte in this program came from Ableton's documentation and is still
   unverified. The simulator faithfully reproduces our *assumptions*.
+- **Whether a cable is plugged in.** `SimPush` never goes offline, so the
+  reconnect handling is exercised by the tests rather than here.
+
+What it *does* now reach is every control: when the mixer and overdub landed,
+their three buttons had no simulator names for an hour, which made two whole
+features undriveable without hardware. If you add a control, add its name to
+`BUTTONS` in `sim.py` in the same change.

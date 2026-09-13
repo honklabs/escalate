@@ -59,6 +59,8 @@ FADE_MS = 3.0
 RELEASE_MS = 10.0
 #: How fast the input peak meter falls back, per block.
 METER_DECAY = 0.85
+#: Sample slots the engine keeps a level meter for: the whole library.
+MAX_SLOTS = 64
 
 MONITOR_OFF = "off"
 MONITOR_ON = "on"
@@ -212,6 +214,13 @@ class Engine:
         self.monitor = monitor
         #: Latches when the input clips; the UI clears it with take_clipped().
         self.input_clipped = False
+        #: Level meter per sample slot, with a slow fall-back so it is readable.
+        #: Written by the callback, read by the mixer page -- the same
+        #: single-writer arrangement as ``sounding``.
+        self.slot_peaks: list[float] = [0.0] * MAX_SLOTS
+        #: Gain on the whole mix, applied last.  Plain attribute: a one-block
+        #: stale read is inaudible, so it does not need to be a command.
+        self.master_gain = 1.0
         self.null_input = null_input
 
         self.events: queue.SimpleQueue = queue.SimpleQueue()
@@ -689,6 +698,9 @@ class Engine:
                 self._pos += n
                 self._wrap_song()
             i += n
+        gain = self.master_gain
+        if gain != 1.0:
+            out[:frames] *= gain
         np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
         if inp is not None and frames:
             self._meter_input(inp[:frames])
@@ -813,9 +825,11 @@ class Engine:
     def _mix(self, seg: np.ndarray, n: int) -> None:
         if not self._voices:
             self.sounding = ()
+            self._decay_slot_peaks(())
             return
         keep: list[Voice] = []
         sounding: set[int] = set()
+        peaks: dict[int, float] = {}
         for voice in self._voices:
             buf = voice.buf
             total = buf.shape[0]
@@ -837,10 +851,22 @@ class Engine:
                     voice.releasing += k
                 if voice.slot >= 0:
                     sounding.add(voice.slot)
+                    if voice.slot < MAX_SLOTS:
+                        level = float(np.max(np.abs(chunk))) * abs(voice.gain)
+                        peaks[voice.slot] = max(peaks.get(voice.slot, 0.0), level)
             if not self._voice_done(voice, total):
                 keep.append(voice)
         self._voices = keep
         self.sounding = tuple(sorted(sounding))
+        self._decay_slot_peaks(peaks)
+
+    def _decay_slot_peaks(self, peaks) -> None:
+        """Hold the loudest reading, then let it fall, so a meter can be read."""
+        levels = self.slot_peaks
+        for slot in range(MAX_SLOTS):
+            faded = levels[slot] * METER_DECAY
+            fresh = peaks.get(slot, 0.0) if peaks else 0.0
+            levels[slot] = fresh if fresh > faded else faded
 
     def _voice_done(self, voice: Voice, total: int) -> bool:
         if voice.pos >= total:

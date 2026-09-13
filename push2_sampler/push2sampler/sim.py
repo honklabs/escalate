@@ -18,11 +18,17 @@ Commands::
     k 3 +2      turn track encoder 3 (settings page: one per parameter)
     g           print the pad grid        s   print status
     wait 2.5    let the transport run for 2.5 seconds
+    macro NAME cmd; cmd   define a sequence, then run it by NAME
+    ?           print this list
     q           quit
+
+Run a file of these instead of typing them with ``--script FILE``, and add
+``--until-idle`` to wait for the sound to finish before quitting.
 """
 
 from __future__ import annotations
 
+import os
 import shlex
 import sys
 import threading
@@ -63,6 +69,11 @@ BUTTONS = {
     "duplicate": Btn.DUPLICATE,
     "dup": Btn.DUPLICATE,
     "tap": Btn.TAP_TEMPO,
+    "new": Btn.NEW,
+    "layer": Btn.NEW,
+    "mix": Btn.MIX,
+    "mixer": Btn.MIX,
+    "solo": Btn.SOLO,
     "velocity": Btn.ACCENT,
     "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.
@@ -77,6 +88,43 @@ LEGEND = (
     "W m w white  G h g green  A a amber  R r red  B b blue  Y yellow  . off"
 )
 
+#: ANSI foreground per glyph, so the grid reads at a glance like the hardware
+#: does.  Dim variants use the same hue at half intensity.
+ANSI = {
+    "W": "97", "m": "37", "w": "90",
+    "G": "92", "h": "32", "g": "2;32",
+    "A": "93", "a": "33",
+    "R": "91", "r": "31",
+    "B": "94", "b": "34",
+    "Y": "93",
+    ".": "90",
+}
+RESET = "\033[0m"
+
+#: Longest --until-idle will wait.  A 64-bar loop never stops by itself, so this
+#: is the difference between "waits for the sound to finish" and "hangs".
+IDLE_LIMIT_S = 60.0
+
+
+def colorize(grid: str) -> str:
+    """Paint a grid of glyphs with ANSI colour."""
+    out = []
+    for char in grid:
+        code = ANSI.get(char)
+        out.append(f"\033[{code}m{char}{RESET}" if code else char)
+    return "".join(out)
+
+
+def use_color(stream=None) -> bool:
+    """Colour only when it will be read by eyes, and when nobody said not to."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    stream = stream or sys.stdout
+    try:
+        return bool(stream.isatty())
+    except Exception:  # pragma: no cover - exotic streams
+        return False
+
 
 def _pad_index(token: str) -> int:
     if "," in token:
@@ -88,41 +136,106 @@ def _pad_index(token: str) -> int:
     return index
 
 
-def print_state(push: SimPush, app) -> None:
+def print_state(push: SimPush, app, color: bool | None = None) -> None:
+    grid = push.grid()
     print()
-    print(push.grid())
+    print(colorize(grid) if (use_color() if color is None else color) else grid)
     print(LEGEND)
     for line in app.status_lines():
         print(f"  {line}")
     sys.stdout.flush()
 
 
-def run(app, push: SimPush, stream=None) -> None:
-    """Run the REPL until EOF or ``q``.  ``app`` must not be running yet."""
+def run(app, push: SimPush, stream=None, until_idle: bool = False,
+        quiet: bool = False) -> int:
+    """Run the REPL until EOF or ``q``.  ``app`` must not be running yet.
+
+    Returns a process exit status, so ``--script`` can be used in CI: 0 unless a
+    command failed.  ``until_idle`` waits for the transport to stop once the
+    script has run out, so a scripted demo need not end in a guessed ``wait``.
+    """
     stream = stream or sys.stdin
+    color = use_color()
+    macros: dict[str, list[str]] = {}
+    failures = 0
     thread = threading.Thread(target=app.run, daemon=True)
     thread.start()
     time.sleep(0.1)
-    print(__doc__.split("Commands::")[1])
-    print_state(push, app)
+    if not quiet:
+        print(__doc__.split("Commands::")[1])
+        print_state(push, app, color)
     try:
         for raw in stream:
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
             try:
-                if not _dispatch(line, app, push):
+                if not _run_line(line, app, push, macros):
                     break
             except Exception as exc:
                 print(f"error: {exc}")
+                failures += 1
                 continue
             time.sleep(0.12)  # let the app thread react before we print
-            print_state(push, app)
+            if not quiet:
+                print_state(push, app, color)
+        if until_idle:
+            _wait_for_idle(app)
+            if not quiet:
+                print_state(push, app, color)
     except KeyboardInterrupt:
         pass
     finally:
         app.stop()
         thread.join(timeout=2.0)
+    return 1 if failures else 0
+
+
+def _wait_for_idle(app, limit_s: float = IDLE_LIMIT_S) -> bool:
+    """Block until the transport stops, so a script need not guess a final wait.
+
+    Applied once the script has run out, not between its lines -- a take
+    finishing mid-script is not the end of the script.  Bounded, because a
+    looping transport never goes idle on its own; returns whether it did.
+    """
+    deadline = time.monotonic() + limit_s
+    while time.monotonic() < deadline:
+        if not app.engine.is_playing and app.engine.rec_state == "idle":
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _run_line(line: str, app, push: SimPush, macros: dict[str, list[str]]) -> bool:
+    """One input line, which may define or expand a macro."""
+    parts = shlex.split(line)
+    name = parts[0].lower()
+    if name == "macro":
+        if len(parts) < 2:
+            raise ValueError("macro NAME cmd; cmd")
+        label = parts[1].lower()
+        body = [c.strip() for c in " ".join(parts[2:]).split(";") if c.strip()]
+        if not body:
+            raise ValueError(f"macro {label} needs at least one command")
+        if label in BUTTONS or label in RESERVED:
+            raise ValueError(f"{label!r} is already a command")
+        macros[label] = body
+        print(f"macro {label}: {len(body)} command(s)")
+        return True
+    if name in macros:
+        for command in macros[name]:
+            if not _run_line(command, app, push, macros):
+                return False
+            time.sleep(0.12)
+        return True
+    return _dispatch(line, app, push)
+
+
+#: Command words a macro may not shadow.
+RESERVED = frozenset({
+    "p", "hold", "rel", "b", "shift", "t", "k", "g", "grid", "s", "status",
+    "wait", "q", "quit", "exit", "macro", "?", "help",
+})
 
 
 def _dispatch(line: str, app, push: SimPush) -> bool:
@@ -131,6 +244,9 @@ def _dispatch(line: str, app, push: SimPush) -> bool:
     cmd, args = parts[0].lower(), parts[1:]
     if cmd in ("q", "quit", "exit"):
         return False
+    if cmd in ("?", "help"):
+        print(__doc__.split("Commands::")[1])
+        return True
     if cmd == "p":
         push.press_pad(_pad_index(args[0]))
     elif cmd in ("hold", "rel"):

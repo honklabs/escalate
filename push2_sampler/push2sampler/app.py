@@ -19,6 +19,7 @@ from .constants import (
 from .history import Command, History, SetBpm
 from .modes import (
     LibraryMode,
+    MixerMode,
     Mode,
     PerformMode,
     RecordMode,
@@ -28,7 +29,7 @@ from .modes import (
 from .project import Project, format_bpm
 from .render import BounceJob, default_bounce_path
 from .settings import ENGINE_SETTINGS, Settings
-from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase
+from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase, SurfaceOffline
 
 #: Seconds between LED refreshes.  Only changed pads are actually sent.
 FRAME_INTERVAL = 1.0 / 30.0
@@ -52,6 +53,13 @@ TAP_OUTLIER = 0.35
 TEMPO_FINE_STEP = 0.1
 #: A second Stop this soon after the first is the "get me out of here" gesture.
 DOUBLE_STOP_S = 0.5
+#: How long `Delete` stays armed before disarming itself.  Every other armed
+#: modifier is a mode you stay in; this one can destroy a take, so it lapses.
+DELETE_ARM_S = 3.0
+#: How long a pressed button's LED is forced bright, whatever the mode wanted.
+PRESS_FLASH_S = 0.08
+#: How often to try reopening a control surface that stopped answering.
+RECONNECT_INTERVAL_S = 2.0
 
 
 def _bpm_from_taps(taps: list[float]) -> float | None:
@@ -96,9 +104,17 @@ class App:
 
         self.history = History()
         self.shift = False
-        self.delete_armed = False
+        self._delete_armed = False
+        self._delete_armed_at = 0.0
+        #: Slot whose deletion has been warned about and is awaiting a second
+        #: press.  Cleared by anything else touching the surface.
+        self._confirm_slot: int | None = None
         self.mute_armed = False
         self.duplicate_armed = False
+        #: cc -> when it was pressed, for the press-feedback flash.
+        self._flashes: dict[int, float] = {}
+        self._reconnect_at = 0.0
+        self._surface_message = ""
         #: Tempo tapping: press times of the current series, and whether the
         #: held Tap button has been used as a fine-nudge modifier instead.
         self._taps: list[float] = []
@@ -119,6 +135,7 @@ class App:
         #: Mode stack; the root is always the library, overlays sit on top.
         self._modes: list[Mode] = [LibraryMode(self)]
         self.engine.set_bpm(project.bpm)
+        self.engine.master_gain = project.master_gain
         self.rebuild_schedule()
         self.mode.on_enter()
 
@@ -140,6 +157,7 @@ class App:
         self._clear_modifiers()
         self._modes[-1] = mode
         mode.on_enter()
+        self.snapshot_ui_state()
 
     def push_mode(self, mode: Mode) -> bool:
         """Open ``mode`` over the current one; ``pop_mode`` returns here.
@@ -153,6 +171,7 @@ class App:
         self._clear_modifiers()
         self._modes.append(mode)
         mode.on_enter()
+        self.snapshot_ui_state()
         return True
 
     def pop_mode(self) -> bool:
@@ -162,7 +181,55 @@ class App:
         self.mode.on_exit()
         self._clear_modifiers()
         self._modes.pop()
+        self.snapshot_ui_state()
         return True
+
+    # ------------------------------------------------------------------
+    # armed modifiers
+    # ------------------------------------------------------------------
+    @property
+    def delete_armed(self) -> bool:
+        """True while `Delete` is armed, which lapses after DELETE_ARM_S.
+
+        Read as a property rather than expired on a timer so that nothing can
+        observe it as still armed after the deadline, whatever order the event
+        loop happens to run in.
+        """
+        if not self._delete_armed:
+            return False
+        if time.monotonic() - self._delete_armed_at >= DELETE_ARM_S:
+            self._delete_armed = False
+            self._confirm_slot = None
+        return self._delete_armed
+
+    @delete_armed.setter
+    def delete_armed(self, value: bool) -> None:
+        self._delete_armed = bool(value)
+        self._delete_armed_at = time.monotonic()
+        if not value:
+            self._confirm_slot = None
+
+    def confirm_delete(self, slot: int, what: str = "slot") -> bool:
+        """Gate deleting a sample that is actually used in the song.
+
+        An empty slot, or one that plays nowhere, goes straight away -- there is
+        nothing to regret.  One that plays somewhere says what it would cost and
+        waits for a second press on the same pad, because "12 bars" is the fact
+        that decides whether you meant it.
+        """
+        sample = self.project[slot]
+        if sample is None or not sample.triggers:
+            return True
+        if self._confirm_slot == slot:
+            self._confirm_slot = None
+            return True
+        self._confirm_slot = slot
+        bars = len(sample.triggers)
+        self.notify(
+            f"{what} {slot + 1} plays on {bars} bar{'s' if bars != 1 else ''}"
+            " - press again"
+        )
+        return False
 
     def _clear_modifiers(self) -> None:
         self.delete_armed = False
@@ -206,6 +273,36 @@ class App:
     def autosave_delay(self) -> float:
         return float(self.settings.get("autosave_delay_s", AUTOSAVE_DELAY))
 
+    # ------------------------------------------------------------------
+    # where you were last time
+    # ------------------------------------------------------------------
+    def snapshot_ui_state(self) -> None:
+        """Bookmark the session in the settings file."""
+        self.settings.remember(
+            project=str(self.project_dir) if self.project_dir else None,
+            mode=self.mode.name,
+            slot=getattr(self.mode, "slot", None),
+            loop=bool(self.engine.loop),
+            metronome=bool(self.engine.metronome),
+        )
+        self.save_soon()
+
+    def restore_ui_state(self) -> None:
+        """Put back what :meth:`snapshot_ui_state` remembered.
+
+        Only the library and a sample page are restorable.  Coming back up
+        inside a record arm, a bounce or the settings page would be hostile, and
+        a slot that has since been deleted simply leaves you at home.
+        """
+        ui = self.settings.ui
+        self.engine.loop = bool(ui.get("loop", True))
+        self.engine.metronome = bool(ui.get("metronome", False))
+        slot = ui.get("slot")
+        if ui.get("mode") != "sample" or not isinstance(slot, int):
+            return
+        if 0 <= slot < PAD_COUNT and self.project[slot] is not None:
+            self.goto_sample(slot)
+
     def open_perform(self) -> None:
         """Open perform mode and start the loop, so pads can be played live."""
         if self.mode.name == "perform":
@@ -213,6 +310,12 @@ class App:
             return
         if self.push_mode(PerformMode(self)) and not self.engine.is_playing:
             self.engine.play(0)
+
+    def open_mixer(self) -> None:
+        if self.mode.name == "mixer":
+            self.pop_mode()
+            return
+        self.push_mode(MixerMode(self))
 
     def open_settings(self) -> None:
         if self.mode.name == "settings":
@@ -321,6 +424,7 @@ class App:
 
     def _after_undo(self, message: str) -> None:
         self.engine.set_bpm(self.project.bpm)
+        self.engine.master_gain = self.project.master_gain
         self.rebuild_schedule()
         self.save_soon()
         self.notify(message)
@@ -339,20 +443,49 @@ class App:
         if self.project_dir is not None:
             self._save_at = time.monotonic() + self.autosave_delay
 
-    def save_now(self) -> None:
+    def save_now(self, announce: bool = False) -> bool:
+        """Write the project.  False (with a visible reason) if it could not.
+
+        A failure clears the pending save rather than retrying every tick: a
+        read-only disk does not heal in 30 ms, and one message beats a hundred.
+        """
         if self.project_dir is None:
-            return
+            return False
         self.project.bpm = self.engine.bpm
-        self.project.save(self.project_dir)
+        try:
+            self.project.save(self.project_dir)
+        except OSError as exc:
+            self._save_at = None
+            self.notify(f"could not save: {exc}")
+            return False
         self._save_at = None
+        if announce:
+            self.notify("saved")
+        return True
+
+    @property
+    def unsaved(self) -> bool:
+        """True when there are changes not yet on disk."""
+        return self.project_dir is not None and (
+            self.project.dirty or self._save_at is not None
+        )
 
     # ------------------------------------------------------------------
     # input
     # ------------------------------------------------------------------
     def handle(self, event) -> None:
+        if isinstance(event, SurfaceOffline):
+            self._surface_message = event.reason
+            self.notify("surface offline - reconnecting")
+            self._reconnect_at = time.monotonic() + RECONNECT_INTERVAL_S
+            return
         if isinstance(event, PadEvent):
             self.mode.on_pad(event.index, event.pressed, event.velocity)
         elif isinstance(event, ButtonEvent):
+            if event.pressed:
+                # Every press lights its own LED briefly, whether or not the
+                # mode does anything with it, so a dead button is obvious.
+                self._flashes[event.cc] = time.monotonic()
             if event.cc == Btn.SHIFT:
                 self.shift = event.pressed
                 return
@@ -388,9 +521,11 @@ class App:
             else:
                 self.engine.metronome = not self.engine.metronome
                 self.notify(f"metronome {'on' if self.engine.metronome else 'off'}")
+                self.snapshot_ui_state()
         elif cc == Btn.REPEAT:
             self.engine.loop = not self.engine.loop
             self.notify(f"loop {'on' if self.engine.loop else 'off'}")
+            self.snapshot_ui_state()
         elif cc == Btn.DELETE:
             self.delete_armed = not self.delete_armed
             self.mute_armed = False
@@ -401,6 +536,8 @@ class App:
             # An overlay closes back to what was underneath; otherwise home.
             if not self.pop_mode():
                 self.goto_library()
+        elif cc == Btn.MIX:
+            self.open_mixer()
         elif cc == Btn.SETUP:
             if self.shift:
                 self.save_now()
@@ -518,11 +655,26 @@ class App:
         buttons: dict[int, int] = {}
         self._global_buttons(buttons)
         self.mode.render_buttons(buttons)
+        flashing = self._apply_press_flash(buttons)
         for cc in self._rendered_buttons - set(buttons):
             self.push.set_button(cc, BTN_OFF)
         for cc, value in buttons.items():
             self.push.set_button(cc, value)
-        self._rendered_buttons = set(buttons)
+        # Flashed buttons the mode does not own are recorded as rendered, which
+        # is exactly what makes a later frame turn them back off.
+        self._rendered_buttons = set(buttons) | flashing
+
+    def _apply_press_flash(self, buttons: dict[int, int]) -> set[int]:
+        """Force recently-pressed buttons bright.  Returns which ones."""
+        if not self._flashes:
+            return set()
+        now = time.monotonic()
+        for cc, at in list(self._flashes.items()):
+            if now - at >= PRESS_FLASH_S:
+                del self._flashes[cc]
+        for cc in self._flashes:
+            buttons[cc] = BTN_BRIGHT
+        return set(self._flashes)
 
     def _global_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.PLAY] = BTN_BRIGHT if self.engine.is_playing else BTN_DIM
@@ -566,8 +718,11 @@ class App:
             f"{transport}  {format_bpm(self.engine.bpm)} BPM  bar "
             f"{bar + 1 if bar >= 0 else 0}/{self.project.song_bars}"
             f"  {'loop' if self.engine.loop else 'once'}"
+            f"{'  *' if self.unsaved else ''}"
         )
         lines.append(self._input_line())
+        if self.push.offline:
+            lines.append("SURFACE OFFLINE - check the cable; the audio is still running")
         if self.message and time.monotonic() - self._message_at < 3.0:
             lines.append(self.message)
         return lines
@@ -594,6 +749,7 @@ class App:
             self.notify("input clipping")
         self.mode.on_tick()
         self._step_bounce()
+        self._supervise_surface()
 
         now = time.monotonic()
         if now - self._last_frame >= FRAME_INTERVAL:
@@ -607,7 +763,26 @@ class App:
                 self.notify(f"display error: {exc}")
                 self.display = None
         if self._save_at is not None and now >= self._save_at:
-            self.save_now()
+            # Announce only a real project write; a moved bookmark is not news.
+            self.save_now(announce=self.project.dirty)
+            self.save_settings()
+
+    def _supervise_surface(self) -> None:
+        """Keep trying to get an unplugged Push back, without stopping the music.
+
+        The audio engine and the project are untouched by this: a cable moving
+        must never cost a take.
+        """
+        if not self.push.offline:
+            return
+        now = time.monotonic()
+        if now < self._reconnect_at:
+            return
+        self._reconnect_at = now + RECONNECT_INTERVAL_S
+        if self.push.reopen():
+            self._rendered_buttons = set()
+            self._surface_message = ""
+            self.notify("surface back")
 
     def run(self) -> None:
         self.running = True
@@ -628,12 +803,13 @@ class App:
             self.engine.stop()
         except Exception:  # pragma: no cover
             pass
+        self.snapshot_ui_state()
         self.save_settings()
-        if self.project_dir is not None and (self.project.dirty or self._save_at):
-            try:
-                self.save_now()
-            except Exception as exc:  # pragma: no cover
-                print(f"could not save project: {exc}")
+        if self.unsaved:
+            # save_now reports its own failures, which is the point of CC-10:
+            # a project that could not be written should say so, not print into
+            # a terminal nobody is looking at.
+            self.save_now()
         self.engine.close()
         self.push.clear()
         self.push.close()

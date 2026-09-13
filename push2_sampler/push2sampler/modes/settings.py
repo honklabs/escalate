@@ -20,13 +20,21 @@ from ..constants import (
     PAD_COUNT,
     Btn,
 )
-from ..settings import EDITABLE
+from ..settings import EDITABLE_PAGES
 from .base import Mode
 
 
 class SettingsMode(Mode):
     name = "settings"
     transient = True
+
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self.page = 0
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return EDITABLE_PAGES[self.page]
 
     def on_enter(self) -> None:
         self.app.notify("settings: encoders adjust, Setup closes")
@@ -53,6 +61,11 @@ class SettingsMode(Mode):
                 spec = self.settings.spec(name)
                 self._change(name, spec.cycle(self.settings[name]))
             return True
+        if cc in (Btn.UP, Btn.DOWN):
+            step = -1 if cc == Btn.UP else 1
+            self.page = (self.page + step) % len(EDITABLE_PAGES)
+            self.app.notify(f"settings page {self.page + 1}/{len(EDITABLE_PAGES)}")
+            return True
         if cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT, Btn.STOP):
             self.app.pop_mode()
             return True
@@ -68,7 +81,8 @@ class SettingsMode(Mode):
         return False
 
     def _name_for(self, index: int) -> str | None:
-        return EDITABLE[index] if index < len(EDITABLE) else None
+        names = self.names
+        return names[index] if index < len(names) else None
 
     def _change(self, name: str, value) -> None:
         self.settings.set(name, value)
@@ -85,12 +99,19 @@ class SettingsMode(Mode):
         buttons[Btn.SETUP] = BTN_BRIGHT
         buttons[Btn.SESSION] = BTN_ON
         for index, cc in enumerate(DISPLAY_ROW_BOTTOM):
-            buttons[cc] = BTN_ON if index < len(EDITABLE) else BTN_DIM
+            buttons[cc] = BTN_ON if index < len(self.names) else BTN_DIM
+        if len(EDITABLE_PAGES) > 1:
+            buttons[Btn.UP] = buttons[Btn.DOWN] = BTN_DIM
 
     def status_lines(self) -> list[str]:
-        lines = ["SETTINGS   Setup closes   encoder above each button"]
+        pages = len(EDITABLE_PAGES)
+        head = "SETTINGS   Setup closes   encoder above each button"
+        if pages > 1:
+            head = (f"SETTINGS {self.page + 1}/{pages}   Setup closes   "
+                    "up/down for more")
+        lines = [head]
         row: list[str] = []
-        for name in EDITABLE:
+        for name in self.names:
             row.append(self.settings.label(name))
             if len(row) == 3:
                 lines.append("   ".join(row))

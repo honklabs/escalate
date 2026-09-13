@@ -20,13 +20,25 @@ python -m push2sampler --sim my-song     # no hardware: terminal simulator
 | **[docs/cheatsheet.md](docs/cheatsheet.md)** | One page to print and keep next to the Push. |
 | **[docs/troubleshooting.md](docs/troubleshooting.md)** | Symptom → cause → fix. |
 | **[docs/simulator.md](docs/simulator.md)** | Driving the whole program from a terminal, with no hardware. |
+| **[CHANGELOG.md](CHANGELOG.md)** | What shipped in each release, and the bugs each one turned up. |
 
 The rest of this file is a summary for people working on the code;
 [docs/](docs/README.md) is for people using it.
 
 ## When you first plug the Push 2 in
 
-Run the hardware probe before anything else:
+Ask the program what it can see:
+
+```
+python -m push2sampler doctor
+```
+
+One row per thing that matters -- Python, each optional package, the MIDI ports
+and audio devices it can find, whether it can write where you are -- each with a
+one-line fix when it is missing. It always exits 0: "everything is missing" is a
+diagnosis, not a crash.
+
+Then run the hardware probe before anything else:
 
 ```
 python -m push2sampler --selftest
@@ -159,6 +171,35 @@ returns with its bars, a tempo nudge returns to the old tempo. A sweep of an
 encoder is one undo step, not forty. The journal is in memory only — it is a
 safety net for your hands, not project history.
 
+### 3b. Overdubbing
+
+`New` on a sample page records another pass **on top of** the take rather than
+replacing it: the count-in runs, the song plays, the take plays wherever it is
+arranged, and what you play is summed in. The page stays put, so you watch the
+arrangement rather than a recording screen.
+
+Layers are kept individually, so `Shift`+`New` peels the last one off -- as many
+times as you like, back to the original recording, which is never removable. The
+display counts them. Both directions are one undo step, and the layers are saved
+as their own WAVs so a pass can still be taken off tomorrow.
+
+Applying edits or fitting an off-grid take collapses the layers into one: both
+replace the audio with something that is no longer their sum, so the breakdown
+would be a lie. The sound does not change.
+
+### 3c. The mixer
+
+`Mix` turns the grid into eight vertical level meters -- one per slot in the
+current row -- with an encoder of gain and a mute button per strip, `Solo`, and a
+master gain on the master encoder. Row by row rather than all 64 at once, because
+there are only eight encoders and a fader you cannot see the value of is worse
+than no fader. `Up`/`Down`, or pressing any pad, moves rows.
+
+**Solo is stored separately from mute**, so soloing and then un-soloing gives
+back exactly the mix you had -- which is the whole point of a solo button. Solo
+is not undoable (it is a listening decision, not an edit); master gain is, and it
+is saved with the project.
+
 ### 4. Perform mode -- play the song in
 
 `Shift`+`Play` starts the loop and turns the grid back into the sample library,
@@ -262,6 +303,10 @@ means resampling every take that is already loaded.
 | `Session`, `Note`, `◀` | back to the Sample Library |
 | `Mute` | Sample page: hear / don't hear this sample |
 | `Duplicate` | arm duplicate: Library copies a slot, Sample page copies a block of bars |
+| `New` | Sample page: overdub another pass -- `Shift`+`New` removes the last layer |
+| `Mix` | open/close the mixer: eight strips of gain, mute, solo and meters |
+| `Solo` | Mixer: arm solo (press again to clear it) |
+| Master encoder | Mixer: gain on the whole mix |
 | `Delete` | arm delete (then press a pad) · `Shift`+`Delete` on a sample page deletes it |
 | `Undo` | take back the last edit · `Shift`+`Undo` redoes it |
 | `Metronome` | click on/off · `Shift`+`Metronome` cycles input monitoring |
@@ -377,7 +422,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-358 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+459 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -386,12 +431,17 @@ and repair, settings precedence and persistence, command-line resolution, offlin
 bouncing and stems, the display's frame format byte for byte, the hardware probe
 driven by a script instead of a person, project save/load, and the full
 pad-by-pad workflow through the simulated surface, the block-arranging gestures
-(paint, phrase fill, block and slot duplication) and tempo tapping. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
+(paint, phrase fill, block and slot duplication), tempo tapping, the mixer
+(gain, mute, solo, master gain, meter decay), overdub layers (summing, removal,
+persistence), post-take processing, latency calibration against a synthetic
+delayed loopback, surviving a surface that stops answering, and the scripted
+simulator driving a whole record-arrange-play flow non-interactively. No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
 `plans.md` is the product plan: 58 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. 21 are shipped; each carries a status note
-saying what was built and where it deviated from the plan.
+several people work on it at once. **32 are shipped, completing the v1.1 and
+v1.2 trains**; each carries a status note saying what was built and where it
+deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release record.

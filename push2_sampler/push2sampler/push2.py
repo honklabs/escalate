@@ -55,6 +55,18 @@ class EncoderEvent:
     delta: int
 
 
+@dataclass(frozen=True)
+class SurfaceOffline:
+    """Queued when a write to the surface fails, so the app can say so.
+
+    It travels the same queue as the input events because that is the one thing
+    the app already drains every tick, and a failed write is news about the
+    surface just as much as a button press is.
+    """
+
+    reason: str = ""
+
+
 class PushBase:
     """Common behaviour: LED state caching plus an inbound event queue."""
 
@@ -65,6 +77,9 @@ class PushBase:
         #: When True, every inbound message is also queued on ``raw`` untouched.
         self.capture_raw = False
         self.raw: queue.SimpleQueue = queue.SimpleQueue()
+        #: True once a write has failed.  The app keeps playing and retries; see
+        #: ``App._supervise_surface``.
+        self.offline = False
 
     # -- lifecycle ---------------------------------------------------------
     def open(self) -> None:  # pragma: no cover - overridden
@@ -73,6 +88,30 @@ class PushBase:
     def close(self) -> None:  # pragma: no cover - overridden
         pass
 
+    def reopen(self) -> bool:
+        """Try to get the surface back.  True once it is usable again."""
+        try:
+            self.close()
+        except Exception:  # pragma: no cover - the port is already gone
+            pass
+        try:
+            self.open()
+        except Exception:
+            return False
+        self.invalidate_leds()
+        self.offline = False
+        return True
+
+    def invalidate_leds(self) -> None:
+        """Forget what we think is lit, so the next render sends everything.
+
+        The dedupe in :meth:`set_pad` is what makes a 30 Hz refresh cheap, but a
+        reconnected Push has dark LEDs and a stale cache would leave most of the
+        grid black.  -1 is not a palette index, so every pad differs.
+        """
+        self.pad_leds = [-1] * PAD_COUNT
+        self.button_leds = {}
+
     # -- output ------------------------------------------------------------
     def set_pad(self, index: int, color: int | colors.Color) -> None:
         """Light pad ``index`` with a palette entry (no-op if unchanged)."""
@@ -80,7 +119,10 @@ class PushBase:
         if self.pad_leds[index] == value:
             return
         self.pad_leds[index] = value
-        self._send_pad(index, value)
+        try:
+            self._send_pad(index, value)
+        except Exception as exc:
+            self._went_offline(exc)
 
     def set_button(self, cc: int, value: int) -> None:
         """Set a button LED (no-op if unchanged)."""
@@ -88,7 +130,22 @@ class PushBase:
         if self.button_leds.get(cc) == value:
             return
         self.button_leds[cc] = value
-        self._send_button(cc, value)
+        try:
+            self._send_button(cc, value)
+        except Exception as exc:
+            self._went_offline(exc)
+
+    def _went_offline(self, exc: Exception) -> None:
+        """A write failed: stop trying until someone reconnects us.
+
+        The cache is invalidated here rather than on reconnect as well, because
+        the write we just lost had already updated it -- leaving it would mean
+        that pad never being resent.
+        """
+        self.invalidate_leds()
+        if not self.offline:
+            self.offline = True
+            self._events.put(SurfaceOffline(str(exc)))
 
     def clear(self) -> None:
         """Turn every pad and every button LED we have touched off."""

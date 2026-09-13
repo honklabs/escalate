@@ -1,9 +1,19 @@
 # push2sampler — product plan
 
-Status: v1.1 shipped and most of v1.2 (see `README.md`). User documentation for
-everything shipped so far is in [`docs/`](docs/README.md) — tutorial, reference,
-cheat sheet, troubleshooting, simulator guide. This document is the backlog and
-the rules of engagement for the rest of the way to v2.0.
+Status: **32 of the 58 items below are shipped**, which completes the `v1.1` and
+`v1.2` trains; `v1.3` is next. Each shipped item carries a status note saying
+what was built and where it deviated from this plan and why.
+
+An earlier version of this line claimed "v1.1 shipped and most of v1.2" while
+seven of `v1.1`'s own items were still open — a reminder to count against
+[§4](#4-release-trains) rather than against the feeling of progress. Tags are
+scoped to this subdirectory (`push2sampler-v1.0`); the repository belongs to
+another project and its version namespace is left alone.
+
+User documentation for everything shipped is in [`docs/`](docs/README.md) —
+tutorial, reference, cheat sheet, troubleshooting, simulator guide — and
+[`CHANGELOG.md`](CHANGELOG.md) is the release record. This document is the
+backlog and the rules of engagement for the rest of the way to v2.0.
 
 ---
 
@@ -64,7 +74,8 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-03`, `NF-04`,
+**Every foundation item is shipped** (`F-01`-`F-09`), and the `v1.1` and `v1.2`
+trains are complete, plus `NF-03`, `NF-04`,
 `NF-05`, `NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own
 section below. ~7,700 lines, 298 tests, `ruff` clean, no hardware needed to
 test.
@@ -198,7 +209,7 @@ CC is the most likely merge conflict in this project.
 | Session | 51 | **taken** — back to library |
 | Note | 50 | **taken** — alias of Session |
 | ◀ Left | 44 | **taken** — alias of Session |
-| ▲ / ▼ | 46 / 47 | **taken** — prev/next filled slot |
+| ▲ / ▼ | 46 / 47 | **taken** — prev/next filled slot · mixer row · settings page |
 | Mute | 60 | **taken** — per-sample audible toggle / library mute-arm |
 | Delete | 118 | **taken** — delete-arm |
 | Metronome | 9 | **taken** — click |
@@ -210,12 +221,9 @@ CC is the most likely merge conflict in this project.
 | Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
 | Display row top | 102–109 | **taken** — input level meter (`F-07`) |
 | Display row bottom 1 | 20 | **taken** — Sample page: fit an off-grid take |
-| Solo | 61 | reserved → `NH-01` |
 | Duplicate | 88 | **taken** — `NH-05`: library copies a slot, sample page copies a block of bars |
-| New | 87 | reserved → `NH-04` (new layer / punch-in) |
 | Clip | 113 | reserved → `NF-01` (Song page) |
 | Device | 110 | **taken** — Sample page: editor · `Shift`+`Device` applies |
-| Mix | 112 | reserved → `NH-01` (Mixer page) |
 | Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
 | Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
 | Fixed Length | 90 | **taken** — Perform: quantize amount |
@@ -224,7 +232,7 @@ CC is the most likely merge conflict in this project.
 | Automate | 89 | reserved → `IN-03` (generative fills) |
 | Convert | 35 | reserved → `IN-01` (slice a take) |
 | Tap Tempo | 3 | **taken** — `NH-07`: four taps set the tempo · held, it makes the tempo encoder ±0.1 |
-| Master | 28 | reserved → `NH-01` master volume |
+| Master | 28 | free — `NH-01` used the master *encoder*, not this button |
 | Add Track | 53 | free |
 | Select | 48 | free |
 | Layout | 31 | free |
@@ -233,8 +241,11 @@ CC is the most likely merge conflict in this project.
 | ▶ Right | 45 | free |
 | Display row bottom | 21–27 | free — 7 contextual buttons, claim per mode |
 | Swing encoder | 15 | reserved → `NH-02` |
+| Mix | 112 | **taken** — `NH-01`: the mixer page |
+| Solo | 61 | **taken** — `NH-01`: arms solo on the mixer page |
+| New | 87 | **taken** — `NH-04`: overdub a layer · `Shift`+`New` removes one |
+| Master encoder | 79 | **taken** — `NH-01`: master gain |
 | Track encoders 2–8 | 72–78 | **taken on the settings page** (one per setting); elsewhere reserved → `NH-01` mixer, `NF-03` editor params |
-| Master encoder | 79 | reserved → `NH-01` master volume |
 
 The eight display-row buttons are the escape hatch: a mode that needs more
 controls should claim them contextually and label them in `status_lines()`
@@ -325,11 +336,15 @@ something that makes the instrument nicer to touch, not only bigger.
 
 | Release | Theme | Contents |
 | --- | --- | --- |
-| **v1.1 — Trustworthy** | it never bites you | `F-01` `F-02` `F-03` `F-04` `F-05` `F-09` `CC-01` `CC-03` `CC-04` `CC-05` `CC-06` `CC-10` `CC-14` `CC-15` `CC-16` |
-| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
-| **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
+| ~~**v1.1 — Trustworthy**~~ | it never bites you | **complete** — ~~`F-01`~~ ~~`F-02`~~ ~~`F-03`~~ ~~`F-04`~~ ~~`F-05`~~ ~~`F-09`~~ ~~`CC-01`~~ ~~`CC-03`~~ ~~`CC-04`~~ ~~`CC-05`~~ ~~`CC-06`~~ ~~`CC-10`~~ ~~`CC-14`~~ ~~`CC-15`~~ ~~`CC-16`~~ |
+| ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
+| **v1.3 — A whole song** ← next | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ ~~`NH-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
 | **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+
+A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
+human pass with a real Push 2 in hand is the one open thing this project cannot
+do for itself.
 
 ---
 
@@ -1039,6 +1054,21 @@ Valuable, not load-bearing. Each is independently shippable.
 
 ### NH-01 — Mixer page `size: M`
 
+**Status: shipped.**  `Mix` opens `modes/mixer.py`: eight strips at a time, an
+encoder of gain and a mute button each, the `Master` encoder on
+`project.master_gain` (applied in the final clip stage), and the pads as eight
+vertical meters fed by a new `Engine.slot_peaks` -- callback-written,
+UI-read, the same single-writer arrangement as `sounding`.
+
+`Solo` arms, then a button under the display solos that strip; pressing `Solo`
+again clears it.  Soloing is `Project.soloed` plus `Project.audible()`, kept well
+away from `Sample.enabled`, so soloing and un-soloing cannot destroy the mute
+state you set by hand -- which is the entire point of a solo button.  Solo is a
+listening decision, so it is not on the undo stack; master gain is.
+
+Deviation: rows are chosen with up/down **or by pressing any pad in a column**,
+which makes the grid navigable without hunting for the arrows.
+
 Eight track encoders set the gain of the eight slots in the current row, with
 the eight display-row-bottom buttons muting them and `Solo` soloing one. `Mix`
 (CC 112) opens it; `Master` encoder (79) is a new master gain applied in
@@ -1071,6 +1101,23 @@ count-in length produces that many clicks before frame 0; click routing keeps
 the main mix click-free when a separate pair is configured. **Deps:** `F-06`.
 
 ### NH-04 — Overdub onto an existing sample `size: M`
+
+**Status: shipped.**  No engine change was needed: `arm_record(sample.bars)`
+already records exactly the take's length into a buffer, so the layer arrives
+the right size and the app sums it.  `New` on a sample page arms it and the page
+stays put, so you watch the arrangement while overdubbing; `Shift`+`New` peels
+the last layer off.
+
+`Sample.layers` holds the individual passes with `audio` as their sum, and the
+first overdub promotes the existing recording to layer 1 so a take never
+silently loses the ability to be peeled back.  Anything that replaces `audio`
+with something that is no longer that sum -- applying edits, fitting an off-grid
+take -- calls `flatten()`, so the invariant cannot go stale.
+
+Layers are persisted as their own WAVs (`slot_00_L1.wav`, format version 5),
+because "individually removable" that stops working after a reload is not the
+feature.  Missing layer files are tolerated: the take keeps playing as the
+summed audio, it just cannot be peeled back.
 
 `New` (CC 87) on a sample page starts a layering take: the existing sample plays
 while you record, and the new audio is summed into it (sound-on-sound), with the
@@ -1134,6 +1181,20 @@ beat-matching. **Code:** `app.py`, `audio.py` (`set_bpm` already clamps).
 tap is ignored; tapping during a take is refused. **Deps:** none.
 
 ### NH-08 — Auto-trim and auto-normalize on record `size: S`
+
+**Status: shipped.**  `analysis.py` holds `first_transient`, `shift_left`,
+`normalize` and `fade_edges`; three settings, all off by default.
+
+The shift **pads the end to keep the length**, which the spec did not say but
+`F-09` requires: a take is an exact number of bars, and returning something
+shorter would flag the slot as off the grid the moment it landed.  The onset
+threshold is relative to the take's own first 10 ms, because "silence" means
+something different on a condenser in a live room than on a direct input, and
+nothing found within the 100 ms of slack means do nothing rather than guess.
+
+A bug the tests caught: the processing note was posted *before* `goto_sample`,
+whose own announcement immediately buried it -- so a normalised take said
+nothing, which is exactly the silent processing the code comments warn against.
 
 Optional post-take processing: detect the first transient and shift the take so
 it starts on the grid (up to 100 ms of slack), normalize to −1 dBFS, and
@@ -1403,12 +1464,32 @@ also releases all sounding voices immediately and clears any armed modifier.
 stop happens on the bar line, not the next block.
 
 ### CC-03 — Destructive actions confirm `size: S`
+
+**Status: shipped.**  The arm lapses after 3 s, read as a property rather than
+expired on a timer so nothing can observe it as armed past the deadline whatever
+order the event loop runs in.  Only `Delete` lapses: `Mute` and `Duplicate` are
+modes you stay in, while this one destroys takes.  A slot that plays nowhere
+deletes straight away -- there is nothing to regret -- and one that plays
+somewhere names the cost and waits for a second press on the same pad.  Applied
+to `Shift`+`Delete` on the sample page too, via the same `App.confirm_delete`.
 `Delete`-armed pads already blink red; add a 3-second arm timeout, and require
 the second press within it. Deleting a sample that is used in the arrangement
 names the cost: `"slot 7 plays on 12 bars — press again"`. **Code:** `app.py`,
 `modes/library.py`. **Tests:** arm expires after 3 s; the warning counts bars.
 
 ### CC-04 — Remember where you were `size: S`
+
+**Status: shipped**, as a `ui` section in `settings.json` rather than entries in
+`SPECS`: these are a bookmark, not settings anyone edits, and the settings page
+is built from `SPECS`.  Restores project, page, slot, loop and metronome.  Only
+the library and a sample page are restorable -- coming back up inside a record
+arm or a bounce would be hostile -- and a slot deleted since simply lands you at
+home.  Bank/page from the original spec do not exist yet (`NF-07`, `NF-11`).
+
+A bug the tests caught: the first version inferred each field's type from its
+default, and two defaults are `None`, so **anything** was accepted for them --
+including a string where a slot number goes.  `UI_TYPES` now states the types,
+and `_ui_ok` excludes `bool` from `int` in both directions.
 Persist last-open project, last mode, selected slot, bank/page, loop and
 metronome state in `settings.json`; restore on launch so powering on resumes
 the session. **Code:** `settings.py`, `app.py` (`snapshot_ui_state`/`restore`).
@@ -1416,6 +1497,11 @@ the session. **Code:** `settings.py`, `app.py` (`snapshot_ui_state`/`restore`).
 falls back to the library instead of crashing. **Deps:** `F-06`.
 
 ### CC-05 — Press feedback on every button `size: S`
+
+**Status: shipped.**  80 ms, applied in `App.render` as an overlay over whatever
+the mode asked for.  Flashed buttons **are** recorded in `_rendered_buttons`,
+which is what the spec's "must not leak" actually requires: a cc left out of
+that set is never sent `BTN_OFF` and stays lit for good.
 Any button press briefly brightens its LED (80 ms) even if the mode ignores it,
 so the surface always feels alive and dead buttons are obvious. Implemented in
 `App.render` as a short-lived overlay, not in each mode. **Code:** `app.py`.
@@ -1452,6 +1538,18 @@ formatted string at known positions; `status_lines` keeps working when the
 display is absent.
 
 ### CC-09 — Latency calibration wizard `size: M`
+
+**Status: shipped**, and deliberately *not* through `Engine`: what is being
+measured is the round trip through the audio device, so the less of our own code
+sits in the path the more honest the number is.  `calibrate.py` drives an
+injected `playrec` (one duplex call, `sounddevice.playrec` in production), and
+the tests hand it a synthetic delayed loopback, with and without noise.
+
+Detection is cross-correlation rather than a threshold crossing: a click that
+went out of a speaker and came back through a microphone is smeared and
+coloured, and its shape survives that far better than its amplitude.  Five
+rounds, median, and a refusal above 250 ms -- past that it is a room reflection,
+not latency.
 `--calibrate` plays a click out and measures when it returns on the input
 (loopback cable or speaker+mic), then writes `rec_latency_ms` into settings.
 Reports the measured figure and refuses to write an absurd one (>250 ms).
@@ -1460,6 +1558,13 @@ synthetic delayed-loopback engine the measured latency matches the injected
 delay within one block. **Deps:** `F-06`.
 
 ### CC-10 — Save indicator `size: S`
+
+**Status: shipped.**  A `*` on the transport line while anything is unsaved
+(`App.unsaved` covers both a dirty project and a pending autosave), `saved` when
+the autosave actually writes, and the reason on screen when it cannot.  A failed
+save clears the pending write rather than retrying every tick -- a read-only
+disk does not heal in 30 ms, and one message beats a hundred.  The silent
+`print` on shutdown is gone.
 A small dot on the display when there are unsaved changes, a brief `"saved"`
 toast when autosave fires, and a one-line message if saving fails (disk full,
 read-only) instead of the current silent `print` on shutdown. **Code:**
@@ -1503,6 +1608,18 @@ reconnect. **Deps:** `F-06`; README and `test_flow.py` colour assertions must be
 updated together.
 
 ### CC-14 — Survive a USB unplug `size: S`
+
+**Status: shipped.**  Writes are wrapped in `PushBase`, so one failure marks the
+surface offline and queues a `SurfaceOffline` event on the same queue the app
+already drains -- a failed write is news about the surface just as much as a
+button press is.  `App._supervise_surface` retries `reopen()` every 2 s, which
+re-picks the ports, re-uploads the palette and re-renders everything.
+
+The subtle part is the LED cache: the dedupe in `set_pad` is what makes a 30 Hz
+refresh cheap, but a reconnected Push has dark LEDs, so a stale cache would
+leave most of the grid black.  `invalidate_leds` sets a sentinel that no palette
+index can equal, and it runs on the *failure* too -- the lost write had already
+updated the cache, and leaving it would mean that pad never being resent.
 If the MIDI port disappears, keep the audio engine running, poll for the device
 every 2 s, and on reconnect re-open the port, re-upload the palette and
 re-render all LEDs. Never lose the project because a cable moved. **Code:**
@@ -1512,6 +1629,16 @@ re-render all LEDs. Never lose the project because a cable moved. **Code:**
 running throughout.
 
 ### CC-15 — Better simulator `size: S`
+
+**Status: shipped.**  `--script FILE` (plus `--quiet` for CI), `--until-idle`,
+`macro NAME cmd; cmd`, `?`, and ANSI colour that switches itself off when stdout
+is not a terminal or `NO_COLOR` is set.
+
+`--until-idle` needed rethinking after it was built: read literally it fires at
+the first idle moment, which during a script is right after the first take, so
+it cut every script off at line four.  It now applies once the script has run
+out -- "do not quit while sound is still playing" -- bounded, because a looping
+transport never goes idle on its own.
 `--script FILE` runs a command file and exits (for CI demos), `--until-idle`
 exits when the transport stops, a `macro` command for repeated sequences, colour
 output via ANSI so the grid looks like the hardware, and `?` prints the command
@@ -1519,6 +1646,11 @@ list. **Code:** `sim.py`, `cli.py`. **Tests:** a script file drives a full
 record→arrange→play flow and exits non-interactively with status 0.
 
 ### CC-16 — `doctor`, `--version`, better help `size: S`
+
+**Status: shipped.**  `doctor` works as the positional word or `--doctor`, prints
+a state, subject, detail and one-line fix per row, and **always exits 0**:
+"everything is missing" is a diagnosis, not a crash.  `--version` and three
+worked examples in `--help` as specified.
 `python -m push2sampler doctor` prints: Python and package versions, whether
 mido/rtmidi/sounddevice/soundfile/pyusb/Pillow are importable, MIDI ports found,
 audio devices found, default samplerate, and writable project root — each with a

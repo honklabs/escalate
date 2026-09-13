@@ -32,9 +32,13 @@ class LibraryMode(Mode):
             return self._on_release(index, sample)
 
         if self.app.delete_armed:
+            if sample is None:
+                self.app.delete_armed = False
+                return True
+            if not self.app.confirm_delete(index, "slot"):
+                return True  # stays armed, waiting for the second press
             self.app.delete_armed = False
-            if sample is not None:
-                self.app.do(DeleteSample(index))
+            self.app.do(DeleteSample(index))
             return True
         if self.app.mute_armed:
             if sample is not None:

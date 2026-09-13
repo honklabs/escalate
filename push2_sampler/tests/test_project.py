@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from push2sampler.project import Project, Sample
+from push2sampler.project import FORMAT_VERSION, Project, Sample
 from push2sampler import wavio
 
 
@@ -231,7 +231,7 @@ def test_provenance_round_trips(tmp_path):
     project.put(2, tone(bar_frames(project)), bars=1)
     project.save(tmp_path)
     payload = json.loads((tmp_path / "project.json").read_text())
-    assert payload["version"] == 4
+    assert payload["version"] == FORMAT_VERSION
     assert payload["slots"][0]["source_bpm"] == 100.0
     assert payload["slots"][0]["source_samplerate"] == 8000
 

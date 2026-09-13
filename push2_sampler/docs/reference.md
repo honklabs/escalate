@@ -7,10 +7,11 @@ same material, read [Getting started](getting-started.md) instead.
 - [Controls that work everywhere](#controls-that-work-everywhere)
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Editor](#sample-editor) ·
-  [Perform](#perform-mode) · [Settings](#settings-page)
+  [Perform](#perform-mode) · [Mixer](#mixer-page) · [Settings](#settings-page)
 - [Colours](#colours)
 - [Settings](#settings)
 - [Undo](#undo)
+- [Resuming](#resuming)
 - [Timing and recording](#timing-and-recording)
 - [Files](#files)
 - [Command line](#command-line)
@@ -52,6 +53,7 @@ These work in every mode unless that mode says otherwise.
 | **Shift**+**Stop** | [Stop at the end of the bar](#stopping) |
 | **Stop** twice quickly | Stop, and disarm everything that was armed |
 | **Session**, **Note**, **◀** | Close an overlay, or go home to the Library |
+| **Mix** | Open or close the [Mixer page](#mixer-page) |
 | **Setup** | Open or close the [Settings page](#settings-page) |
 | **Shift**+**Setup** | Save the project now |
 | **Metronome** | Click on/off |
@@ -65,8 +67,12 @@ These work in every mode unless that mode says otherwise.
 | Tempo encoder | BPM ±1 per click, ±10 with **Shift**, ±0.1 holding **Tap Tempo** |
 | The 8 buttons **above** the display | Input level meter (not pressable controls) |
 
-The **Record** and **Duplicate** buttons mean different things in different
-modes, and are listed with each.
+The **Record**, **Duplicate** and **New** buttons mean different things in
+different modes, and are listed with each.
+
+Every button press briefly lights its own LED, for about 80 ms, whether or not
+the mode you are in does anything with it. That is deliberate: it means a button
+that appears dead really is unbound rather than broken.
 
 ---
 
@@ -150,6 +156,8 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **Delete** armed, then any pad | Clear every bar for this sample |
 | **Duplicate**, then two pads | [Duplicate a block of bars](#duplicating-a-block) |
 | **Record** | Re-record this slot, keeping its arrangement, mute and gain |
+| **New** | [Overdub](#overdubbing) another pass on top of this take |
+| **Shift**+**New** | Remove the most recent overdubbed layer |
 | **Mute** | Whether you hear this sample at all |
 | **Accent** | Velocity response on/off for this sample |
 | **Device** | Open the [editor](#sample-editor) |
@@ -157,6 +165,30 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
 | First button **below** the display | [Fit an off-grid take](#off-grid-takes) to its bars |
+
+#### Overdubbing
+
+**New** records another pass *on top of* the take rather than replacing it. The
+count-in runs, the song plays, the take itself plays wherever it is arranged, and
+what you play is summed in. The page stays put throughout, so you watch the
+arrangement rather than a recording screen.
+
+The layer is exactly the take's own length in bars, so an overdub can never put a
+slot off the grid.
+
+Layers are kept **individually**, so **Shift**+**New** peels the last one off —
+repeatedly, back to the original recording, which can never be removed. The
+display counts them (`3 layers`). Both adding and removing are one undo step.
+
+Two things follow from how this is stored:
+
+- Layers survive saving and reloading (they are their own WAVs), so you can come
+  back tomorrow and still take a pass off.
+- **Applying edits, or fitting an off-grid take, forgets the breakdown.** Both
+  replace the audio with something that is no longer the sum of the layers, so
+  the take becomes a single layer again. The sound does not change.
+
+An overdub on a take that plays nowhere yet is silent, and says so.
 
 #### Painting a range
 
@@ -264,6 +296,43 @@ Erasing removes that bar for **every** sample, as one undo step.
 If the sample has velocity response on ([Accent](#sample-page)), how hard you hit
 the pad sets the level, and a written trigger keeps that velocity.
 
+### Mixer page
+
+**Mix**. Eight slots at a time — the current row of the library — as eight
+vertical level meters. Row by row rather than all 64 at once, because there are
+only eight encoders and a fader whose value you cannot see is worse than no
+fader.
+
+| Control | Action |
+| --- | --- |
+| Track encoders 1–8 | Gain of that strip's slot (0–2) |
+| Buttons **below** the display | Mute/unmute that strip |
+| **Solo** | Arm soloing; press it again to clear a solo |
+| **Solo**, then a button below | Solo that strip |
+| Master encoder | Gain on the whole mix (0–2) |
+| **▲** / **▼** | Another row of eight |
+| Any pad | Select that pad's row |
+| **Mix**, **Session**, **Note**, **◀** | Close |
+
+**Solo does not disturb your mutes.** It is stored separately from each sample's
+own mute state, so soloing and then un-soloing gives you back exactly the mix you
+had — which is the entire point of a solo button. Solo overrides mute while it is
+on, and it is not on the undo stack because there is nothing to restore; master
+gain is.
+
+Muting and soloing both change what is heard **and what gets bounced**. The
+master gain is applied last, after everything is summed, and is saved with the
+project.
+
+| Meter colour | Meaning |
+| --- | --- |
+| Green | Level, filling upwards from the bottom row |
+| Amber | The top quarter |
+| Red | The very top: about to clip |
+| Faint white | An empty segment of a strip that exists |
+| Dim green | A muted strip's level |
+| Off | No sample in that slot |
+
 ### Settings page
 
 **Setup**. The pads stay dark on purpose — nothing on this page edits your song.
@@ -272,11 +341,23 @@ Each of the eight buttons *below* the display owns one setting. The encoder abov
 it adjusts the value; pressing the button cycles it. Changes take effect at once
 and are written to the settings file when the page closes.
 
+There are more settings than there are buttons, so the page **scrolls** with
+**▲** / **▼** rather than leaving any of them unreachable. The display says which
+page you are on.
+
+Page 1:
+
 | | | |
 | --- | --- | --- |
 | count-in beats | monitoring | monitor gain |
 | record latency | play while recording | autosave delay |
 | input device | audio block size | |
+
+Page 2 — [post-take processing](#post-take-processing):
+
+| | | |
+| --- | --- | --- |
+| auto trim | auto normalise | auto fade |
 
 **Setup**, **Session**, **Note**, **◀** or **Stop** closes it.
 
@@ -356,6 +437,9 @@ is reported, so a flag can never silently do nothing.
 | `rec_latency_ms` | 0 | 0–250 | yes |
 | `play_while_recording` | on | on/off | yes |
 | `autosave_delay_s` | 2.0 | 0.5–30 | yes |
+| `auto_trim` | off | on/off | yes |
+| `auto_normalize` | off | on/off | yes |
+| `auto_fade` | off | on/off | yes |
 | `input_device` | system default | device index | yes |
 | `blocksize` | 256 | 64–2048, powers of two | yes |
 | `output_device` | system default | device index | command line only |
@@ -382,6 +466,60 @@ deleting one. An undone delete restores the take itself — audio, arrangement,
 mute state and gain. An undone slot move puts the sample back where it was.
 
 A gesture that writes many bars is **one** step, however many bars it touched.
+So is adding or removing an overdub layer, and so is a master gain sweep.
+
+Soloing is **not** undoable, deliberately: it is a decision about what you are
+listening to rather than an edit to the song, so there is nothing to restore.
+
+---
+
+## Resuming
+
+Start with no project argument and you get the session you were last in: the same
+project directory, the same page, the same selected slot, and the loop and
+metronome as you left them. It is stored in the `ui` section of the settings
+file, separately from the settings themselves, because it is a bookmark rather
+than something anyone edits.
+
+Naming a project on the command line always wins. A remembered directory that is
+no longer there falls back to `./song` rather than creating an empty tree
+somewhere you have forgotten about.
+
+Only the library and a sample page are restored. Coming back up inside a record
+arm, a bounce or the settings page would be hostile, and a slot that has been
+deleted since simply lands you in the library.
+
+---
+
+## Saving
+
+The project is written a couple of seconds after the last change (see
+`autosave_delay_s`) and again on exit. While anything is unwritten the transport
+line ends in `*`; when the autosave fires the display says `saved`.
+
+If a save **fails** — a full disk, a read-only directory — the reason goes on the
+display and the pending save is dropped rather than retried every frame. A
+read-only disk does not heal in 30 ms, and one message beats a hundred.
+
+**Shift**+**Setup** saves immediately.
+
+---
+
+## When the Push disappears
+
+Unplug the cable mid-session and the program does not stop. The first failed
+write marks the surface offline; the display says
+
+```
+SURFACE OFFLINE - check the cable; the audio is still running
+```
+
+and that is literally true — the transport keeps running, a take in progress
+keeps recording, and the project is untouched. Every two seconds it tries to
+reopen the port; when the Push comes back it re-uploads the palette and relights
+the whole grid, and the display says `surface back`.
+
+A cable moving must never cost a take.
 
 Edits that arrive in a stream coalesce: one sweep of an encoder is **one** undo
 step, not forty. A new edit clears the redo stack.
@@ -450,8 +588,49 @@ visible: `121.3 BPM`.
 
 If takes land consistently late, set `record latency` to roughly your interface's
 input latency in milliseconds. The program records a little extra and slides the
-window, so the audio lines up with the grid. There is no automatic measurement
-yet.
+window, so the audio lines up with the grid.
+
+To measure it rather than guess:
+
+```
+python -m push2sampler --calibrate
+```
+
+Connect the output to the input, or point a microphone at the speaker. It plays
+five clicks, times each one's return, takes the median so that one cough cannot
+set your timing, and writes the result to `rec_latency_ms`. It refuses anything
+over 250 ms — past that it has found a room reflection, not latency — and says
+so rather than writing a wrong number. If the rounds disagree by more than 10 ms
+it tells you to try again somewhere quieter.
+
+Detection is by cross-correlation rather than by watching for a level: a click
+that has been through a speaker and a microphone is smeared and coloured, and its
+shape survives that far better than its amplitude.
+
+### Post-take processing
+
+Three settings, all **off** by default, applied to a take the moment it finishes.
+A take should be what you played until you ask for something else.
+
+| Setting | What it does |
+| --- | --- |
+| `auto_trim` | Finds where the take audibly begins and slides it onto the grid |
+| `auto_normalize` | Scales the take so its loudest sample sits at −1 dBFS |
+| `auto_fade` | 2 ms fade at both ends, so a looped take does not click |
+
+Whatever they do, the display says so afterwards (`trimmed 30ms, normalised
+x1.4`) — silently processing a recording would leave you wondering why it does
+not sound like what you played.
+
+**Auto-trim keeps the length.** It drops frames from the front and pads the same
+number onto the end, so the take stays exactly its number of bars and cannot be
+put [off the grid](#off-grid-takes) by being tidied up. It looks no more than
+100 ms in: beyond that you have recorded a rest, and moving it would move the
+music. The threshold is measured against the take's own first 10 ms, because
+"silence" means something different on a condenser mic in a live room than on a
+direct input. If nothing stands out, it does nothing.
+
+Undo restores whatever the slot held before the take, processing and all.
 
 ### Off-grid takes
 
@@ -476,20 +655,25 @@ The tolerance is 1%, so rounding does not trip it.
 
 ```
 my-song/
-  project.json          tempo, and per slot: length in bars, the bars it plays
-                        on, how hard each was played, mute, gain, the edits,
-                        and the tempo/rate the take was recorded at
-  samples/slot_00.wav   one file per filled slot, named by slot number
-  bounces/*.wav         whatever you have bounced
+  project.json            tempo, master gain, and per slot: length in bars, the
+                          bars it plays on, how hard each was played, mute,
+                          gain, the edits, and the tempo/rate it was recorded at
+  samples/slot_00.wav     one file per filled slot, named by slot number
+  samples/slot_00_L1.wav  one per overdub layer, when a take has any
+  bounces/*.wav           whatever you have bounced
 ```
 
 Saved a couple of seconds after any change (see `autosave_delay_s`) and on exit.
 `project.json` is written atomically — a crash mid-save cannot corrupt it. Audio
 files are only rewritten when the audio itself changed.
 
-The format version is 4, and older versions load: a version-1 take assumes it was
-recorded at the project's tempo, and versions 2 and 3 simply lack velocities and
-edits respectively.
+The format version is **5**, and every older version loads: a version-1 take
+assumes it was recorded at the project's tempo, and versions 2, 3 and 4 simply
+lack velocities, edits, and overdub layers respectively.
+
+A take whose layer files have gone missing still loads and still plays — as the
+summed audio it already was. It just cannot be [peeled back](#overdubbing) any
+more. Losing the breakdown must never mean losing the take.
 
 WAVs are float32 when `soundfile` is installed, 16-bit PCM otherwise. A project
 whose files are at a different sample rate than the session is resampled on load.
@@ -517,7 +701,14 @@ still exported as stems. Stems sum back to the mix exactly.
 python -m push2sampler [project] [options]
 ```
 
-`project` is a directory, created if missing; the default is `./song`.
+`project` is a directory, created if missing. With no project named you get
+[the one you had open last](#resuming), falling back to `./song`.
+
+`--help` carries three worked examples. `doctor` is worth running first on a new
+machine: it prints one row per thing that matters — Python, each optional
+package, the MIDI ports and audio devices it can see, whether it can write where
+you are — each with a one-line fix when it is missing. It **always exits 0**,
+because "everything is missing" is a diagnosis rather than a crash.
 
 | Flag | Effect |
 | --- | --- |
@@ -536,9 +727,15 @@ python -m push2sampler [project] [options]
 | `--no-display` | Skip the Push's colour screen |
 | `--no-save` | Never write to the project directory |
 | `--sim` | Run the [simulator](simulator.md) instead of hardware |
+| `--script FILE` | Feed FILE to the simulator and exit (implies `--sim`); `-` is stdin |
+| `--until-idle` | With `--script`, wait for the transport to stop before quitting |
+| `--quiet` | With `--script`, do not print the grid after every command |
 | `--bounce OUT.WAV` | Render the song and exit; needs no hardware |
 | `--stems DIR` | Render one WAV per slot and exit |
 | `--selftest` | Walk the hardware and write a report |
+| `--calibrate` | [Measure input latency](#input-latency) and store it |
+| `doctor` / `--doctor` | Print what is installed and what is missing, then exit |
+| `--version` | Print the version and exit |
 | `--report PATH` | Where `--selftest` writes (default `./hardware-report.json`) |
 | `--list-ports` | List MIDI ports and exit |
 | `--list-devices` | List audio devices and exit |
@@ -555,14 +752,17 @@ So you do not go looking:
   Tempo tapping and the fine nudge are the manual substitutes.
 - **No importing** audio from disk; you can only record into it.
 - **64 slots and 64 bars**, one bank, one page.
-- **No mixer page**; gain is per sample, on its own page.
 - **No swing**, no per-trigger probability, no choke groups or loop/gate modes —
   every sample is a one-shot that plays to its end.
 - **No scenes or snapshots** of an arrangement; duplicating a block of bars is as
   close as it gets.
+- **No per-layer editing** of an overdub: layers can be added and removed, not
+  soloed or re-balanced against each other.
+- **No banks.** One page of 64 slots, one 64-bar song.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: mode, transport, levels and messages.
   No waveform drawing, no graphics.
 
-`plans.md` in the project root tracks all of it, with 37 of 58 planned items
-still open.
+`plans.md` in the project root tracks all of it: 32 of the 58 planned items are
+shipped, which completes the `v1.1` and `v1.2` release trains, and 26 remain.
+[`CHANGELOG.md`](../CHANGELOG.md) is the release record.

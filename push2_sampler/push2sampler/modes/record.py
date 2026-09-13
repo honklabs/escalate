@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .. import colors
+from .. import analysis, colors
 from ..constants import BTN_DIM, BTN_OFF, BTN_ON, ENCODER_TRACK, PAD_COUNT, Btn
 from ..history import PutSample
 from ..project import SONG_BARS
@@ -69,8 +69,31 @@ class RecordMode(Mode):
     def on_engine_event(self, event: tuple) -> None:
         if event[0] == "record_done":
             bars, audio = event[1], event[2]
+            audio, notes = self._post_process(audio)
             self.app.do(PutSample(self.slot, audio, bars))
             self.app.goto_sample(self.slot)
+            # After the page change, not before: goto_sample announces the slot,
+            # which would otherwise bury the news that the take was processed.
+            if notes:
+                self.app.notify(", ".join(notes))
+
+    def _post_process(self, audio):
+        """Apply the optional auto-trim / normalise / fade, all off by default.
+
+        Undoing the take restores whatever the slot held before, so this needs
+        no separate undo of its own -- but it does need to say what it did.
+        """
+        settings = self.app.settings
+        if not any(settings.get(name) for name in ("auto_trim", "auto_normalize",
+                                                   "auto_fade")):
+            return audio, []
+        return analysis.process_take(
+            audio,
+            self.engine.transport.samplerate,
+            trim=bool(settings.get("auto_trim")),
+            normalise=bool(settings.get("auto_normalize")),
+            fade=bool(settings.get("auto_fade")),
+        )
 
     # -- output ------------------------------------------------------------
     def render_pads(self, pads: list[int]) -> None:

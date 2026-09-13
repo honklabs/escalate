@@ -6,20 +6,45 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import __version__
 from .app import App
 from .audio import Engine
 from .project import Project
 from .settings import Settings
+
+EXAMPLES = """\
+examples:
+  python -m push2sampler my-song
+      Play. Records into ./my-song, which is created if it does not exist.
+
+  python -m push2sampler --sim --no-settings my-song
+      No hardware at all: drive the whole program from this terminal, and
+      leave the real settings file alone.
+
+  python -m push2sampler --bounce mix.wav my-song
+      Render the song to a WAV and exit. Needs no Push and no audio device.
+
+first time with a Push 2 plugged in:
+  python -m push2sampler doctor       what is installed, and what is missing
+  python -m push2sampler --selftest   check this program's hardware guesses
+  python -m push2sampler --calibrate  measure your input latency
+"""
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="push2sampler",
         description="Sample library / looper for the Ableton Push 2.",
+        epilog=EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "project", nargs="?", default="song",
-        help="project directory (created if missing; default: ./song)",
+        "project", nargs="?", default=None,
+        help="project directory (created if missing; default: the last one "
+             "used, else ./song).  The word 'doctor' runs the diagnostics.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"push2sampler {__version__}",
     )
     parser.add_argument("--bpm", type=float, default=None, help="tempo override")
     # Everything below defaults to None so that "not given on the command line"
@@ -62,6 +87,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sim", action="store_true",
         help="run the terminal simulator instead of talking to hardware",
+    )
+    parser.add_argument(
+        "--script", metavar="FILE", default=None,
+        help="feed FILE to the simulator and exit (implies --sim); '-' is stdin",
+    )
+    parser.add_argument(
+        "--until-idle", action="store_true",
+        help="with --script, wait for the transport to stop before quitting",
+    )
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="with --script, do not print the grid after every command",
+    )
+    parser.add_argument(
+        "--doctor", action="store_true",
+        help="print what is installed and what is missing, then exit",
+    )
+    parser.add_argument(
+        "--calibrate", action="store_true",
+        help="measure input latency by playing a click and listening for it",
     )
     parser.add_argument(
         "--bounce", metavar="OUT.WAV", default=None,
@@ -121,6 +166,21 @@ def resolve_settings(args) -> Settings:
     return settings
 
 
+def _resolve_project(args, settings) -> str:
+    """The project to open: what was asked for, else the last one, else ./song.
+
+    Resuming needs the remembered directory to still be there -- a project on a
+    drive that is no longer mounted should land you in a fresh ./song rather
+    than creating an empty tree at a path you have forgotten about.
+    """
+    if args.project is not None:
+        return args.project
+    remembered = settings.ui.get("project")
+    if remembered and Path(remembered).is_dir():
+        return remembered
+    return "song"
+
+
 def _differs(stored, asked) -> bool:
     if isinstance(stored, (int, float)) and isinstance(asked, (int, float)):
         return abs(float(stored) - float(asked)) > 1e-9
@@ -138,6 +198,14 @@ def _device(value):
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # "doctor" reads better than a flag and is what the docs say, but the
+    # project argument is positional, so accept it as either.
+    if args.doctor or args.project == "doctor":
+        from . import doctor
+
+        return doctor.run(args.project if args.project != "doctor" else "song")
+    if args.script:
+        args.sim = True
 
     if args.bounce or args.stems:
         return _render(args)
@@ -149,12 +217,17 @@ def main(argv: list[str] | None = None) -> int:
         return _list_ports()
     if args.list_devices:
         return _list_devices()
+    if args.calibrate:
+        from . import calibrate
+
+        settings = resolve_settings(args)
+        return calibrate.run(settings, write=not args.no_settings)
 
     settings = resolve_settings(args)
     if settings.warning:
         print(settings.warning, file=sys.stderr)
 
-    project_dir = Path(args.project)
+    project_dir = Path(_resolve_project(args, settings))
     project = Project.load(project_dir, samplerate=settings["samplerate"])
     if args.bpm is not None:
         project.bpm = args.bpm
@@ -214,9 +287,19 @@ def main(argv: list[str] | None = None) -> int:
         log=print if args.sim else None,
     )
 
+    app.restore_ui_state()
+
     if args.sim:
         from . import sim
 
+        if args.script:
+            stream = sys.stdin if args.script == "-" else open(args.script)
+            try:
+                return sim.run(app, push, stream,
+                               until_idle=args.until_idle, quiet=args.quiet)
+            finally:
+                if stream is not sys.stdin:
+                    stream.close()
         sim.run(app, push)
         return 0
 
@@ -230,11 +313,14 @@ def _render(args) -> int:
     from .render import bounce_to, stems_to
 
     settings = resolve_settings(args)
-    project = Project.load(Path(args.project), samplerate=settings["samplerate"])
+    project = Project.load(
+        Path(_resolve_project(args, settings)), samplerate=settings["samplerate"]
+    )
     if args.bpm is not None:
         project.bpm = args.bpm
     if not project.filled():
-        print(f"{args.project} has no samples to render", file=sys.stderr)
+        print(f"{_resolve_project(args, settings)} has no samples to render",
+              file=sys.stderr)
         return 1
     if args.bounce:
         path = bounce_to(project, args.bounce)

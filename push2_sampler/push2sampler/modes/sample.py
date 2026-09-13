@@ -15,8 +15,10 @@ from ..constants import (
     Btn,
 )
 from ..history import (
+    AddLayer,
     ClearTriggers,
     DeleteSample,
+    RemoveLayer,
     RepairLength,
     SetBars,
     SetEnabled,
@@ -54,6 +56,8 @@ class SampleMode(Mode):
         self._tapped_at = 0.0
         #: First bar of a block being duplicated, once it has been picked.
         self._copy_from: int | None = None
+        #: True while a sound-on-sound take is running for this slot.
+        self._layering = False
 
     @property
     def sample(self):
@@ -183,11 +187,15 @@ class SampleMode(Mode):
             return True
         if cc == Btn.DELETE:
             if self.app.shift:
-                self.app.do(DeleteSample(self.slot))
-                self.app.goto_library()
+                if self.app.confirm_delete(self.slot, "slot"):
+                    self.app.do(DeleteSample(self.slot))
+                    self.app.goto_library()
             else:
                 self.app.delete_armed = True
                 self.app.notify("press any pad to clear all bars")
+            return True
+        if cc == Btn.NEW and sample is not None:
+            self._overdub(sample)
             return True
         if cc == Btn.DUPLICATE and sample is not None:
             self.app.duplicate_armed = not self.app.duplicate_armed
@@ -213,6 +221,39 @@ class SampleMode(Mode):
                 self.app.goto_sample(nxt)
             return True
         return False
+
+    def _overdub(self, sample) -> None:
+        """`New`: record another pass on top.  `Shift`+`New` peels one off.
+
+        The take plays along wherever it is arranged, which is what makes this
+        sound-on-sound rather than just a second recording -- so overdubbing a
+        sample that plays nowhere yet is silent, and says so.
+        """
+        if self.app.shift:
+            if sample.layer_count <= 1:
+                self.app.notify("only one layer; nothing to remove")
+            else:
+                self.app.do(RemoveLayer(self.slot))
+            return
+        if self.engine.rec_state != "idle":
+            self.engine.cancel_record()
+            self._layering = False
+            self.app.notify("layer cancelled")
+            return
+        self._layering = True
+        self.engine.arm_record(sample.bars, self.app.count_in_beats)
+        extra = "" if sample.triggers else " (not arranged, so you will hear nothing)"
+        self.app.notify(f"layering {sample.bars} bar(s) onto slot {self.slot + 1}{extra}")
+
+    def on_engine_event(self, event: tuple) -> None:
+        if not self._layering:
+            return
+        if event[0] == "record_done":
+            self._layering = False
+            if self.sample is not None:
+                self.app.do(AddLayer(self.slot, event[2]))
+        elif event[0] == "record_cancelled":
+            self._layering = False
 
     def on_encoder(self, cc: int, delta: int) -> bool:
         sample = self.sample
@@ -282,6 +323,9 @@ class SampleMode(Mode):
             BTN_BRIGHT if sample and not sample.edits.is_default else BTN_ON
         )
         buttons[Btn.DUPLICATE] = BTN_BRIGHT if self.app.duplicate_armed else BTN_DIM
+        buttons[Btn.NEW] = (
+            colors.RED.index if self._layering and self.app.blink else BTN_DIM
+        )
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -305,11 +349,21 @@ class SampleMode(Mode):
                 f"bar {self._copy_from + 5} would copy a 4-bar block",
                 "Shift moves instead of copying   Duplicate cancels",
             ]
+        if self._layering:
+            return [
+                f"LAYERING slot {self.slot + 1}  layer {sample.layer_count + 1}",
+                f"{self.engine.rec_state.replace('_', ' ')}, {sample.bars} bar(s)",
+                "play along with what is already there",
+                "New or Stop cancels",
+            ]
+        layers = ""
+        if sample.layer_count > 1:
+            layers = f"  {sample.layer_count} layers"
         lines = [
-            f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}",
+            f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}{layers}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
-            "Record: re-record   Mute: hear   Accent: velocity   Device: edit"
+            "Record: re-record   New: layer   Mute: hear   Device: edit"
             + ("   (edited)" if not sample.edits.is_default else ""),
         ]
         if self.project.mismatched(sample):

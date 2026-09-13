@@ -34,6 +34,17 @@ python -m push2sampler --list-ports     # should list "Ableton Push 2 User Port"
 python -m push2sampler --list-devices   # your audio interfaces
 ```
 
+Or ask the program itself what it can and cannot see:
+
+```
+python -m push2sampler doctor
+```
+
+That prints one row per thing that matters — Python, each optional package, the
+MIDI ports, the audio devices, whether it can write where you are — with a
+one-line fix beside anything missing. It is the fastest way to find out that the
+reason nothing works is a package you never installed.
+
 If the Push ports are missing, the cable or the MIDI stack is the problem, not
 the program — see [Troubleshooting](troubleshooting.md#the-push-2-will-not-open).
 
@@ -149,11 +160,28 @@ All three are a single **Undo** each, however many bars they touched — so the
 fast way is not the risky way. (After a paint or a fill you will need a second
 **Undo** for the first press that started it.)
 
+### Step 6c: play it twice, on top of itself
+
+A second pass on the *same* slot, rather than a second slot:
+
+1. On the sample's page, **press New**. You get a count-in, the song plays, your
+   loop plays where you arranged it, and whatever you play now is **added to the
+   take** rather than replacing it.
+2. When it lands, the display says `2 layers`.
+3. Don't like the second pass? **Shift**+**New** peels it off. Repeatedly, back
+   to the original recording, which can never be removed.
+
+This is sound-on-sound: a hi-hat over a kick, a harmony over a vocal, all in one
+slot. The layers survive saving, so you can take a pass off tomorrow.
+
+Because the take plays along while you overdub, a sample you have not arranged
+anywhere is silent during the overdub — the program says so if you try.
+
 ---
 
 ## Part 3 — Building up
 
-### Step 7: a second layer
+### Step 7: a second part
 
 1. **Press Session** to go back to the library. Your first slot is green; the
    rest are white.
@@ -234,6 +262,26 @@ want dynamics.
 
 ## Part 5 — Fixing and finishing
 
+### Step 11b: balance it
+
+Toggling bars tells you *what* plays. The mixer tells you how loudly.
+
+**Press Mix.** The grid becomes eight vertical level meters — one per slot in the
+top row of your library — filling upwards in green, amber near the top, red when
+a slot is about to clip. That is the fastest way to find the take that is too
+loud.
+
+- **The eight encoders** set the gain of the eight strips.
+- **The eight buttons below the display** mute them.
+- **Solo**, then one of those buttons, hears one strip alone. Press **Solo**
+  again to come back. This never disturbs the mutes you set by hand: un-soloing
+  gives you exactly the mix you had.
+- **The master encoder** (top right) sets the level of the whole mix.
+- **Up**/**Down**, or pressing any pad, moves to another row of eight.
+- **Mix** closes it.
+
+Muting here changes the bounce too. The master gain is saved with the project.
+
 ### Step 12: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
@@ -252,7 +300,16 @@ The two that matter most early on:
 - **record latency.** If your takes land consistently *late* against the grid,
   your interface has input latency. Set this to roughly that many milliseconds
   and the program trims it off the front of each take. Start at 10 and adjust
-  until loops sit in time.
+  until loops sit in time — or measure it properly, once, and never think about
+  it again:
+
+  ```
+  python -m push2sampler --calibrate
+  ```
+
+  Connect the output back to the input, or point a microphone at the speaker. It
+  plays five clicks, times their return, and writes the median. One cough cannot
+  set your timing, and it refuses an absurd figure rather than storing it.
 - **input device.** If the meter above the display never moves, step this until
   it does. Choosing a device that will not open is not fatal — the old one is
   kept and the display tells you why.

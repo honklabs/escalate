@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from push2sampler.settings import EDITABLE, SPECS, Settings, default_path
+from push2sampler.settings import (
+    EDITABLE,
+    EDITABLE_PAGES,
+    SPECS,
+    Settings,
+    default_path,
+)
 
 
 def test_defaults_are_the_specs():
@@ -14,10 +20,18 @@ def test_defaults_are_the_specs():
 
 
 def test_every_editable_setting_has_a_spec_and_a_label():
-    assert len(EDITABLE) <= 8  # one per button under the display
     for name in EDITABLE:
         assert name in SPECS
         assert SPECS[name].label
+
+
+def test_each_settings_page_fits_the_button_row():
+    for page in EDITABLE_PAGES:
+        assert 0 < len(page) <= 8  # one per button under the display
+
+
+def test_no_setting_appears_on_two_pages():
+    assert len(EDITABLE) == len(set(EDITABLE))
 
 
 def test_values_are_clamped_and_nonsense_falls_back():
