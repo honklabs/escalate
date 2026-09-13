@@ -10,7 +10,20 @@ plan.
 
 ---
 
-## Unreleased
+## v1.5.0
+
+Two release trains, finished together: **`v1.4` Plays with others** (sync,
+importing, per-sample playback, output routing, the monitor page, groove, and
+the hardware pass) and **`v1.5` Watch it play**. Newest first. With `v1.4`
+complete, 51 of the 61 items in [`plans.md`](plans.md) are shipped and only the
+`v2.0` ideas remain.
+
+Tags for this directory are scoped (`push2sampler-v1.5`) because the repository
+belongs to another project. **No tag has actually been pushed** — including
+`push2sampler-v1.0`: the credentials these releases were built with can push
+branches but not tag refs, so the version in `push2sampler/__init__.py` and this
+file are the record.
+
 
 ### Swing, and laying a sample behind the beat (`NH-02`)
 
@@ -168,11 +181,7 @@ behaviours are right (a mute says the take does not belong in the song; a route
 says only that you are listening elsewhere), and both now have a test and a
 table in `docs/reference.md` instead of one sentence that was half true.
 
-### v1.5 — Watch it play
-
-Three features you asked for, and one bug they uncovered.
-
-#### Master playback mode (`NF-12`)
+### Master playback mode (`NF-12`)
 
 `Shift`+`Session` opens the page whose only job is playback: the library grid,
 all 64 slots where they always are, **each pad flashing white as its sample
@@ -193,7 +202,7 @@ Its own tests caught a bug in it: `_firing` was cleared *after* commands were
 applied, so an attack from a queued command was thrown away in the same block it
 happened.
 
-#### Swap two samples (`CC-19`)
+### Swap two samples (`CC-19`)
 
 `Shift`+`Duplicate` arms a swap. The filled pads flash cyan, the pad you pick
 holds white, the second press exchanges them — audio, bars, velocities, name,
@@ -206,7 +215,7 @@ whose undo is itself applied again.
 state of the button: cycling copy → move → swap would turn "move" into a mode
 and change a gesture that already works.
 
-#### Duplicate was silently losing four fields
+### Duplicate was silently losing four fields
 
 Found while building the swap. `copy_slot` never carried a slot's **colour tag**,
 its **overdub layers**, its **play mode** or its **choke group** — three
@@ -217,7 +226,7 @@ Fixed, and guarded against the next one: `Project.NOT_COPIED` names the fields a
 copy deliberately skips, and a test walks every field of `Sample` asserting it is
 in one list or the other.
 
-#### The mode you are in, on the big display (`CC-20`)
+### The mode you are in, on the big display (`CC-20`)
 
 The display gained a third region: a large banner along the top saying which
 page you are on — `LIBRARY A`, `SLOT 7 "kick"`, `RECORD 4 BARS`. It comes from

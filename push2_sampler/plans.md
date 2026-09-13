@@ -10,9 +10,13 @@ was built and where it deviated from this plan and why.
 
 An earlier version of this line claimed "v1.1 shipped and most of v1.2" while
 seven of `v1.1`'s own items were still open — a reminder to count against
-[§4](#4-release-trains) rather than against the feeling of progress. Tags are
-scoped to this subdirectory (`push2sampler-v1.0`); the repository belongs to
-another project and its version namespace is left alone.
+[§4](#4-release-trains) rather than against the feeling of progress.
+
+The current release is **1.5.0**, covering the `v1.4` and `v1.5` trains. Tags
+would be scoped to this subdirectory (`push2sampler-v1.5`) because the
+repository belongs to another project, but **none has been pushed** — these
+credentials can push branches and not tag refs, so `__init__.py` and
+[`CHANGELOG.md`](CHANGELOG.md) are the record.
 
 User documentation for everything shipped is in [`docs/`](docs/README.md) —
 tutorial, reference, cheat sheet, troubleshooting, simulator guide — and
