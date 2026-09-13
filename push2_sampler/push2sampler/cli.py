@@ -136,6 +136,12 @@ def build_parser() -> argparse.ArgumentParser:
              "link (backend, USB bus, both ports, both directions) to "
              "midi-report.json",
     )
+    parser.add_argument(
+        "--midi-port", default=None, metavar="NAME",
+        help="force the Push MIDI port to the one whose name contains NAME "
+             "(e.g. 'live' or 'user'); by default the User port is preferred "
+             "for output and every Push port is listened to for input",
+    )
     parser.add_argument("--list-ports", action="store_true", help="list MIDI ports and exit")
     parser.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     return parser
@@ -275,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         from .push2 import Push2
 
-        push = Push2()
+        push = Push2(port_name=args.midi_port)
 
     try:
         push.open()

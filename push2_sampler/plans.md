@@ -644,10 +644,26 @@ arrives:
 | 2 | Port names `Ableton Push 2 Live Port` / `Ableton Push 2 User Port` | Exactly that, in both directions — and `_pick` chose the User port | **Confirmed.** README table row filled in |
 | 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes |
 | 4 | The palette was the likely culprit | **Not the palette.** `--led-test` reported nothing in *either* direction: no input from any pad, no light from factory indices, none from ours, no button LEDs, no channel. The ports still opened without error | **Open.** Rules out `program_palette`, `index_to_note`, the colour map and the channel in one go — none of them can matter when no traffic passes at all. `--midi-probe` (`midiprobe.py`) was written to measure rather than ask |
+| 5 | The surface reports on the **User** port | **No.** Input arrives only on the **Live** port (465 messages by callback, 262 by polling); the User port sent nothing at all. Output reached the device. The Push routes its controls to whichever port matches its mode | **Fixed.** `Push2` now opens *every* Push input port, so the program works in either mode without being told which — only one port sends, so listening to both costs nothing. `--midi-port live\|user` pins either direction. README table row corrected from "assumed User" |
+| 6 | — | `pyusb` is installed but has no `libusb` underneath (`No backend available`), so the bus check reports nothing either way | **Noted, not fatal.** It is also why the colour display cannot work on this machine: `brew install libusb`. `--midi-probe` now names this separately rather than letting it read as "the Push is not on the bus" |
 
 Finding 1 is one shape to expect: a **documentation** assumption built on a spec
 value, where the code was indifferent all along. Check that distinction before
 changing anything — the correction is often to prose, not to `constants.py`.
+
+Finding 5 is the one that was worth all of it, and it is the most interesting
+correction in the project so far: the program had a *hidden assumption it never
+stated*. Choosing the User port by name was written and documented as a
+preference — coexist with Live, prefer the port meant for third parties — when
+it was in fact a hard requirement that the device does not always satisfy. The
+fix is not a better guess about which port to use; it is to stop guessing and
+read both. That generalises: where a device offers two of something and the
+cost of watching both is nil, watch both.
+
+It is also the second time this class of thing has bitten, after finding 1. Both
+were assumptions *about the device's mode* that our own code had quietly built a
+dependency on while the docs described it as optional. Worth auditing the rest of
+`push2.py` for the same shape.
 
 Finding 4 is the useful kind of negative result: one run eliminated four
 candidate causes at once, because none of them can matter when no traffic passes

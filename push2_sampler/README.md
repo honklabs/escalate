@@ -431,11 +431,16 @@ third, `wait S` lets the transport run, `q` quits.
 
 ## Hardware notes
 
-* The program uses the **Push 2 User port**, so it coexists with anything on
-  the Live port. It picks that port *by name* and never sends a mode change, so
-  no button has to be pressed on the Push first. If the pads don't respond,
-  quit Ableton Live and check `--list-ports` — see
-  [troubleshooting](docs/troubleshooting.md#the-ports-are-there-but-the-pads-stay-dark).
+* The program prefers the **Push 2 User port** for output, so it coexists with
+  anything on the Live port, and it **listens on every Push port** for input.
+  That is not belt-and-braces: a Push 2 routes its surface to whichever port
+  matches the mode it is in, and on a device in Live mode the User port carries
+  no input at all (observed -- `F-08` finding 5). Listening to both costs
+  nothing, since only one of them sends, and it means the program works without
+  being told which mode the device is in. `--midi-port live|user` pins it.
+* It never sends a mode change, so no button has to be pressed on the Push
+  first. If the pads don't respond, see
+  [troubleshooting](docs/troubleshooting.md#pads-and-buttons-do-nothing-but-the-lights-work-or-vice-versa).
 * Pad colours are addressed by palette index, and the factory palette is not
   stable across firmware, so the program uploads its own palette entries (64+)
   over SysEx at startup.
@@ -466,6 +471,7 @@ both ports in both directions. Writes `midi-report.json`.
 | touch strip as pitchwheel | spec | not yet |
 | display frame header and BGR565 packing | spec, unit-tested byte for byte | not yet |
 | User/Live port naming | spec | **yes** -- `Ableton Push 2 Live Port` and `Ableton Push 2 User Port`, both directions |
+| Which port carries the surface | assumed User | **no** -- on a device in Live mode, input arrives only on the *Live* port |
 
 `--selftest` fills this in. Until then, treat every row as a guess that the
 program is built to be corrected on.

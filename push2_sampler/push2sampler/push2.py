@@ -223,15 +223,33 @@ class PushBase:
 class Push2(PushBase):
     """Real hardware, reached over the Push 2 *User* MIDI port."""
 
-    def __init__(self, port_hint: str = "Push 2", prefer_user_port: bool = True) -> None:
+    def __init__(self, port_hint: str = "Push 2", prefer_user_port: bool = True,
+                 port_name: str | None = None, listen_all: bool = True) -> None:
         super().__init__()
         self.port_hint = port_hint
         self.prefer_user_port = prefer_user_port
-        self._inport = None
+        #: Substring that forces one port, from ``--midi-port``.  Overrides the
+        #: User-port preference in both directions.
+        self.port_name = port_name
+        #: Read from *every* Push input port rather than only the chosen one.
+        #:
+        #: A Push 2 routes its surface to one port or the other depending on
+        #: which mode it is in, and on a device in Live mode the User port
+        #: carries no input at all -- observed, not assumed (F-08 finding 5).
+        #: Listening to both costs nothing, since only one of them sends, and
+        #: it means the program works in either mode without being told which.
+        self.listen_all = listen_all
+        self._inports: list = []
         self._outport = None
         #: Port names actually opened, for the hardware report.
         self.chosen_input: str | None = None
+        self.chosen_inputs: list[str] = []
         self.chosen_output: str | None = None
+
+    @property
+    def _inport(self):
+        """The first input port.  Kept for callers that expect a single one."""
+        return self._inports[0] if self._inports else None
 
     # -- lifecycle ---------------------------------------------------------
     def open(self, program_palette: bool = True) -> None:
@@ -243,11 +261,29 @@ class Push2(PushBase):
         """
         import mido  # imported lazily so the simulator needs no MIDI stack
 
-        in_name = self._pick(mido.get_input_names(), "input")
+        inputs = list(mido.get_input_names())
+        in_name = self._pick(inputs, "input")
         out_name = self._pick(mido.get_output_names(), "output")
         self.chosen_input, self.chosen_output = in_name, out_name
         self._outport = mido.open_output(out_name)
-        self._inport = mido.open_input(in_name, callback=self._on_midi)
+
+        # Preferred port first, so chosen_input stays meaningful, then any
+        # other Push port -- see listen_all.
+        names = [in_name]
+        if self.listen_all:
+            names += [n for n in self._matches(inputs) if n != in_name]
+        self._inports = []
+        self.chosen_inputs = []
+        for name in names:
+            try:
+                self._inports.append(mido.open_input(name, callback=self._on_midi))
+            except Exception:
+                # One unopenable port is not a reason to fail: the other may be
+                # the one carrying the surface.
+                continue
+            self.chosen_inputs.append(name)
+        if not self._inports:
+            raise RuntimeError(f"could not open any Push 2 MIDI input port from {names}")
         if program_palette:
             self.program_palette()
         self.clear()
@@ -257,20 +293,32 @@ class Push2(PushBase):
             self.clear()
         except Exception:  # pragma: no cover - best effort on shutdown
             pass
-        for port in (self._inport, self._outport):
+        for port in [*self._inports, self._outport]:
             if port is not None:
                 try:
                     port.close()
                 except Exception:  # pragma: no cover
                     pass
-        self._inport = self._outport = None
+        self._inports = []
+        self._outport = None
+
+    def _matches(self, names: list[str]) -> list[str]:
+        return [n for n in names if self.port_hint.lower() in n.lower()]
 
     def _pick(self, names: list[str], kind: str) -> str:
-        matches = [n for n in names if self.port_hint.lower() in n.lower()]
+        matches = self._matches(names)
         if not matches:
             raise RuntimeError(
                 f"no Push 2 MIDI {kind} port found (looked for {self.port_hint!r} in {names})"
             )
+        if self.port_name:
+            wanted = [n for n in matches if self.port_name.lower() in n.lower()]
+            if not wanted:
+                raise RuntimeError(
+                    f"no Push 2 MIDI {kind} port matching {self.port_name!r} "
+                    f"(have {matches})"
+                )
+            return wanted[0]
         if self.prefer_user_port:
             user = [n for n in matches if "user" in n.lower()]
             if user:

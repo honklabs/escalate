@@ -12,6 +12,39 @@ plan.
 
 ## Unreleased
 
+### The surface was on the other port (`F-08` findings 5 and 6)
+
+`--midi-probe` found it. Input arrives **only on the Live port** — 465 messages
+by callback and 262 by polling — while the User port sent nothing at all.
+Output reached the device. A Push 2 routes its controls to whichever port
+matches the mode it is in, and this one is not in the mode we assumed.
+
+This was a hidden assumption, not a bug in the usual sense. Preferring the port
+named "User" was written and documented as a *preference* — coexist with Live,
+use the port meant for third parties — when it was really a hard requirement
+that the device does not always satisfy.
+
+- **`Push2` now opens every Push input port**, not just the preferred one. Only
+  one of them sends, so listening to both costs nothing, and the program works
+  in either mode without being told which. One port that will not open no
+  longer stops the other. `listen_all=False` restores the old behaviour.
+- **New `--midi-port NAME`** forces the port whose name contains `NAME`
+  (`live`, `user`, or any substring) in both directions. This is the half a
+  listener cannot infer — which port the *lights* should go to.
+- **Fixed a bug in `--midi-probe` itself:** it blasted every output port and
+  then asked "did anything light?" once, at the end. That answer cannot say
+  *which* port lit, which was the entire thing the stage existed to establish.
+  It now asks per port and records the answer against that port.
+- `--midi-probe` gained the verdict for this case, naming the sending port, the
+  silent one, and the exact flag to run with.
+- **pyusb without libusb is now named as its own finding.** `No backend
+  available` means pyusb can see nothing at all, which says nothing about the
+  Push — and previously risked reading as "the device is not on the bus". It is
+  also why the colour display cannot work on that machine (`brew install
+  libusb`). Reported as a note, separate from the verdict.
+- README's hardware table: the port *names* are confirmed; "which port carries
+  the surface" is now recorded as **wrong** — assumed User, actually Live.
+
 ### `--midi-probe`: measure, don't ask (`F-08` finding 4)
 
 `--led-test` came back negative on every stage: no input from any pad, no light

@@ -102,6 +102,27 @@ a background process that outlives quitting it), Push's firmware updater, or
 another DAW with a control-surface script. On macOS a second process can open
 the same port, get no error, and receive nothing at all.
 
+### Pads and buttons do nothing, but the lights work (or vice versa)
+
+The Push 2 routes its surface to **one of its two MIDI ports** depending on the
+mode it is in, and on a device in Live mode the User port carries **no input at
+all** — the pads and buttons report on the Live port instead. This is the
+device telling you which port it is using; it is not a fault, and there is
+nothing to press to change it.
+
+The program handles this by itself: it **listens to every Push port** for
+input, so it does not need to know which mode the device is in. If input still
+does not arrive, or if the *lights* are going to the wrong port, pin it:
+
+```
+python -m push2sampler --midi-port live my-song
+python -m push2sampler --midi-port user my-song
+```
+
+`--midi-port` matches any part of a port name and forces both directions.
+`--midi-probe` tells you which port carries what, and prints the exact flag to
+use.
+
 ### If the grid is dark and you have not run the LED test
 
 **The program does not need any button pressed on the Push.** It opens

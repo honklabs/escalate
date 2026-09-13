@@ -230,3 +230,129 @@ def test_send_pad_raw_resends_the_same_value(monkeypatch):
     push.send_pad_raw(3, colors.RED.index)
     push.send_pad_raw(3, colors.RED.index)      # and again
     assert len([m for m in port.sent if m.type == "note_on"]) == 2
+
+
+def _mido_with_ports(monkeypatch, names, fail_open=()):
+    """A fake mido whose input ports can be opened and fed individually."""
+    import sys
+    import types
+
+    opened: dict = {}
+    out = FakePort()
+
+    class In(FakePort):
+        def __init__(self, name, callback) -> None:
+            super().__init__()
+            self.name = name
+            self.callback = callback
+
+    def open_input(name, callback=None):
+        if name in fail_open:
+            raise OSError(f"{name} busy")
+        port = In(name, callback)
+        opened[name] = port
+        return port
+
+    fake = types.ModuleType("mido")
+    fake.Message = FakeMessage
+    fake.get_input_names = lambda: list(names)
+    fake.get_output_names = lambda: list(names)
+    fake.open_output = lambda name: out
+    fake.open_input = open_input
+    monkeypatch.setitem(sys.modules, "mido", fake)
+    return opened, out
+
+
+BOTH_PORTS = ["Ableton Push 2 Live Port", "Ableton Push 2 User Port"]
+
+
+def test_every_push_input_port_is_opened_preferred_one_first(monkeypatch):
+    """A Push 2 routes its surface to one port or the other by mode.
+
+    Listening to both costs nothing -- only one of them sends -- and means the
+    program works without being told which mode the device is in (F-08/5).
+    """
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    assert push.chosen_inputs == ["Ableton Push 2 User Port",
+                                  "Ableton Push 2 Live Port"]
+    assert set(opened) == set(BOTH_PORTS)
+    assert push.chosen_input == "Ableton Push 2 User Port"
+
+
+def test_input_from_the_non_preferred_port_still_reaches_the_app(monkeypatch):
+    """The actual bug: the surface was on the Live port and we only read User."""
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    live = opened["Ableton Push 2 Live Port"]
+    live.callback(FakeMessage("note_on", note=index_to_note(0), velocity=120))
+    assert push.poll_events() == [PadEvent(0, True, 120)]
+
+
+def test_listen_all_can_be_turned_off(monkeypatch):
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2(listen_all=False)
+    push.open()
+    assert push.chosen_inputs == ["Ableton Push 2 User Port"]
+    assert list(opened) == ["Ableton Push 2 User Port"]
+
+
+def test_one_unopenable_input_port_does_not_stop_the_other(monkeypatch):
+    opened, _ = _mido_with_ports(
+        monkeypatch, BOTH_PORTS, fail_open=("Ableton Push 2 User Port",)
+    )
+    push = Push2()
+    push.open()
+    assert push.chosen_inputs == ["Ableton Push 2 Live Port"]
+    live = opened["Ableton Push 2 Live Port"]
+    live.callback(FakeMessage("control_change", control=Btn.PLAY, value=127))
+    assert push.poll_events() == [ButtonEvent(Btn.PLAY, True)]
+
+
+def test_no_openable_input_port_is_an_error(monkeypatch):
+    _mido_with_ports(monkeypatch, BOTH_PORTS, fail_open=tuple(BOTH_PORTS))
+    push = Push2()
+    try:
+        push.open()
+    except RuntimeError as exc:
+        assert "could not open any" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected a RuntimeError")
+
+
+def test_midi_port_forces_one_port_in_both_directions(monkeypatch):
+    opened, _ = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2(port_name="live")
+    push.open()
+    assert push.chosen_output == "Ableton Push 2 Live Port"
+    assert push.chosen_input == "Ableton Push 2 Live Port"
+    # still listens to the other one as well
+    assert set(push.chosen_inputs) == set(BOTH_PORTS)
+
+
+def test_midi_port_overrides_the_user_port_preference():
+    push = Push2(port_name="live")
+    assert push._pick(BOTH_PORTS, "output") == "Ableton Push 2 Live Port"
+
+
+def test_an_unmatched_midi_port_says_what_it_had():
+    push = Push2(port_name="nonesuch")
+    try:
+        push._pick(BOTH_PORTS, "input")
+    except RuntimeError as exc:
+        assert "nonesuch" in str(exc)
+        assert "Ableton Push 2 User Port" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected a RuntimeError")
+
+
+def test_close_closes_every_input_port(monkeypatch):
+    opened, out = _mido_with_ports(monkeypatch, BOTH_PORTS)
+    push = Push2()
+    push.open()
+    push.close()
+    assert all(port.closed for port in opened.values())
+    assert out.closed
+    assert push.chosen_inputs == list(push.chosen_inputs)  # untouched by close

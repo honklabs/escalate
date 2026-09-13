@@ -62,6 +62,7 @@ class MidiReport:
     ports: dict = field(default_factory=dict)
     output_attempts: list = field(default_factory=list)
     input_attempts: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
     lit: str = "unasked"
     verdict: str = ""
 
@@ -73,6 +74,7 @@ class MidiReport:
             "ports": self.ports,
             "output_attempts": self.output_attempts,
             "input_attempts": self.input_attempts,
+            "notes": self.notes,
             "anything_lit": self.lit,
             "verdict": self.verdict,
         }
@@ -127,6 +129,14 @@ def _usb() -> dict:
         device = usb.core.find(idVendor=USB_VENDOR_ID, idProduct=USB_PRODUCT_ID)
     except Exception as exc:
         out["error"] = str(exc)
+        if "backend" in str(exc).lower():
+            # pyusb is a wrapper; without libusb underneath it can see nothing.
+            out["note"] = (
+                "pyusb is installed but has no libusb underneath, so it cannot "
+                "see the bus -- this says nothing about the Push.  It is also "
+                "why the colour display cannot work: install libusb "
+                "(macOS: brew install libusb; Debian/Ubuntu: apt install libusb-1.0-0)"
+            )
         return out
     if device is None:
         out["found"] = False
@@ -177,7 +187,7 @@ def _blast(port, say) -> dict:
     return {"messages_sent": sent, "velocities": list(BLAST_VELOCITIES)}
 
 
-def _try_outputs(report: MidiReport, names: list[str], say) -> None:
+def _try_outputs(report: MidiReport, names: list[str], ask, say) -> None:
     import mido
 
     say("\n[3/5] Sending to every Push output port")
@@ -204,6 +214,14 @@ def _try_outputs(report: MidiReport, names: list[str], say) -> None:
                 port.close()
             except Exception as exc:  # pragma: no cover
                 attempt["close_error"] = str(exc)
+        # Asked per port, not once at the end: a single question after blasting
+        # every port cannot say WHICH port lit anything, and that is the whole
+        # thing we are trying to find out.  The first version of this tool got
+        # that wrong.
+        answer = ask(f"    Did anything light from {name}? [y/n] ").strip().lower()
+        attempt["lit"] = {"y": "yes", "yes": "yes", "s": "some"}.get(answer, "no")
+        if attempt["lit"] != "no":
+            report.lit = attempt["lit"]
         report.output_attempts.append(attempt)
 
 
@@ -257,8 +275,23 @@ def _try_inputs(report: MidiReport, names: list[str], say) -> None:
         report.input_attempts.append(attempt)
 
 
+def _sending_ports(report: MidiReport) -> tuple[list[str], list[str]]:
+    """Input ports that carried messages, and those that stayed silent."""
+    sending, silent = [], []
+    for attempt in report.input_attempts:
+        if attempt.get("callback_count") or attempt.get("polled_count"):
+            sending.append(attempt["port"])
+        else:
+            silent.append(attempt["port"])
+    return sending, silent
+
+
 def _verdict(report: MidiReport) -> str:
     usb_found = report.usb.get("found")
+    sending, silent = _sending_ports(report)
+    lit_ports = [
+        a["port"] for a in report.output_attempts if a.get("lit") not in (None, "no")
+    ]
     got_input = any(
         a.get("callback_count") or a.get("polled_count") for a in report.input_attempts
     )
@@ -286,6 +319,21 @@ def _verdict(report: MidiReport) -> str:
             "bug, not the device's -- Push2.open passes a callback to "
             "mido.open_input, and it is not firing on your platform.  The fix "
             "is in push2.py, and the device is fine."
+        )
+    if sending and silent:
+        port = sending[0]
+        hint = next((w for w in ("live", "user") if w in port.lower()), None)
+        flag = f"--midi-port {hint}" if hint else f'--midi-port "{port}"'
+        lit = (", ".join(lit_ports) if lit_ports else "no port lit anything")
+        return (
+            f"VERDICT: the surface is on ONE port and not the other.  Input "
+            f"arrives on {sending} and nothing at all on {silent}.  A Push 2 "
+            f"routes its controls to whichever port matches the mode it is in, "
+            f"so this is the device telling us which one it is using -- not a "
+            f"fault.  Run the program with `{flag}` to use it.  "
+            f"(Output: {lit}.)  Since the program now listens to every Push "
+            f"port for input, a plain run should also work; the flag pins the "
+            f"OUTPUT port, which is the half a listener cannot infer."
         )
     if report.usb.get("checked") and usb_found is False:
         return (
@@ -364,16 +412,19 @@ def run_midi_probe(report_path: Path | str = "midi-report.json",
                     "push_outputs": _push_ports(outputs)}
 
     try:
-        _try_outputs(report, outputs, say)
-        answer = ask("\n  Did ANYTHING light on the Push just now? [y/n] ").strip().lower()
-        report.lit = {"y": "yes", "yes": "yes", "s": "some"}.get(answer, "no")
+        report.lit = "no"
+        _try_outputs(report, outputs, ask, say)
         _try_inputs(report, inputs, say)
     except KeyboardInterrupt:
         say("\n  stopped early")
 
     say("\n[5/5] What that means")
+    if report.usb.get("note"):
+        report.notes.append(report.usb["note"])
     report.verdict = _verdict(report)
     say("\n" + report.verdict)
+    for note in report.notes:
+        say("\nALSO: " + note)
     _write(report, report_path, say)
     got_input = any(
         a.get("callback_count") or a.get("polled_count") for a in report.input_attempts

@@ -355,3 +355,112 @@ def test_pyusb_missing_is_reported_and_not_fatal(monkeypatch, tmp_path):
     assert "pyusb not installed" in report["usb"]["note"]
     # and the verdict must not claim the device is off the bus, which it cannot know
     assert "not on the USB bus" not in report["verdict"]
+
+
+# -- the split-port case, which is what the device actually did -------------
+class SplitInput(FakeInput):
+    """Only the port whose name contains "live" carries anything.
+
+    Which is what a Push 2 in Live mode does: its controls go to the Live port
+    and the User port stays silent.
+    """
+
+    def __init__(self, name, callback=None, via="none", messages=()) -> None:
+        if "live" not in name.lower():
+            messages = ()
+        super().__init__(name, callback=callback, via=via, messages=messages)
+
+
+def install_split_mido(monkeypatch, *, lit_ports=()):
+    outputs: list[FakeOutput] = []
+
+    def open_output(name):
+        port = FakeOutput(name)
+        outputs.append(port)
+        return port
+
+    def open_input(name, callback=None):
+        return SplitInput(name, callback=callback, via="callback",
+                          messages=[FakeMessage("note_on", note=92, velocity=120)])
+
+    fake = types.ModuleType("mido")
+    fake.__version__ = "1.3.0"
+    fake.backend = types.SimpleNamespace(name="mido.backends.rtmidi")
+    fake.Message = FakeMessage
+    fake.get_input_names = lambda: list(PORTS)
+    fake.get_output_names = lambda: list(PORTS)
+    fake.open_output = open_output
+    fake.open_input = open_input
+    monkeypatch.setitem(sys.modules, "mido", fake)
+    return outputs
+
+
+def test_one_port_sending_and_one_silent_names_both_and_the_flag(monkeypatch, tmp_path):
+    install_split_mido(monkeypatch)
+    install_usb(monkeypatch)
+    code, report, said = run(tmp_path, answers=("n", "y"))
+    verdict = report["verdict"]
+    assert "the surface is on ONE port and not the other" in verdict
+    assert "Ableton Push 2 Live Port" in verdict
+    assert "--midi-port live" in verdict
+    assert "not a\nfault" in verdict or "not a fault" in verdict.replace("\n", " ")
+    assert code == 0
+
+
+def test_the_lit_question_is_asked_once_per_port(monkeypatch, tmp_path):
+    """A single question after blasting every port cannot say WHICH port lit.
+
+    The first version of this tool asked once at the end; the answer was
+    unattributable, which was the one thing it existed to establish.
+    """
+    asked: list[str] = []
+    install_split_mido(monkeypatch)
+    install_usb(monkeypatch)
+    path = tmp_path / "midi-report.json"
+
+    def ask(prompt):
+        asked.append(prompt)
+        return "y" if "Live" in prompt else "n"
+
+    midiprobe.run_midi_probe(path, ask=ask, say=lambda *_: None)
+    report = json.loads(path.read_text())
+
+    assert len([p for p in asked if "light" in p]) == 2
+    lit = {a["port"]: a["lit"] for a in report["output_attempts"]}
+    assert lit == {"Ableton Push 2 User Port": "no",
+                   "Ableton Push 2 Live Port": "yes"}
+
+
+def test_pyusb_without_libusb_is_named_as_a_separate_finding(monkeypatch, tmp_path):
+    """What this user hit: pyusb installed, no libusb, so the bus check is moot."""
+    core = types.SimpleNamespace(
+        find=lambda **_kw: (_ for _ in ()).throw(ValueError("No backend available"))
+    )
+    usb = types.ModuleType("usb")
+    usb.core = core
+    monkeypatch.setitem(sys.modules, "usb", usb)
+    monkeypatch.setitem(sys.modules, "usb.core", core)
+    install_mido(monkeypatch, names=PORTS)
+    _, report, said = run(tmp_path)
+
+    assert "No backend available" in report["usb"]["error"]
+    assert "libusb" in report["usb"]["note"]
+    assert any("libusb" in n for n in report["notes"])
+    assert "ALSO:" in said
+    # It must not be mistaken for "the Push is not on the bus"
+    assert "not on the USB bus" not in report["verdict"]
+    assert report["usb"].get("found") is None
+
+
+def test_a_silent_usb_check_does_not_become_a_verdict(monkeypatch, tmp_path):
+    """No libusb means we know nothing about the bus -- and must not pretend to."""
+    core = types.SimpleNamespace(
+        find=lambda **_kw: (_ for _ in ()).throw(ValueError("No backend available"))
+    )
+    usb = types.ModuleType("usb")
+    usb.core = core
+    monkeypatch.setitem(sys.modules, "usb", usb)
+    monkeypatch.setitem(sys.modules, "usb.core", core)
+    install_split_mido(monkeypatch)
+    _, report, _ = run(tmp_path, answers=("n", "y"))
+    assert "the surface is on ONE port" in report["verdict"]
