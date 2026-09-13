@@ -125,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default="hardware-report.json",
         help="where --selftest writes its findings (default: ./hardware-report.json)",
     )
+    parser.add_argument(
+        "--led-test", action="store_true",
+        help="the pads stay dark: find out which layer is at fault, and write "
+             "led-report.json",
+    )
     parser.add_argument("--list-ports", action="store_true", help="list MIDI ports and exit")
     parser.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     return parser
@@ -209,6 +214,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bounce or args.stems:
         return _render(args)
+    if args.led_test:
+        from .ledtest import run_led_test
+
+        return run_led_test()
     if args.selftest:
         from .selftest import run_selftest
 

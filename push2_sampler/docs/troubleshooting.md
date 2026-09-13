@@ -43,7 +43,35 @@ it, the program never had a chance.
 
 ### The ports are there but the pads stay dark
 
-First: **the program does not need any button pressed on the Push.** It opens
+Run this first — it answers the question in about a minute:
+
+```
+python -m push2sampler --led-test
+```
+
+It works through the layers in order and tells you which one is at fault,
+because "dark" has several causes that look identical:
+
+| Stage | Question |
+| --- | --- |
+| 1 | Does the Push send *us* anything? Press a pad; it prints what arrives |
+| 2 | Do the pads light from a **factory** palette index? No SysEx involved |
+| 3 | Do they light from **our** uploaded palette block? SysEx involved |
+| 4 | Do the **button** LEDs light? |
+| 5 | Does a colour need a MIDI channel other than channel 1? |
+
+The outcome worth knowing about is **stage 2 lighting and stage 3 dark**. Every
+colour this program uses is a *private palette index* of 64 or above, uploaded
+at startup over SysEx that has never been confirmed on a device. If that upload
+does not take, the program spends its life painting in palette entries the Push
+has left black — no error, no traceback, a grid that looks dead. `--led-test`
+says so in one line, and writes `led-report.json`.
+
+It prints a verdict at the end. Paste that back, or the JSON.
+
+### If the grid is dark and you have not run the LED test
+
+**The program does not need any button pressed on the Push.** It opens
 the User port and sends colours; it never sends a mode change, and there is
 nothing to press to let it in. If a walkthrough ever told you to press a `User`
 button before starting, that was wrong — and depending on your unit there may

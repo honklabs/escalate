@@ -73,6 +73,19 @@ worth sending back.
 
 Either way, continue; the probe changes nothing.
 
+**If the very first check shows nothing lit at all**, stop and run the LED test
+instead — the probe's remaining questions all assume the pads work, so answering
+"none" eight times teaches nobody anything:
+
+```
+python -m push2sampler --led-test
+```
+
+It works through the layers one at a time (does the Push answer us, do the pads
+light from a factory colour, do they light from *our* uploaded palette, do the
+buttons light, is it the MIDI channel) and prints which one is at fault. See
+[Troubleshooting](troubleshooting.md#the-ports-are-there-but-the-pads-stay-dark).
+
 ### Step 3: start the program
 
 ```

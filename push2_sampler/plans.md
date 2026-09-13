@@ -641,11 +641,20 @@ arrives:
 | # | What was claimed | What the device says | Done |
 | --- | --- | --- | --- |
 | 1 | Docs told the user to press a `User` button before starting | No such button found on the panel | Docs corrected. The claim was never a code requirement: `Push2.open` picks a port *by name* and sends no mode change, so nothing has to be pressed. `Btn.USER = 59` stays in the map (spec value, unverified, deliberately unbound) and the probe now labels it as possibly absent |
+| 2 | Port names `Ableton Push 2 Live Port` / `Ableton Push 2 User Port` | Exactly that, in both directions — and `_pick` chose the User port | **Confirmed.** README table row filled in |
+| 3 | The grid lights when we send note-ons | Nothing lit at all; the probe's first check could not be answered | **Open.** `--led-test` (`ledtest.py`) was written to find out which layer is at fault, since "dark" has at least five indistinguishable causes. Leading suspect: `program_palette`. Every colour in `colors.py` is a private palette index ≥ 64 uploaded over unverified SysEx, so an upload that does not take means the program paints in entries the device left black — silently |
 
-Finding 1 is the shape to expect from the rest: a **documentation** assumption
-built on top of a spec value, where the code was indifferent all along. Worth
-checking that distinction before changing anything — the correction is often to
-prose, not to `constants.py`.
+Finding 1 is one shape to expect: a **documentation** assumption built on a spec
+value, where the code was indifferent all along. Check that distinction before
+changing anything — the correction is often to prose, not to `constants.py`.
+
+Finding 3 is the other, and the more expensive one. The probe was built to ask
+"is this control on the CC we think?", which presumes the LEDs work; when they
+do not, every one of its nine checks returns the same unanswerable silence. A
+verification tool needs to establish its own preconditions before it starts
+asking questions that depend on them — hence `--led-test` running *before*
+`--selftest`, and `--selftest` now saying so when the first check comes back
+dark. Worth remembering for `IN-07` and anything else built on the display.
 
 **Problem.** `display.py`, `Push2.program_palette`, the button CC map and the
 `sounddevice` callback have never been exercised against a real Push 2 in this

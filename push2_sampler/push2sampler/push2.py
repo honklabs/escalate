@@ -76,6 +76,8 @@ class PushBase:
         self.button_leds: dict[int, int] = {}
         #: When True, every inbound message is also queued on ``raw`` untouched.
         self.capture_raw = False
+        #: Set by program_palette; the simulator and the tests read it.
+        self.palette_programmed = False
         self.raw: queue.SimpleQueue = queue.SimpleQueue()
         #: True once a write has failed.  The app keeps playing and retries; see
         #: ``App._supervise_surface``.
@@ -135,6 +137,20 @@ class PushBase:
         except Exception as exc:
             self._went_offline(exc)
 
+    def send_pad_raw(self, index: int, value: int, channel: int = 0) -> None:
+        """Light a pad *now*, bypassing the dedupe cache, on any MIDI channel.
+
+        The cache in :meth:`set_pad` is what makes a 30 Hz refresh cheap, but a
+        diagnostic has to be able to send the same value twice and to try
+        channels other than the static one -- see ``ledtest.py``.  Nothing in
+        the normal render path should use this.
+        """
+        self.pad_leds[index] = -1
+        try:
+            self._send_pad_on(index, value, channel)
+        except Exception as exc:
+            self._went_offline(exc)
+
     def _went_offline(self, exc: Exception) -> None:
         """A write failed: stop trying until someone reconnects us.
 
@@ -183,6 +199,23 @@ class PushBase:
     def _send_pad(self, index: int, value: int) -> None:  # pragma: no cover
         pass
 
+    def _send_pad_on(self, index: int, value: int, channel: int) -> None:
+        """Like :meth:`_send_pad` but on an explicit channel.
+
+        The default ignores the channel, which is right for every stand-in: only
+        real hardware distinguishes them.
+        """
+        self._send_pad(index, value)
+
+    def program_palette(self) -> None:
+        """Upload the private palette entries.  A no-op with no hardware.
+
+        Defined here rather than only on :class:`Push2` because callers reach
+        for it polymorphically -- ``ledtest`` re-uploads mid-run, and a missing
+        attribute there looked exactly like a device refusing the SysEx.
+        """
+        self.palette_programmed = True
+
     def _send_button(self, cc: int, value: int) -> None:  # pragma: no cover
         pass
 
@@ -201,7 +234,13 @@ class Push2(PushBase):
         self.chosen_output: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
-    def open(self) -> None:
+    def open(self, program_palette: bool = True) -> None:
+        """Open the ports and upload our palette.
+
+        ``program_palette=False`` is for the LED diagnostic, which has to see
+        what the pads do *before* we touch the palette -- otherwise a broken
+        upload and a dead surface are indistinguishable.
+        """
         import mido  # imported lazily so the simulator needs no MIDI stack
 
         in_name = self._pick(mido.get_input_names(), "input")
@@ -209,7 +248,8 @@ class Push2(PushBase):
         self.chosen_input, self.chosen_output = in_name, out_name
         self._outport = mido.open_output(out_name)
         self._inport = mido.open_input(in_name, callback=self._on_midi)
-        self.program_palette()
+        if program_palette:
+            self.program_palette()
         self.clear()
 
     def close(self) -> None:
@@ -242,13 +282,18 @@ class Push2(PushBase):
 
     # -- output ------------------------------------------------------------
     def _send_pad(self, index: int, value: int) -> None:
+        # Channel 1 (mido channel 0) means "static colour, no animation".
+        self._send_pad_on(index, value, 0)
+
+    def _send_pad_on(self, index: int, value: int, channel: int) -> None:
         if self._outport is None:
             return
         import mido
 
-        # Channel 1 (mido channel 0) means "static colour, no animation".
         self._outport.send(
-            mido.Message("note_on", channel=0, note=index_to_note(index), velocity=value)
+            mido.Message(
+                "note_on", channel=channel, note=index_to_note(index), velocity=value
+            )
         )
 
     def _send_button(self, cc: int, value: int) -> None:
@@ -273,6 +318,7 @@ class Push2(PushBase):
         self._outport.send(
             mido.Message("sysex", data=[*SYSEX_PREFIX, SYSEX_REAPPLY_PALETTE])
         )
+        self.palette_programmed = True
 
     # -- input -------------------------------------------------------------
     def _on_midi(self, msg) -> None:
@@ -309,7 +355,6 @@ class SimPush(PushBase):
 
     def __init__(self) -> None:
         super().__init__()
-        self.palette_programmed = False
         self.sent: list[tuple[str, int, int]] = []
 
     def open(self) -> None:

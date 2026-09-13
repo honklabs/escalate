@@ -12,6 +12,43 @@ plan.
 
 ## Unreleased
 
+### `--led-test`: why are the pads dark? (`F-08` finding 3)
+
+First time on real hardware, the probe's opening check — one pad lit, which
+corner is it? — had no answer, because nothing lit at all. Every later check
+asks a question that presumes working LEDs, so the whole probe was about to
+return the same silence nine times.
+
+- **New `--led-test`** (`ledtest.py`) isolates the layers instead of assuming
+  them: does the Push send *us* anything, do the pads light from a **factory**
+  palette index (no SysEx), do they light from **our** uploaded block (SysEx),
+  do the button LEDs light, and is it the MIDI channel. It prints a verdict
+  naming the layer at fault and writes `led-report.json`.
+- The interesting outcome is factory lighting and ours not: every colour in
+  `colors.py` is a private palette index of 64 or above, so a SysEx upload that
+  does not take means the program paints into entries the device left black —
+  with no error anywhere.
+- **`--selftest` now stops guessing when the grid is dark.** Answering "none" to
+  the orientation check is recorded as "no LED output at all" rather than
+  "`index_to_note` needs flipping", and points at `--led-test`.
+- `Push2.open(program_palette=False)` — the diagnostic has to see the pads
+  before the palette is touched, or a broken upload stays invisible.
+- `PushBase.send_pad_raw(index, value, channel)` bypasses the LED dedupe cache
+  and can use a channel other than the static one. Nothing on the render path
+  uses it.
+- **`program_palette` moved to `PushBase`** as a no-op. It existed only on
+  `Push2`, so calling it polymorphically raised `AttributeError` — which
+  `ledtest` caught and reported as "the device refused the SysEx". Found by its
+  own tests, and exactly the failure mode the tool is meant to distinguish.
+- New wire-format tests pin what actually goes out: the palette entry's 7-bit
+  component split, the static channel on a normal pad write, and the explicit
+  channel on a raw one. They supply a fake `mido`, since it is optional and not
+  installed in CI.
+
+Confirmed on the device in passing: the port names are `Ableton Push 2 Live
+Port` and `Ableton Push 2 User Port` in both directions, and `_pick` chose the
+User port — one row of the README's hardware table filled in.
+
 ### First hardware feedback (`F-08` finding 1)
 
 - **Removed the "press the Push's `User` button" instruction.** It was wrong.

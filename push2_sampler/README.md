@@ -443,6 +443,12 @@ third, `wait S` lets the transport run, `q` quits.
   the current mode, tempo and bar; without them (or with `--no-display`)
   everything else works unchanged.
 
+If the pads stay dark, `--led-test` finds out which layer is at fault -- does
+the Push answer us at all, do the pads light from a factory palette index, do
+they light from the private block we upload, do the buttons light, is it the
+channel. It writes `led-report.json`. Worth running before `--selftest`, whose
+questions all assume the LEDs already work.
+
 ### Confirmed against real hardware
 
 | what | source | confirmed on a device |
@@ -453,7 +459,7 @@ third, `wait S` lets the transport run, `q` quits.
 | encoder relative values | spec | not yet |
 | touch strip as pitchwheel | spec | not yet |
 | display frame header and BGR565 packing | spec, unit-tested byte for byte | not yet |
-| User/Live port naming | spec | not yet |
+| User/Live port naming | spec | **yes** -- `Ableton Push 2 Live Port` and `Ableton Push 2 User Port`, both directions |
 
 `--selftest` fills this in. Until then, treat every row as a guess that the
 program is built to be corrected on.

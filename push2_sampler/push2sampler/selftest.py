@@ -320,13 +320,25 @@ class Probe:
             return
         seen = {"": "top-left", "tl": "top-left", "tr": "top-right",
                 "bl": "bottom-left", "br": "bottom-right"}.get(answer, answer or "none")
+        if seen == "none":
+            # Nothing lit is not an orientation finding, and every check after
+            # this one is about to ask the same unanswerable question.  Say so
+            # here rather than letting the operator answer "none" eight times.
+            self.say("  Nothing lit means this is not the grid map -- it is the")
+            self.say("  LEDs themselves.  Stop here and run:")
+            self.say("      python -m push2sampler --led-test")
+            self.say("  which finds out which layer is at fault.")
         self.report.add(
             Step(
                 "pad 0 is top-left",
                 "ok" if seen == "top-left" else "mismatch",
                 expected="top-left",
                 observed=seen,
-                detail="" if seen == "top-left" else "index_to_note needs flipping",
+                detail=(
+                    "" if seen == "top-left"
+                    else "no LED output at all -- run --led-test" if seen == "none"
+                    else "index_to_note needs flipping"
+                ),
             )
         )
         self._light_only(range(8))

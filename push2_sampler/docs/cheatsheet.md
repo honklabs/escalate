@@ -282,6 +282,7 @@ the display says why.
 | `doctor` | what is installed, what is missing, and how to fix it |
 | `--version` | print the version |
 | `--selftest` | guided hardware probe, writes `hardware-report.json` |
+| `--led-test` | the pads are dark: which layer is at fault, writes `led-report.json` |
 | `--calibrate` | measure input latency and store it |
 | `--list-ports` / `--list-devices` | what Python can see |
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |
