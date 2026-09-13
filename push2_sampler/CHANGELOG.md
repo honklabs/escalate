@@ -10,6 +10,29 @@ plan.
 
 ---
 
+## Unreleased
+
+### First hardware feedback (`F-08` finding 1)
+
+- **Removed the "press the Push's `User` button" instruction.** It was wrong.
+  `Push2.open` picks the User *port* by name and sends no mode change, so the
+  program never needed anything pressed on the device — and on a real Push 2 the
+  button the docs named could not be found on the panel. `README.md`,
+  `docs/getting-started.md`, `docs/troubleshooting.md` and the `doctor` hint now
+  point at the two things that do take the surface away (Ableton Live running,
+  bus power) and at `--list-ports`.
+- **`--list-ports` guidance for ALSA names.** On Linux the ports often come
+  through as `Ableton Push 2 MIDI 1` / `MIDI 2` with no "User" anywhere, in
+  which case `_pick` falls through to the first match — documented in
+  troubleshooting rather than left to be discovered.
+- **The probe no longer implies every button it names exists.** `--selftest`
+  labels `User` as possibly absent and says up front that a name missing from
+  your panel is itself a finding.
+- `Btn.USER = 59` is unchanged and still unbound: a spec value we have no
+  reason to trust and no reason to use.
+
+---
+
 ## v1.3 — A whole song
 
 Completes the `v1.3` **A whole song** train: 42 of the 58 planned items are

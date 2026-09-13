@@ -90,7 +90,8 @@ def midi_ports() -> list[Row]:
     if names:
         return [Row(WARN, "Push 2 port", f"not among {len(names)} port(s): "
                     + ", ".join(names[:4]),
-                    "plug the Push in, quit Ableton Live, press its User button")]
+                    "plug the Push in with its own power supply, straight into "
+                    "the computer, and quit Ableton Live")]
     return [Row(WARN, "Push 2 port", "no MIDI ports at all",
                 "plug the Push in; --sim works without it")]
 

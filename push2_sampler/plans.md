@@ -237,7 +237,7 @@ CC is the most likely merge conflict in this project.
 | Add Track | 53 | free |
 | Select | 48 | **taken** — `CC-17`/`CC-18`: name and colour a slot |
 | Layout | 31 | free |
-| User | 59 | free — leave free, users press it to switch Push modes |
+| User | 59 | free — spec value, and F-08 finding 1 found no such button on the panel; do not bind it |
 | Octave ▲▼ | 55 / 54 | free |
 | ▶ Right | 45 | free |
 | Display row bottom | 20–27 | **taken per mode** — Library: `NH-06` scenes · Mixer: mute · Settings/Editor/Tag/Browser: their own |
@@ -634,6 +634,18 @@ payload, BGR565 packing and the XOR shaping against a fake USB device.
 
 Still open, and only a person with hardware can close it: actually running it,
 then correcting `constants.py` and filling in the README table.
+
+**Findings so far** — the first feedback from a real device, logged here as it
+arrives:
+
+| # | What was claimed | What the device says | Done |
+| --- | --- | --- | --- |
+| 1 | Docs told the user to press a `User` button before starting | No such button found on the panel | Docs corrected. The claim was never a code requirement: `Push2.open` picks a port *by name* and sends no mode change, so nothing has to be pressed. `Btn.USER = 59` stays in the map (spec value, unverified, deliberately unbound) and the probe now labels it as possibly absent |
+
+Finding 1 is the shape to expect from the rest: a **documentation** assumption
+built on top of a spec value, where the code was indifferent all along. Worth
+checking that distinction before changing anything — the correction is often to
+prose, not to `constants.py`.
 
 **Problem.** `display.py`, `Push2.program_palette`, the button CC map and the
 `sounddevice` callback have never been exercised against a real Push 2 in this

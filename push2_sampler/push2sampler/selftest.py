@@ -73,7 +73,7 @@ BUTTONS: tuple[tuple[str, int], ...] = (
     ("Repeat", Btn.REPEAT),
     ("Accent", Btn.ACCENT),
     ("Setup", Btn.SETUP),
-    ("User", Btn.USER),
+    ("User (top-left corner, by Setup -- may not exist on your unit)", Btn.USER),
     ("Up arrow", Btn.UP),
     ("Down arrow", Btn.DOWN),
     ("Left arrow", Btn.LEFT),
@@ -399,6 +399,8 @@ class Probe:
     def check_buttons(self) -> None:
         """Buttons -- which control change each one sends"""
         self.say("  Press each button as it is named. Enter skips one.")
+        self.say("  A name that is not on your panel at all is a finding too:")
+        self.say("  press Enter and it is recorded as missing.")
         for label, expected in BUTTONS:
             self.push.set_button(expected, BTN_BRIGHT)
             msg = self._await_message(f"Press {label}.", ("control_change",))

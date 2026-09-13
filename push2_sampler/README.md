@@ -432,7 +432,10 @@ third, `wait S` lets the transport run, `q` quits.
 ## Hardware notes
 
 * The program uses the **Push 2 User port**, so it coexists with anything on
-  the Live port. Press the Push's `User` button if the pads don't respond.
+  the Live port. It picks that port *by name* and never sends a mode change, so
+  no button has to be pressed on the Push first. If the pads don't respond,
+  quit Ableton Live and check `--list-ports` — see
+  [troubleshooting](docs/troubleshooting.md#the-ports-are-there-but-the-pads-stay-dark).
 * Pad colours are addressed by palette index, and the factory palette is not
   stable across firmware, so the program uploads its own palette entries (64+)
   over SysEx at startup.

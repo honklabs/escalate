@@ -83,8 +83,10 @@ python -m push2sampler my-first-song
 should light up **dim white**: 64 empty sample slots. (Dim on purpose — 64 pads
 at full brightness is glare, and the brightest white is saved for the playhead.)
 
-If the pads stay dark, press the Push's **User** button — the program talks to
-the User port, so the Push has to be in user mode.
+If the pads stay dark, see
+[Troubleshooting](troubleshooting.md#the-ports-are-there-but-the-pads-stay-dark).
+Nothing here needs a button pressed on the Push first: the program opens the
+User port and starts sending, and it never asks the Push to change mode.
 
 ### Step 4: decide how you will hear yourself
 

@@ -43,19 +43,35 @@ it, the program never had a chance.
 
 ### The ports are there but the pads stay dark
 
-Press the Push's **User** button. This program speaks to the *User* port, which
-only carries traffic when the Push is in user mode — in Live mode the Push
-answers Live, not us.
+First: **the program does not need any button pressed on the Push.** It opens
+the User port and sends colours; it never sends a mode change, and there is
+nothing to press to let it in. If a walkthrough ever told you to press a `User`
+button before starting, that was wrong — and depending on your unit there may
+not be such a button to press. So look at the port choice instead.
 
-If they are still dark, the program may have picked the wrong one of several
-matching ports. Check what it chose:
+The program may have picked the wrong one of several matching ports. Check what
+it chose:
 
 ```
 python -m push2sampler --list-ports
 ```
 
 It prefers a port with "User" in the name and avoids one with "Live". If your
-port names are unusual, the probe's report will say so.
+port names are unusual — on Linux/ALSA they are often `Ableton Push 2 MIDI 1`
+and `MIDI 2`, with no "User" anywhere — then it took the first match, which may
+be the Live port. There is no flag for this yet; say which names you have and
+it becomes one.
+
+Two things do genuinely take the surface away from us:
+
+| Cause | Fix |
+| --- | --- |
+| Ableton Live is running | Quit it. While it is driving the Push it owns the surface and the display, and it repaints over anything we send |
+| Bus power only | Plug in the Push's own power supply. On USB power alone it runs dim and the display may not come up |
+
+If Live is running and you would rather not quit it, that is what the Push's
+user mode is for — but it is a Live-side arrangement, not something this program
+takes part in. Quitting Live is the supported answer.
 
 ### "ignoring …/settings.json: …" on startup
 
