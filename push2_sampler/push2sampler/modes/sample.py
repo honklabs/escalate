@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from .. import colors
 from ..constants import (
     BTN_BRIGHT,
@@ -16,11 +18,15 @@ from ..history import (
     ClearTriggers,
     DeleteSample,
     RepairLength,
+    SetBars,
     SetEnabled,
     SetGain,
+    SetVelocitySensitivity,
     ToggleTrigger,
 )
+from ..project import FULL_VELOCITY
 from .base import Mode
+from .sample_edit import SampleEditMode
 
 #: Bottom display-row button that fits an off-grid take to its bars.
 REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
@@ -29,6 +35,8 @@ REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
 PHRASE_BARS = 4
 #: Bars every this many get a brighter tint: the song's sections.
 SECTION_BARS = 16
+#: Two presses of the same pad within this are a double tap, not two toggles.
+DOUBLE_TAP_S = 0.35
 
 
 class SampleMode(Mode):
@@ -37,6 +45,15 @@ class SampleMode(Mode):
     def __init__(self, app, slot: int) -> None:
         super().__init__(app)
         self.slot = slot
+        #: The bar being held down, and the state its press painted it to, so
+        #: holding one bar and pressing another paints everything between.
+        self._held_bar: int | None = None
+        self._paint_on = False
+        #: Last single tap, for spotting a double tap on the same bar.
+        self._tapped_bar: int | None = None
+        self._tapped_at = 0.0
+        #: First bar of a block being duplicated, once it has been picked.
+        self._copy_from: int | None = None
 
     @property
     def sample(self):
@@ -52,6 +69,8 @@ class SampleMode(Mode):
     # -- input -------------------------------------------------------------
     def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
         if not pressed:
+            if self._held_bar == index:
+                self._held_bar = None
             return True
         sample = self.sample
         if sample is None:
@@ -60,8 +79,87 @@ class SampleMode(Mode):
             self.app.delete_armed = False
             self.app.do(ClearTriggers(self.slot))
             return True
+        if self.app.duplicate_armed:
+            self._duplicate(sample, index)
+            return True
+        if self._held_bar is not None and self._held_bar != index:
+            # Hold one bar, press another: paint everything between them to
+            # whatever the held bar's own press made it.
+            self._paint(sample, self._held_bar, index)
+            return True
+        now = time.monotonic()
+        if index == self._tapped_bar and now - self._tapped_at <= DOUBLE_TAP_S:
+            self._tapped_bar = None
+            self._phrase(sample, index)
+            return True
         self.app.do(ToggleTrigger(self.slot, index, index not in sample.triggers))
+        self._held_bar = index
+        self._paint_on = index in sample.triggers
+        self._tapped_bar, self._tapped_at = index, now
         return True
+
+    def _paint(self, sample, anchor: int, other: int) -> None:
+        """Set every bar between two pads to the state the first press made."""
+        lo, hi = (anchor, other) if anchor <= other else (other, anchor)
+        target = FULL_VELOCITY if self._paint_on else None
+        changes = {
+            bar: target
+            for bar in range(lo, hi + 1)
+            if (bar in sample.triggers) != self._paint_on
+        }
+        if not changes:
+            return  # the whole range is already painted; say nothing
+        verb = "on" if self._paint_on else "off"
+        self.app.do(SetBars(self.slot, changes, f"bars {lo + 1}-{hi + 1} {verb}"))
+
+    def _phrase(self, sample, bar: int) -> None:
+        """Double tap: fill the next phrase with this take, or clear it.
+
+        The first tap of the double tap has already toggled the bar, so which way
+        this goes is simply whether that left the bar playing.
+        """
+        end = min(bar + PHRASE_BARS, PAD_COUNT)
+        filling = bar in sample.triggers
+        if filling:
+            stride = max(1, sample.bars)
+            wanted = {b: FULL_VELOCITY for b in range(bar, end, stride)}
+        else:
+            wanted = {b: None for b in range(bar, end)}
+        changes = {
+            b: v for b, v in wanted.items() if (b in sample.triggers) != (v is not None)
+        }
+        span = f"bars {bar + 1}-{end}"
+        if not changes:
+            self.app.notify(f"nothing to {'fill' if filling else 'clear'} in {span}")
+            return
+        self.app.do(SetBars(self.slot, changes, f"{'filled' if filling else 'cleared'} {span}"))
+
+    def _duplicate(self, sample, index: int) -> None:
+        """Pick the start of a block, then where it goes; the gap is its length."""
+        if self._copy_from is None:
+            self._copy_from = index
+            self.app.notify(f"from bar {index + 1}: now press where it goes")
+            return
+        source, self._copy_from = self._copy_from, None
+        self.app.duplicate_armed = False
+        length = index - source
+        if length <= 0:
+            self.app.notify("press a later bar: the gap is the block length")
+            return
+        move = self.app.shift
+        changes = self.project.copy_bar_range(self.slot, source, index, length, move=move)
+        changes = {
+            b: v for b, v in changes.items() if (b in sample.triggers) != (v is not None)
+            or (v is not None and sample.velocity_at(b) != v)
+        }
+        if not changes:
+            self.app.notify("that block is already there")
+            return
+        verb = "moved" if move else "copied"
+        self.app.do(SetBars(
+            self.slot, changes,
+            f"{verb} bars {source + 1}-{source + length} to {index + 1}",
+        ))
 
     def on_button(self, cc: int, pressed: bool) -> bool:
         if not pressed:
@@ -74,6 +172,15 @@ class SampleMode(Mode):
         if cc == Btn.MUTE and sample is not None:
             self.app.do(SetEnabled(self.slot, not sample.enabled))
             return True
+        if cc == Btn.DEVICE and sample is not None:
+            self.app.push_mode(SampleEditMode(self.app, self.slot))
+            return True
+        if cc == Btn.ACCENT and sample is not None:
+            wanted = 0.0 if sample.velocity_sensitivity > 0 else 1.0
+            self.app.do(
+                SetVelocitySensitivity(self.slot, wanted, sample.velocity_sensitivity)
+            )
+            return True
         if cc == Btn.DELETE:
             if self.app.shift:
                 self.app.do(DeleteSample(self.slot))
@@ -81,6 +188,15 @@ class SampleMode(Mode):
             else:
                 self.app.delete_armed = True
                 self.app.notify("press any pad to clear all bars")
+            return True
+        if cc == Btn.DUPLICATE and sample is not None:
+            self.app.duplicate_armed = not self.app.duplicate_armed
+            self._copy_from = None
+            self.app.delete_armed = False
+            self.app.notify(
+                "duplicate: press the first bar of the block"
+                if self.app.duplicate_armed else "duplicate off"
+            )
             return True
         if cc == REPAIR_BUTTON and sample is not None:
             if self.project.mismatched(sample):
@@ -116,18 +232,35 @@ class SampleMode(Mode):
             return
         others = self._other_trigger_bars()
         mine = sample.triggers
-        on_color = colors.GREEN.index if sample.enabled else colors.GREEN_DIM.index
         for bar in range(PAD_COUNT):
             if bar in mine:
-                pads[bar] = on_color
+                pads[bar] = self._trigger_color(sample, bar)
             elif bar in others:
                 pads[bar] = colors.BLUE_DIM.index
             else:
                 pads[bar] = _grid_tint(bar)
+        if self._copy_from is not None:
+            pads[self._copy_from] = (
+                colors.BLUE.index if self.app.blink else colors.WHITE.index
+            )
         if self.engine.is_playing:
             bar = self.engine.current_bar
             if 0 <= bar < PAD_COUNT:
                 pads[bar] = colors.AMBER.index if bar in mine else colors.WHITE.index
+
+    @staticmethod
+    def _trigger_color(sample, bar: int) -> int:
+        """Green, in three steps, so you can see how hard a bar was played."""
+        if not sample.enabled:
+            return colors.GREEN_DIM.index
+        if sample.velocity_sensitivity <= 0:
+            return colors.GREEN.index
+        velocity = sample.velocity_at(bar)
+        if velocity >= 100:
+            return colors.GREEN.index
+        if velocity >= 55:
+            return colors.GREEN_MID.index
+        return colors.GREEN_DIM.index
 
     def _other_trigger_bars(self) -> set[int]:
         bars: set[int] = set()
@@ -142,6 +275,13 @@ class SampleMode(Mode):
         buttons[Btn.MUTE] = BTN_BRIGHT if (sample and not sample.enabled) else BTN_DIM
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.DELETE] = BTN_BRIGHT if self.app.delete_armed else BTN_DIM
+        buttons[Btn.ACCENT] = (
+            BTN_BRIGHT if sample and sample.velocity_sensitivity > 0 else BTN_DIM
+        )
+        buttons[Btn.DEVICE] = (
+            BTN_BRIGHT if sample and not sample.edits.is_default else BTN_ON
+        )
+        buttons[Btn.DUPLICATE] = BTN_BRIGHT if self.app.duplicate_armed else BTN_DIM
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -150,10 +290,27 @@ class SampleMode(Mode):
         if sample is None:
             return ["SAMPLE"]
         state = "MUTED" if not sample.enabled else "audible"
+        velocity = "velocity" if sample.velocity_sensitivity > 0 else "flat"
+        if self.app.duplicate_armed:
+            if self._copy_from is None:
+                return [
+                    "DUPLICATE",
+                    "press the first bar of the block you want to repeat",
+                    "then press where it should go; the gap is its length",
+                    "Shift on the second press moves the block instead",
+                ]
+            return [
+                f"DUPLICATE from bar {self._copy_from + 1}",
+                "now press where it goes -- the gap sets how many bars copy",
+                f"bar {self._copy_from + 5} would copy a 4-bar block",
+                "Shift moves instead of copying   Duplicate cancels",
+            ]
         lines = [
             f"SLOT {self.slot + 1}  {sample.bars} bar(s)  {state}",
-            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}",
-            "pad: toggle bar   Record: re-record   Mute: hear",
+            f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}",
+            "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
+            "Record: re-record   Mute: hear   Accent: velocity   Device: edit"
+            + ("   (edited)" if not sample.edits.is_default else ""),
         ]
         if self.project.mismatched(sample):
             measured = sample.bars_at(self.project.bpm, self.project.samplerate,

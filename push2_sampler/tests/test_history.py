@@ -194,3 +194,47 @@ def test_clear_forgets_everything(project):
     history.clear()
     assert history.can_undo is False
     assert history.can_redo is False
+
+
+# ------------------------------------------------------ velocity (NF-10)
+def test_a_trigger_with_a_velocity_round_trips(project):
+    from push2sampler.history import SetVelocitySensitivity
+
+    history = History()
+    history.do(project, ToggleTrigger(0, 9, True, velocity=60))
+    assert project[0].velocity_at(9) == 60
+    history.undo(project)
+    assert 9 not in project[0].triggers
+    assert project[0].velocities == {}
+    history.redo(project)
+    assert project[0].velocity_at(9) == 60
+
+    history.do(project, SetVelocitySensitivity(0, 1.0, 0.0))
+    assert project[0].velocity_sensitivity == 1.0
+    history.undo(project)
+    assert project[0].velocity_sensitivity == 0.0
+
+
+def test_undoing_a_toggle_restores_the_velocity_it_replaced(project):
+    history = History()
+    project[0].set_trigger(5, True, velocity=40)
+    history.do(project, ToggleTrigger(0, 5, True, velocity=120))
+    assert project[0].velocity_at(5) == 120
+    history.undo(project)
+    assert project[0].velocity_at(5) == 40  # the softer version is back
+
+
+def test_clearing_and_erasing_keep_velocities_for_undo(project):
+    from push2sampler.history import ClearBar
+
+    history = History()
+    project[0].set_trigger(2, True, velocity=30)
+    history.do(project, ClearBar(2))
+    assert 2 not in project[0].triggers
+    history.undo(project)
+    assert project[0].velocity_at(2) == 30
+
+    history.do(project, ClearTriggers(0))
+    assert project[0].velocities == {}
+    history.undo(project)
+    assert project[0].velocity_at(2) == 30

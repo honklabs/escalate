@@ -21,13 +21,25 @@ import numpy as np
 
 from . import wavio
 from .constants import PAD_COUNT
+from .edits import DEFAULT_EDITS, Edits, render_edits
 
 SONG_BARS = 64
 #: A take may be this far from its declared length before it is flagged.
 LENGTH_TOLERANCE = 0.01
+#: Velocity of a bar that was not played in by hand: as hard as it goes.
+FULL_VELOCITY = 127
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 4
+
+
+def format_bpm(bpm: float) -> str:
+    """A tempo as it should be read: "120", but "120.3" after a fine nudge.
+
+    One formatter, so the transport readout and the undo label can never
+    disagree about how much of the tempo you are being shown.
+    """
+    return f"{bpm:.1f}" if round(bpm, 3) % 1 else f"{bpm:.0f}"
 
 
 @dataclass
@@ -38,37 +50,102 @@ class Sample:
     bars: int
     audio: np.ndarray
     triggers: set[int] = field(default_factory=set)
+    #: How hard each bar was played, for the bars that were not played flat out.
+    #: Keys are always a subset of ``triggers``; a missing one means full.
+    velocities: dict[int, int] = field(default_factory=dict)
+    #: 0 = ignore how hard the pad was hit, 1 = velocity controls the level.
+    velocity_sensitivity: float = 0.0
     enabled: bool = True
     gain: float = 1.0
     name: str = ""
     #: Tempo and rate this take was captured at; 0 means "unknown" (v1 projects).
     source_bpm: float = 0.0
     source_samplerate: int = 0
+    #: Non-destructive trim/fade/pitch/reverse/normalise.
+    edits: Edits = DEFAULT_EDITS
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
             self.name = f"S{self.slot + 1:02d}"
+        self._rendered: np.ndarray | None = None
+        self._rendered_key: tuple | None = None
+
+    @property
+    def raw_frames(self) -> int:
+        """Length of the recording itself, before any edits."""
+        return int(self.audio.shape[0])
 
     @property
     def frames(self) -> int:
-        return int(self.audio.shape[0])
+        """Length of what actually plays, edits included."""
+        return int(self.effective_audio().shape[0])
 
-    def set_trigger(self, bar: int, on: bool) -> None:
-        """Enable or disable playback on ``bar``."""
+    def effective_audio(self, samplerate: int | None = None) -> np.ndarray:
+        """The audio as edited, cached until an edit or the recording changes.
+
+        With no edits this is the recording itself, by identity -- the editor
+        costs nothing until it is used.
+        """
+        rate = samplerate or self.source_samplerate or 48_000
+        key = (self.edits, rate, id(self.audio), self.audio.shape)
+        if self._rendered_key == key and self._rendered is not None:
+            return self._rendered
+        rendered = render_edits(self.audio, rate, self.edits)
+        self._rendered_key = key
+        # Holding the key's array alive keeps its id() from being reused.
+        self._rendered = rendered
+        return rendered
+
+    def set_edits(self, edits: Edits) -> None:
+        self.edits = edits
+        self._rendered_key = None
+        self._rendered = None
+
+    def apply_edits(self) -> bool:
+        """Fold the edits into the recording for good.  True if anything changed."""
+        if self.edits.is_default:
+            return False
+        self.audio = np.ascontiguousarray(self.effective_audio(), dtype=np.float32)
+        self.set_edits(DEFAULT_EDITS)
+        self.audio_saved = False
+        return True
+
+    def set_trigger(self, bar: int, on: bool, velocity: int | None = None) -> None:
+        """Enable or disable playback on ``bar``, optionally with a velocity."""
         if not 0 <= bar < SONG_BARS:
             raise ValueError(f"bar out of range: {bar}")
-        if on:
-            self.triggers.add(bar)
-        else:
+        if not on:
             self.triggers.discard(bar)
+            self.velocities.pop(bar, None)
+            return
+        self.triggers.add(bar)
+        if velocity is None or velocity >= FULL_VELOCITY:
+            self.velocities.pop(bar, None)
+        else:
+            self.velocities[bar] = max(1, int(velocity))
 
     def toggle(self, bar: int) -> bool:
         """Toggle playback on ``bar``; returns the new state."""
         on = bar not in self.triggers
         self.set_trigger(bar, on)
         return on
+
+    def velocity_at(self, bar: int) -> int:
+        return self.velocities.get(bar, FULL_VELOCITY)
+
+    def velocity_scale(self, bar: int) -> float:
+        """Level multiplier for ``bar``, given how hard it was played.
+
+        At sensitivity 0 every bar plays at the sample's own gain, which is what
+        a take toggled in by hand should do.
+        """
+        sensitivity = max(0.0, min(1.0, self.velocity_sensitivity))
+        if sensitivity <= 0.0:
+            return 1.0
+        loudness = self.velocity_at(bar) / FULL_VELOCITY
+        return (1.0 - sensitivity) + sensitivity * loudness
 
     def bars_at(self, bpm: float, samplerate: int, beats_per_bar: int = 4) -> float:
         """How many bars this take's audio fills at the given tempo.
@@ -88,6 +165,9 @@ class Sample:
             "triggers": sorted(self.triggers),
             "enabled": self.enabled,
             "gain": round(float(self.gain), 4),
+            "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
+            "edits": self.edits.as_dict(),
+            "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
             "source_bpm": round(float(self.source_bpm), 3),
             "source_samplerate": int(self.source_samplerate),
             "audio": audio_path,
@@ -135,9 +215,13 @@ class Project:
         return [s.slot for s in self.filled() if self.mismatched(s)]
 
     def fitted_audio(self, sample: Sample) -> np.ndarray:
-        """``sample``'s audio padded with silence or trimmed to exactly its bars."""
+        """``sample``'s audio padded with silence or trimmed to exactly its bars.
+
+        Works on the edited audio: fitting is destructive anyway, so it folds in
+        whatever the editor is doing rather than fighting it.
+        """
         target = self.expected_frames(sample.bars)
-        audio = sample.audio
+        audio = sample.effective_audio(self.samplerate)
         if audio.shape[0] == target:
             return audio
         fitted = np.zeros((target, audio.shape[1]), dtype=np.float32)
@@ -151,6 +235,7 @@ class Project:
         if sample is None or not self.mismatched(sample):
             return False
         sample.audio = self.fitted_audio(sample)
+        sample.set_edits(DEFAULT_EDITS)
         sample.source_bpm = self.bpm
         sample.source_samplerate = self.samplerate
         sample.audio_saved = False
@@ -179,6 +264,8 @@ class Project:
             audio=np.ascontiguousarray(audio, dtype=np.float32),
             triggers=set(triggers) if triggers is not None
             else (set(existing.triggers) if existing else set()),
+            velocities=dict(existing.velocities) if existing else {},
+            velocity_sensitivity=existing.velocity_sensitivity if existing else 0.0,
             enabled=existing.enabled if existing else True,
             gain=existing.gain if existing else 1.0,
             name=existing.name if existing else "",
@@ -188,6 +275,72 @@ class Project:
         self.slots[slot] = sample
         self.dirty = True
         return sample
+
+    def next_empty(self, after: int) -> int | None:
+        """The first empty slot after ``after``, wrapping round the grid."""
+        for offset in range(1, PAD_COUNT + 1):
+            candidate = (after + offset) % PAD_COUNT
+            if self.slots[candidate] is None:
+                return candidate
+        return None
+
+    def copy_slot(self, src: int, dst: int) -> Sample | None:
+        """Put a copy of ``src`` in ``dst``, arrangement and all.
+
+        The audio array is shared, not duplicated.  Nothing here mutates a take's
+        samples in place -- an edit or a repair builds a new array and rebinds
+        ``sample.audio`` -- so the two slots behave independently from the start
+        and a 30-second take does not cost 30 seconds of memory to duplicate.
+        """
+        source = self.slots[src]
+        if source is None:
+            return None
+        copy = Sample(
+            slot=dst,
+            bars=source.bars,
+            audio=source.audio,
+            triggers=set(source.triggers),
+            velocities=dict(source.velocities),
+            velocity_sensitivity=source.velocity_sensitivity,
+            enabled=source.enabled,
+            gain=source.gain,
+            name=f"{source.name}+",
+            source_bpm=source.source_bpm,
+            source_samplerate=source.source_samplerate,
+            edits=source.edits,
+        )
+        self.slots[dst] = copy
+        self.dirty = True
+        return copy
+
+    def copy_bar_range(self, slot: int, src_start: int, dst_start: int,
+                       length: int, move: bool = False) -> dict[int, int | None]:
+        """The bar changes that duplicating a block of an arrangement would make.
+
+        Computes rather than applies, so the caller can hand the result to one
+        undoable :class:`~push2sampler.history.SetBars`.  A block that would run
+        past the last bar is clipped, not wrapped: bar 64 is the end of the song,
+        not a join.
+        """
+        sample = self.slots[slot]
+        if sample is None or length <= 0:
+            return {}
+        changes: dict[int, int | None] = {}
+        for offset in range(length):
+            src, dst = src_start + offset, dst_start + offset
+            if not 0 <= dst < self.song_bars:
+                break  # clipped at the end of the song
+            if 0 <= src < self.song_bars and src in sample.triggers:
+                changes[dst] = sample.velocity_at(src)
+            else:
+                changes[dst] = None
+        if move:
+            for offset in range(length):
+                src = src_start + offset
+                # Only clear source bars the copy did not land on.
+                if 0 <= src < self.song_bars and src not in changes:
+                    changes[src] = None
+        return changes
 
     def install(self, slot: int, sample: Sample | None) -> None:
         """Put a sample (or ``None``) straight into a slot.
@@ -202,6 +355,12 @@ class Project:
         if self.slots[slot] is not None:
             self.slots[slot] = None
             self.dirty = True
+
+    def slots_at_bar(self, bar: int) -> set[int]:
+        """Slots of the audible samples triggered on ``bar``."""
+        if not 0 <= bar < self.song_bars:
+            return set()
+        return {s.slot for s in self.filled() if s.enabled and bar in s.triggers}
 
     def bars_in_use(self) -> set[int]:
         """Every bar on which some audible sample is triggered."""
@@ -219,10 +378,15 @@ class Project:
         for sample in self.filled():
             if not sample.enabled or sample.frames == 0:
                 continue
+            audio = sample.effective_audio(self.samplerate)
             for bar in sorted(sample.triggers):
                 if 0 <= bar < self.song_bars:
                     schedule[bar].append(
-                        ScheduledSample(sample.slot, sample.audio, sample.gain)
+                        ScheduledSample(
+                            sample.slot,
+                            audio,
+                            sample.gain * sample.velocity_scale(bar),
+                        )
                     )
         return [tuple(entries) for entries in schedule]
 
@@ -284,6 +448,11 @@ class Project:
                 bars=int(entry.get("bars", 1)),
                 audio=audio,
                 triggers={int(b) for b in entry.get("triggers", [])},
+                velocities={
+                    int(bar): int(v) for bar, v in (entry.get("velocities") or {}).items()
+                },
+                velocity_sensitivity=float(entry.get("velocity_sensitivity", 0.0) or 0.0),
+                edits=Edits.from_dict(entry.get("edits")),
                 enabled=bool(entry.get("enabled", True)),
                 gain=float(entry.get("gain", 1.0)),
                 name=str(entry.get("name", "")),

@@ -1,7 +1,9 @@
 # push2sampler — product plan
 
-Status: v1.0 shipped (see `README.md`). This document is the backlog and the
-rules of engagement for building v1.1 → v2.0.
+Status: v1.1 shipped and most of v1.2 (see `README.md`). User documentation for
+everything shipped so far is in [`docs/`](docs/README.md) — tutorial, reference,
+cheat sheet, troubleshooting, simulator guide. This document is the backlog and
+the rules of engagement for the rest of the way to v2.0.
 
 ---
 
@@ -62,15 +64,21 @@ until §12.Q3 is answered.
 
 ## 2. Where we are today
 
-v1.0 plus the v1.1 foundations: **`F-01`, `F-02`, `F-04`, `F-05`, `F-07`,
-`F-09`, `CC-01` and `CC-06` are shipped** (each carries a status note in its own
-section below). ~4,600 lines, 141 tests, `ruff` clean, no hardware needed to
+**Every foundation item is shipped** (`F-01`-`F-09`), plus `NF-03`, `NF-04`,
+`NF-05`, `NF-10`, `CC-01` and `CC-06`. Each carries a status note in its own
+section below. ~7,700 lines, 298 tests, `ruff` clean, no hardware needed to
 test.
 
-All of v1.1 is now done except `F-03` and the remaining creature comforts.
-`F-03` (mode stack) is deliberately held until the first mode that needs it
-(`F-06`'s settings page) rather than landing unused, which makes **`F-06`
-(settings) the next item**, followed by `NF-03`/`NF-04` in v1.2.
+`F-08` shipped the *tool* -- `--selftest` walks a real Push 2 and writes a
+report -- but the human half is still outstanding: nobody has run it yet. Until
+they do, every hardware constant remains an educated guess and the README's
+"Confirmed against real hardware" table reads "not yet" all the way down. That
+report is the highest-value thing anyone can hand this project.
+
+That finishes **v1.2**. Next is v1.3's pair: `NF-01` (song page) and `NF-07`
+(banks), which both rewrite how slots and bars are addressed -- one owner, in
+that order, or they will collide. `NH-01` (mixer) is the easy independent one if
+something smaller is wanted first.
 
 ```
 push2sampler/
@@ -79,8 +87,13 @@ push2sampler/
   push2.py      MIDI transport, PushBase/Push2/SimPush, translate_midi()
   audio.py      Transport, Engine (_process), Voice, ScheduledSample, recorder
   project.py    Sample, Project, build_schedule(), save()/load()
-  modes/        base (the mode contract), library, record, sample
+  modes/        base (the mode contract), library, record, sample, settings,
+                perform
   history.py    undoable commands + the undo/redo journal
+  settings.py   the settings table: defaults, validation, labels, persistence
+  selftest.py   the guided hardware probe and its report
+  render.py     offline bouncing: the whole mix, or one stem per slot
+  edits.py      non-destructive trim/fade/pitch/reverse/normalise
   app.py        App: event dispatch, LED render loop, autosave
   display.py    optional 960×160 screen over USB bulk
   sim.py        terminal simulator REPL
@@ -92,12 +105,14 @@ push2sampler/
 
 - Samples are immutable once recorded: no trim, gain staging is one number
   (`NF-03`).
-- Pad velocity is captured in `PadEvent` and thrown away (`NF-10`).
+- No time-stretch: a take from another tempo is detected and can be padded or
+  trimmed, but not stretched in pitch-preserving fashion (`NH-09`).
 - Tempo changes do not move recorded audio, so an old take drifts against a new
   tempo. It is now *detected* and repairable by padding/trimming (`F-09`);
   pitch-preserving stretching is still open (`NH-09`).
-- `display.py` and the `sounddevice` callback have never run against hardware
-  in CI or in this repo's history (`F-08`).
+- Nothing has run against a real Push 2 yet. `--selftest` exists to fix that
+  (`F-08`); the display's framing is now pinned byte for byte by unit tests, but
+  only a human with the device can confirm it looks right.
 - The song is exactly 64 bars, one page, one bank of 64 slots (`NF-07`, `NF-11`).
 
 ---
@@ -177,9 +192,9 @@ CC is the most likely merge conflict in this project.
 
 | Control | CC | Status |
 | --- | --- | --- |
-| Play | 85 | **taken** — transport |
-| Record | 86 | **taken** — take/re-record |
-| Stop | 29 | **taken** — stop / cancel / back out |
+| Play | 85 | **taken** — transport · `Shift`+`Play` opens perform mode |
+| Record | 86 | **taken** — take/re-record · `Shift`+`Record` bounces |
+| Stop | 29 | **taken** — stop / cancel / back out · `Shift`+`Stop` stops at the bar line · double-tap disarms everything |
 | Session | 51 | **taken** — back to library |
 | Note | 50 | **taken** — alias of Session |
 | ◀ Left | 44 | **taken** — alias of Session |
@@ -189,26 +204,26 @@ CC is the most likely merge conflict in this project.
 | Metronome | 9 | **taken** — click |
 | Repeat | 56 | **taken** — loop |
 | Shift | 49 | **taken** — modifier |
-| Setup | 30 | **taken** — Shift+Setup saves; `F-06` takes the unshifted press |
-| Tempo encoder | 14 | **taken** — BPM |
+| Setup | 30 | **taken** — settings page · `Shift`+`Setup` saves the project |
+| Tempo encoder | 14 | **taken** — BPM (±1, ±10 with `Shift`, ±0.1 holding `Tap Tempo`) |
 | Track encoder 1 | 71 | **taken** — take length / sample gain |
 | Undo | 119 | **taken** — undo · `Shift`+`Undo` redo |
 | Display row top | 102–109 | **taken** — input level meter (`F-07`) |
 | Display row bottom 1 | 20 | **taken** — Sample page: fit an off-grid take |
 | Solo | 61 | reserved → `NH-01` |
-| Duplicate | 88 | reserved → `NH-05` |
+| Duplicate | 88 | **taken** — `NH-05`: library copies a slot, sample page copies a block of bars |
 | New | 87 | reserved → `NH-04` (new layer / punch-in) |
 | Clip | 113 | reserved → `NF-01` (Song page) |
-| Device | 110 | reserved → `NF-03` (Sample editor) |
+| Device | 110 | **taken** — Sample page: editor · `Shift`+`Device` applies |
 | Mix | 112 | reserved → `NH-01` (Mixer page) |
 | Browse | 111 | reserved → `NF-06`/`NF-08` (projects, import) |
 | Page ◀ / ▶ | 62 / 63 | reserved → `NF-07` banks, `NF-11` song pages |
-| Fixed Length | 90 | reserved → `NF-04` (quantize amount) |
-| Accent | 57 | reserved → `NF-10` (velocity sensitivity on/off) |
+| Fixed Length | 90 | **taken** — Perform: quantize amount |
+| Accent | 57 | **taken** — Sample page: velocity response on/off |
 | Scale | 58 | reserved → `IN-04` (key/pitch tools) |
 | Automate | 89 | reserved → `IN-03` (generative fills) |
 | Convert | 35 | reserved → `IN-01` (slice a take) |
-| Tap Tempo | 3 | reserved → `NH-07` |
+| Tap Tempo | 3 | **taken** — `NH-07`: four taps set the tempo · held, it makes the tempo encoder ±0.1 |
 | Master | 28 | reserved → `NH-01` master volume |
 | Add Track | 53 | free |
 | Select | 48 | free |
@@ -218,7 +233,7 @@ CC is the most likely merge conflict in this project.
 | ▶ Right | 45 | free |
 | Display row bottom | 21–27 | free — 7 contextual buttons, claim per mode |
 | Swing encoder | 15 | reserved → `NH-02` |
-| Track encoders 2–8 | 72–78 | reserved → `NH-01` mixer, `NF-03` editor params |
+| Track encoders 2–8 | 72–78 | **taken on the settings page** (one per setting); elsewhere reserved → `NH-01` mixer, `NF-03` editor params |
 | Master encoder | 79 | reserved → `NH-01` master volume |
 
 The eight display-row buttons are the escape hatch: a mode that needs more
@@ -254,6 +269,11 @@ which something happens, not merely that it happened.
 - [ ] New buttons/encoders claimed in the §3.5 table in the same PR.
 - [ ] New colours added to `colors.PALETTE` **and** `colors.SIM_GLYPHS`.
 - [ ] `README.md` key map and workflow updated if the surface changed.
+- [ ] `docs/` updated if the surface changed: the control tables in
+      `docs/reference.md` and `docs/cheatsheet.md`, a step in
+      `docs/getting-started.md` if it is a feature a new user should meet, and a
+      row in `docs/troubleshooting.md` for any new way it can go wrong.
+      Pad colours appear in three places there; grep for the colour name.
 - [ ] Project-format changes are backward compatible: old `project.json` loads,
       with `FORMAT_VERSION` bumped and a migration in `Project.load`.
 - [ ] Nothing outside `push2_sampler/` modified.
@@ -306,9 +326,9 @@ something that makes the instrument nicer to touch, not only bigger.
 | Release | Theme | Contents |
 | --- | --- | --- |
 | **v1.1 — Trustworthy** | it never bites you | `F-01` `F-02` `F-03` `F-04` `F-05` `F-09` `CC-01` `CC-03` `CC-04` `CC-05` `CC-06` `CC-10` `CC-14` `CC-15` `CC-16` |
-| **v1.2 — Playable** | recording and arranging feel good | `F-06` `F-07` `NF-03` `NF-04` `NF-10` `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
-| **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | `NF-01` `NF-05` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
-| **v1.4 — Plays with others** | sync, import, and a verified surface | `F-08` `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
+| **v1.2 — Playable** | recording and arranging feel good | ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ `NH-01` `NH-04` `NH-07` `NH-08` `CC-02` `CC-07` `CC-09` `CC-11` `CC-12` |
+| **v1.3 — A whole song** | bigger than 64 bars, and it leaves the box | ~~`NF-05`~~ `NF-01` `NF-06` `NF-07` `NF-11` `NH-03` `NH-05` `NH-06` `CC-08` `CC-13` `CC-17` `CC-18` |
+| **v1.4 — Plays with others** | sync, import, and a verified surface | ~~`F-08`~~ `NF-02` `NF-08` `NF-09` `NH-02` `NH-11` `NH-12` |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 ---
@@ -398,6 +418,11 @@ can be added as one new file.
 
 ### F-03 — Mode stack with transient overlays `size: S`
 
+**Status: shipped**, held back until `F-06` gave it a first real caller rather
+than landing unused. `App.mode` is now the top of `_modes`, `push_mode` /
+`pop_mode` open and close overlays, `goto_library` unwinds the whole stack, and
+`Session`/`Stop` pop one layer before heading home. Depth is capped at 4.
+
 **Problem.** `App.set_mode` is flat, so a mode opened from somewhere cannot
 return to where it came from. Settings, editor, browser and mixer all need
 "open over, then go back".
@@ -485,6 +510,25 @@ fades the oldest rather than truncating it.
 
 ### F-06 — On-device settings page and settings file `size: M`
 
+**Status: shipped.** `settings.py` holds one `Spec` table that supplies the
+defaults, the validation *and* the labels and step sizes the page renders with,
+so a new setting is one entry rather than edits in four files. Precedence is
+defaults -> file -> command line, with command-line values applied as overrides
+that are never written back. A malformed file falls back to defaults with a
+warning; an out-of-range value is repaired silently.
+
+`SettingsMode` is the first overlay: `Setup` opens and closes it, the pads stay
+dark on purpose, and each of the eight buttons under the display owns one
+setting with the encoder above it. `Engine.restart_stream` reopens the stream
+for device and block-size changes, and on failure restores the old settings,
+reopens what was working, and raises an `audio_error` event.
+
+Two deviations. LED brightness is **not** here: the brightness SysEx belongs to
+`CC-13` and is unverified, and a knob that does nothing is worse than no knob.
+And the page does not describe a failed device change itself -- the engine's
+event names the actual problem, which beats anything the UI could invent, so
+there is one message per failure rather than two.
+
 **Problem.** Sample rate, devices, latency compensation and count-in length are
 CLI-only. A standalone instrument cannot require a terminal to change its
 headphone output.
@@ -549,6 +593,27 @@ silent in Library mode and audible in Record mode.
 **Deps.** `F-01`.
 
 ### F-08 — Hardware verification pass and display test harness `size: M`
+
+**Status: the tool is shipped; the human pass is still open.**
+
+`--selftest` (`selftest.py`) walks nine checks: MIDI ports, grid orientation,
+the notes the corner pads send, velocity and aftertouch, every palette colour,
+35 buttons, four encoders including which way is clockwise, the touch strip, and
+the display. Each check records believed-vs-observed, and the run writes
+`hardware-report.json` plus a markdown version whose first table is exactly the
+list of corrections to make. It is built so one person at the device can do it
+alone: press what it names, answer what it asks, Enter skips, `q` quits and
+still saves.
+
+`PushBase.capture_raw` was added for it -- a tap that keeps untranslated
+messages -- so the probe learns what the device really sends instead of trusting
+`translate_midi`. The probe itself is unit-tested by scripting the answers and
+the messages (including a flipped grid, a button on the wrong CC and an inverted
+encoder), and `tests/test_display.py` pins the frame header, the 327,680-byte
+payload, BGR565 packing and the XOR shaping against a fake USB device.
+
+Still open, and only a person with hardware can close it: actually running it,
+then correcting `constants.py` and filling in the README table.
 
 **Problem.** `display.py`, `Push2.program_palette`, the button CC map and the
 `sounddevice` callback have never been exercised against a real Push 2 in this
@@ -685,6 +750,29 @@ voice for that slot; two samples in choke group 1 never sound together.
 
 ### NF-03 — Sample editor `size: L`
 
+**Status: shipped.** `edits.py` holds a frozen `Edits` (trim in/out, fades,
+pitch, reverse, normalise) and renders it on the way to the mixer, in a fixed
+order that is documented because it matters. `Sample.effective_audio()` caches
+the result and hands back the recording *by identity* when there are no edits,
+so the editor costs nothing until it is used. `SampleEditMode` gives each of the
+eight encoders one parameter with the button under it resetting or toggling it,
+draws the take across the 64 pads by loudness with the trimmed parts in dim red,
+and auditions from a pressed pad. `Shift`+`Device` commits destructively as one
+undo step.
+
+Deviations: gain sits on the encoder row although it is a `Sample` field rather
+than an `Edits` one, because from the player's side it is the same kind of
+knob. The waveform is drawn on the **pads** and as a one-line text envelope
+rather than as a picture on the colour display -- it works with or without a
+screen that has never been verified, and `F-08` can tell us later whether a real
+drawing is worth it.
+
+Two things fell out of building it. A trimmed take is genuinely shorter than its
+bars, so `F-09` flags it as off-grid -- correct, and worth knowing before someone
+reports it as a bug. And `Edits.from_dict` now coerces **per field**: the first
+version stored whatever was in the JSON, so one bad value in a hand-edited
+project file would have crashed inside the renderer rather than at load.
+
 **Problem.** A take is take-it-or-leave-it. A great loop with 40 ms of silence
 at the front, or 3 dB too quiet, has to be re-recorded.
 
@@ -712,6 +800,22 @@ ratio; edits survive save/load; the scheduler sees the edited audio.
 **Deps.** `F-03`, `F-04`, `F-09`. Wants `F-08` for the display half.
 
 ### NF-04 — Live quantized triggering and arrangement overdub `size: L`
+
+**Status: shipped.** `Engine.trigger()` schedules a voice on a future frame, the
+callback computes the grid line (so it is exact however late the pad was hit),
+and `_segment_limit` will not step over a pending start. `PerformMode` is a
+transient overlay on `Shift`+`Play`; `Fixed Length` cycles quantize;
+`next_grid_bar()` tells the mode which bar a hit will land in, which is what gets
+written.
+
+Three deviations. Quantize is expressed **in beats** (0/1/2/4) rather than
+fractions of a bar -- the same four choices, simpler arithmetic, and it survives
+a change of time signature. Erase uses the existing armed `Delete` rather than a
+held one, because `Delete` is already a latch everywhere else in this program.
+And erasing **starts at the next bar line** rather than the bar already playing:
+the first version wiped a bar that was nine-tenths over, which felt like erasing
+the past. Velocity still does nothing here; that is `NF-10`, and perform mode is
+what makes it the obvious next feature.
 
 **Problem.** The only way to arrange is to toggle bars while stopped. You cannot
 play the song in, which is how people actually write.
@@ -741,6 +845,14 @@ erase removes only triggers in the bars the playhead crossed while held.
 **Deps.** `F-01`, `F-04`. Strong pairing with `NF-10` (velocity → gain).
 
 ### NF-05 — Bounce the song and export stems `size: M`
+
+**Status: shipped.** `render.py` renders on a throwaway offline engine, so a
+bounce never disturbs the live one. `BounceJob` renders a chunk at a time and is
+stepped by the event loop, which keeps the surface responsive **without threads
+or locks** -- rendering is numpy, so a two-minute song takes a second or two
+spread over a handful of frames, and the pads show it as one progress bar.
+`--bounce` and `--stems` need no MIDI, no PortAudio and no hardware at all.
+Stems sum back to the mix exactly, which is the property worth testing.
 
 **Problem.** Nothing leaves the box. Work done here cannot be shared, finished
 elsewhere, or even listened to away from the device.
@@ -858,6 +970,25 @@ throwaway script before touching `audio.py`.
 
 ### NF-10 — Velocity and pressure `size: S`
 
+**Status: shipped** (velocity; aftertouch is still unused, and the probe will
+say whether it even arrives). `Accent` turns velocity response on per sample,
+off by default so every existing project plays exactly as before. In perform
+mode a hit's level is scaled by how hard it was, and a hit written into the
+arrangement keeps its velocity, so a played-in part keeps its dynamics. The
+sample page shows that as three greens.
+
+**Deviation: `triggers` stays a `set`**, with a parallel
+`velocities: dict[bar, int]` holding only the bars that were *not* played flat
+out. The item called for turning `triggers` into a dict, which would have
+rewritten every consumer and ~20 test assertions for no user-visible gain. The
+invariant (velocity keys are a subset of triggers) lives in one place,
+`Sample.set_trigger`, which discards a velocity when its bar is turned off --
+so the two cannot drift. A missing entry means full, which is also what makes
+the format change backward compatible.
+
+This is why the `triggers`-type collision warned about in `NF-01`, `NF-07`,
+`NH-05` and `NH-06` no longer exists: there is no type change.
+
 **Problem.** `PadEvent.velocity` is captured and discarded. A drum pad that
 ignores how hard you hit it is not an instrument.
 
@@ -953,6 +1084,17 @@ sample's bar length. **Deps:** `F-04`, `F-09`.
 
 ### NH-05 — Copy, paste, duplicate `size: S`
 
+**Status: shipped.**  `Duplicate` *arms* rather than being held, for consistency
+with `Delete` and `Mute` (and because the simulator can then reach it).  In the
+library it copies a slot to the next empty one, wrapping; the copy shares the
+original's audio array, which is safe because every edit path rebinds
+`sample.audio` rather than writing into it.  On a sample page the two presses are
+the block's start and its destination, and the **gap between them is the block
+length** -- the plan's "bars A…A+n" left `n` undefined, and inferring it from the
+gap needs no extra control and matches the common musical gesture (bar 1 then bar
+5 duplicates bars 1-4 onto 5-8).  `Shift` on the second press moves.  Both land as
+one `SetBars`, so a whole block is one undo step.
+
 `Duplicate` (CC 88) held + a pad copies that slot (audio shared copy-on-write,
 arrangement copied) to the next empty slot. On a sample page, `Duplicate` + bar
 A then bar B copies the trigger pattern of bars A…A+n to B. Shift-variants move
@@ -974,6 +1116,15 @@ never mid-voice; snapshots survive save/load. **Deps:** `F-04`, `NF-07` if banks
 land first.
 
 ### NH-07 — Tap tempo and tempo nudge `size: S`
+
+**Status: shipped**, with one deviation: the fine nudge is **hold `Tap Tempo` +
+tempo encoder**, not `◀/▶`.  The arrows are already the alias of `Session`
+("back"), and `Page ◀/▶` is reserved for `NF-07`/`NF-11`; hanging the nudge off
+the tempo button keeps both free and puts the gesture on the control it is about.
+Holding `Tap` discards the tap series so the held press is not read as a tap.
+`format_bpm` now lives in `project.py` and is used by both the transport readout
+and the undo label, because a 0.1 nudge that the display rounds away is a knob
+that appears to do nothing.
 
 `Tap Tempo` (CC 3): four taps set the BPM from the median inter-tap interval,
 outliers rejected, tempo refused while recording (as today). `Shift`+`Tap`
@@ -1235,6 +1386,16 @@ press and release events separately). **Tests:** a 100 ms press navigates; a
 500 ms press previews and stays in the library.
 
 ### CC-02 — Stop semantics `size: S`
+
+**Status: shipped**, except the "release all voices" half, which was already
+true: `stop` has always called `_release_all()`, so nothing rings after a stop.
+A second `Stop` within 500 ms therefore does the part that was missing -- it
+disarms delete/mute/duplicate, the "get me out of here" gesture.  `Shift`+`Stop`
+defers to the next bar line via a `stop_at_bar` command; `Intent` gained a
+`stop_at_bar` field so `engine.stop_pending` reads true immediately on the UI
+thread, the same trick the other transport getters use.  The deferred stop fires
+in `_fire_boundaries` *before* the new bar is scheduled, so the bar it lands on
+never starts.  Starting playback or arming a take cancels it.
 First `Stop` stops and returns to bar 1 (today). A second `Stop` within 500 ms
 also releases all sounding voices immediately and clears any armed modifier.
 `Shift`+`Stop` stops at the end of the current bar instead of instantly.
@@ -1271,6 +1432,11 @@ Bars 1, 17, 33, 49 (16-bar sections) get a slightly brighter tint. **Code:**
 triggered bar still wins over the grid tint.
 
 ### CC-07 — Playhead everywhere `size: S`
+
+**Status: shipped.**  `Project.slots_at_bar(bar)` (named for what it returns)
+feeds a one-bar look-ahead in the library: a slot that comes in next bar renders
+`AMBER_DIM`.  Suppressed when stopped, for muted samples, and past the last bar
+when the loop is off -- there is no next bar to look ahead to.
 Show the playhead in the library too: during playback, the pad of the slot
 whose bar is currently sounding already goes amber — add a dim amber "about to
 play next bar" hint so you can see what is coming. **Code:** `modes/library.py`,
@@ -1301,6 +1467,11 @@ read-only) instead of the current silent `print` on shutdown. **Code:**
 failure raises a user-visible message and does not crash the loop.
 
 ### CC-11 — Paint a range of bars `size: S`
+
+**Status: shipped.**  The held pad's own press decides the direction, so holding
+an empty bar paints on and holding a playing one paints off.  One `SetBars` for
+the range; the anchor's own toggle stays a separate step, which is why taking a
+painted range back is two undos.
 On the sample page, hold one pad and press another: every bar between them
 toggles to the state of the first press (paint on / paint off). Uses the
 press/release events the surface already sends. **Code:** `modes/sample.py`
@@ -1309,6 +1480,11 @@ an already-on bar paints off; one undo step for the whole range. **Deps:**
 `F-04`.
 
 ### CC-12 — Double-tap a bar to fill the phrase `size: S`
+
+**Status: shipped.**  0.35 s window.  Which way it goes is decided by whether the
+first tap left the bar playing, so "double-tap empty to fill, double-tap full to
+clear" falls out of the toggle that already happened rather than needing its own
+rule.  Clipped at bar 64.
 Double-tapping an empty bar fills the sample's own length across the following
 4 bars (e.g. a 1-bar loop fills bars N…N+3); on a filled bar it clears the
 phrase. Makes "just play it for four bars" one gesture. **Code:**
@@ -1436,14 +1612,16 @@ group from §3.8, and rebase on `main` before opening a PR.
 | Ableton Link / MIDI clock complexity (`NF-09`) | Weeks lost to jitter | Spike first in a standalone script with a synthetic clock; ship `midi_slave` before `midi_master` before Link; accept "internal only" as a valid outcome |
 | The innovative block drifts into novelty | Effort spent on things nobody uses | Each `IN` item must state the one gesture it replaces; if it does not remove work from the musician, cut it |
 | Latency compensation is manual | Takes land late, users blame the instrument | `CC-09` calibration wizard, and show the compensation figure on the record screen so it is never a silent setting |
+| Settings validation silently substituting defaults | A flag appears to do nothing; `--samplerate 8000` was thrown away for a week | Fixed: the CLI now reports any value it could not use. Prefer ranges over closed `choices` lists unless the set really is closed |
 
 ---
 
 ## 12. Open questions (need a human decision)
 
-- **Q1 — Hardware access.** Is there a Push 2 available to run `F-08` against,
-  and on which firmware? Until answered, every hardware-facing constant is
-  "believed correct, unverified", and `F-08` stays at the top of the list.
+- **Q1 — Hardware access.** A Push 2 is expected. `--selftest` is built and
+  waiting; what this project needs back is a `hardware-report.json` from it, plus
+  the firmware version. Until then every hardware-facing constant stays
+  "believed correct, unverified".
 - **Q2 — Primary use.** Is this a studio sketchpad (favour `NF-03`, `NF-05`,
   `NF-06`) or a live instrument (favour `NF-04`, `NH-06`, `IN-05`)? The v1.2/v1.3
   ordering flips depending on the answer. Current plan assumes sketchpad first.

@@ -467,3 +467,113 @@ def test_auto_monitoring_only_while_a_take_runs():
 def test_a_zero_monitor_gain_still_means_silence():
     engine = make_engine(monitor="on", monitor_gain=0.0)
     assert np.all(engine.process_offline(64, np.full((64, 1), 0.5, np.float32)) == 0.0)
+
+
+# ----------------------------------------------- reopening the stream (F-06)
+def test_restart_stream_applies_changes_without_a_device():
+    engine = make_engine()
+    assert engine.restart_stream(blocksize=512, input_device=3) is True
+    assert engine.blocksize == 512
+    assert engine.input_device == 3
+
+
+def test_restart_stream_is_a_no_op_when_nothing_changed():
+    engine = make_engine()
+    assert engine.restart_stream(blocksize=engine.blocksize) is True
+
+
+def test_restart_stream_refuses_what_it_cannot_change():
+    engine = make_engine()
+    with pytest.raises(ValueError, match="samplerate"):
+        engine.restart_stream(samplerate=44_100)
+    with pytest.raises(ValueError):
+        engine.restart_stream(bpm=90)
+
+
+def test_a_failed_restart_puts_everything_back(monkeypatch):
+    engine = make_engine()
+    engine.backend = "sounddevice"
+    attempts = []
+
+    def explode():
+        attempts.append(1)
+        raise RuntimeError("device busy")
+
+    monkeypatch.setattr(engine, "_start_sounddevice", explode)
+    assert engine.restart_stream(blocksize=1024, output_device=7) is False
+    # The old settings are back, and the failure is reported rather than raised.
+    assert engine.blocksize == 64
+    assert engine.output_device is None
+    assert ("audio_error", "device busy") in engine.poll_events()
+    assert len(attempts) == 2  # the new device, then reopening the old one
+
+
+# ------------------------------------------ quantised live triggers (NF-04)
+def test_an_unquantised_trigger_sounds_immediately():
+    engine = make_engine()
+    engine.trigger(dc(1000, 0.5), quantize_beats=0.0)
+    out = engine.process_offline(100)
+    assert out[FADE + 10, 0] == pytest.approx(0.5)
+
+
+def test_a_quantised_trigger_waits_for_the_grid_line():
+    engine = make_engine()
+    fpbar = int(engine.frames_per_bar)
+    engine.play(0)
+    engine.process_offline(fpbar // 2)  # we are mid-bar
+
+    engine.trigger(dc(fpbar, 0.5), slot=0, quantize_beats=4.0)  # next bar
+    out = engine.process_offline(fpbar)
+    silent_until = fpbar - fpbar // 2  # the rest of this bar
+    assert np.all(out[: silent_until - 1] == 0.0)
+    assert out[silent_until, 0] == 0.0  # the first frame of the fade
+    assert out[silent_until + FADE, 0] == pytest.approx(0.5)
+
+
+def test_a_beat_quantised_trigger_lands_on_the_next_beat():
+    engine = make_engine()
+    fpb = int(engine.frames_per_beat)
+    engine.play(0)
+    engine.process_offline(fpb // 4)
+    engine.trigger(dc(fpb * 2, 0.5), quantize_beats=1.0)
+    out = engine.process_offline(fpb)
+    start = fpb - fpb // 4
+    assert np.all(out[: start - 1] == 0.0)
+    assert out[start + FADE, 0] == pytest.approx(0.5)
+
+
+def test_a_trigger_while_stopped_sounds_at_once():
+    engine = make_engine()
+    engine.trigger(dc(500, 0.5), quantize_beats=4.0)  # quantize asked for...
+    out = engine.process_offline(100)
+    assert out[FADE + 10, 0] == pytest.approx(0.5)  # ...but nothing to sync to
+
+
+def test_stopping_drops_triggers_that_had_not_sounded_yet():
+    engine = make_engine()
+    fpbar = int(engine.frames_per_bar)
+    engine.play(0)
+    engine.process_offline(64)
+    engine.trigger(dc(fpbar, 0.5), quantize_beats=4.0)
+    engine.stop()
+    out = engine.process_offline(fpbar)
+    assert np.all(out == 0.0)
+    assert engine._pending == []
+
+
+def test_next_grid_bar_names_where_a_trigger_will_land():
+    engine = make_engine()
+    fpbar = int(engine.frames_per_bar)
+    engine.play(0)
+    engine.process_offline(fpbar + fpbar // 2)  # half way through bar 1
+    assert engine.current_bar == 1
+    assert engine.next_grid_bar(4.0) == 2  # a bar-quantised hit lands in bar 2
+    assert engine.next_grid_bar(0.0) == 1  # an immediate one is in this bar
+
+
+def test_next_grid_bar_wraps_at_the_end_of_the_song():
+    engine = make_engine()  # four bars long
+    engine.loop = True
+    engine.play(3)
+    engine.process_offline(64)
+    assert engine.next_grid_bar(4.0) == 0  # the next bar line is the loop point

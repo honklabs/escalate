@@ -8,11 +8,14 @@ Commands::
 
     p 12        press and release pad 12 (or "p 3,4" for col,row)
     hold 12     press pad 12 and keep holding   rel 12   release it
-    b play      press a button by name (see BUTTONS)
+    hold tap    hold a button down (hold/rel take a button name too)
+    b play      press a button by name (or just "play"; see BUTTONS)
+    b1 .. b8    press the buttons under the display (claimed per mode)
     b undo      take back the last edit (shift on; b undo = redo)
     shift on    hold/release the Shift modifier
     t +4        turn the tempo encoder
     k +1        turn track encoder 1 (length / gain)
+    k 3 +2      turn track encoder 3 (settings page: one per parameter)
     g           print the pad grid        s   print status
     wait 2.5    let the transport run for 2.5 seconds
     q           quit
@@ -53,12 +56,26 @@ BUTTONS = {
     "down": Btn.DOWN,
     "setup": Btn.SETUP,
     "undo": Btn.UNDO,
+    "quantize": Btn.FIXED_LENGTH,
+    "accent": Btn.ACCENT,
+    "device": Btn.DEVICE,
+    "edit": Btn.DEVICE,
+    "duplicate": Btn.DUPLICATE,
+    "dup": Btn.DUPLICATE,
+    "tap": Btn.TAP_TEMPO,
+    "velocity": Btn.ACCENT,
+    "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.
     "repair": DISPLAY_ROW_BOTTOM[0],
     "fit": DISPLAY_ROW_BOTTOM[0],
+    **{f"b{i + 1}": cc for i, cc in enumerate(DISPLAY_ROW_BOTTOM)},
 }
 
-LEGEND = "W/w white  G/g green  A/a amber  R/r red  B/b blue  . off"
+#: Every glyph ``SimPush.grid`` can print, so the grid is readable without
+#: having to look up the palette.  Upper case is bright, lower case dim.
+LEGEND = (
+    "W m w white  G h g green  A a amber  R r red  B b blue  Y yellow  . off"
+)
 
 
 def _pad_index(token: str) -> int:
@@ -116,10 +133,16 @@ def _dispatch(line: str, app, push: SimPush) -> bool:
         return False
     if cmd == "p":
         push.press_pad(_pad_index(args[0]))
-    elif cmd == "hold":
-        push.inject_pad_press(_pad_index(args[0]))
-    elif cmd == "rel":
-        push.inject_pad_release(_pad_index(args[0]))
+    elif cmd in ("hold", "rel"):
+        # "hold 12" is a pad, "hold tap" a button -- the gestures that need a
+        # button held down (Tap + tempo encoder) are otherwise unreachable here.
+        name = args[0].lower()
+        if name in BUTTONS:
+            push.hold_button(BUTTONS[name], cmd == "hold")
+        elif cmd == "hold":
+            push.inject_pad_press(_pad_index(args[0]))
+        else:
+            push.inject_pad_release(_pad_index(args[0]))
     elif cmd == "b":
         name = args[0].lower()
         if name not in BUTTONS:
@@ -130,11 +153,19 @@ def _dispatch(line: str, app, push: SimPush) -> bool:
     elif cmd == "t":
         push.turn(ENCODER_TEMPO, int(args[0]))
     elif cmd == "k":
-        push.turn(ENCODER_TRACK[0], int(args[0]))
+        if len(args) >= 2:
+            which, delta = int(args[0]) - 1, int(args[1])
+        else:
+            which, delta = 0, int(args[0])
+        if not 0 <= which < len(ENCODER_TRACK):
+            raise ValueError(f"track encoder out of range: {which + 1}")
+        push.turn(ENCODER_TRACK[which], delta)
     elif cmd in ("g", "grid", "s", "status"):
         pass  # state is printed after every command anyway
     elif cmd == "wait":
         time.sleep(max(0.0, float(args[0])))
+    elif cmd in BUTTONS:
+        push.press_button(BUTTONS[cmd])  # a bare button name works too: "play"
     else:
         raise ValueError(f"unknown command {cmd!r}")
     return True

@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .project import format_bpm
+
 #: How many edits can be taken back.
 DEPTH = 64
 #: Window in which a repeated encoder edit folds into the previous one.
@@ -44,11 +46,14 @@ class Command:
 
 @dataclass
 class ToggleTrigger(Command):
-    """Turn one bar of one sample on or off."""
+    """Turn one bar of one sample on or off, optionally with a velocity."""
 
     slot: int
     bar: int
     on: bool
+    velocity: int | None = None
+    _previous_velocity: int | None = None
+    _was_on: bool = False
 
     @property
     def label(self) -> str:
@@ -56,13 +61,97 @@ class ToggleTrigger(Command):
 
     def apply(self, project) -> None:
         sample = project[self.slot]
-        if sample is not None:
-            sample.set_trigger(self.bar, self.on)
+        if sample is None:
+            return
+        self._was_on = self.bar in sample.triggers
+        self._previous_velocity = sample.velocities.get(self.bar)
+        sample.set_trigger(self.bar, self.on, self.velocity)
 
     def revert(self, project) -> None:
         sample = project[self.slot]
-        if sample is not None:
-            sample.set_trigger(self.bar, not self.on)
+        if sample is None:
+            return
+        sample.set_trigger(self.bar, self._was_on, self._previous_velocity)
+
+
+@dataclass
+class SetBars(Command):
+    """Set many bars of one sample at once, as one undo step.
+
+    Every gesture that writes a block of bars -- painting a range, filling a
+    phrase, duplicating a block -- is this command with a different set of
+    changes and its own wording, so the restore path is written once.
+
+    ``changes`` maps a bar to the velocity it should play at, or to ``None`` to
+    turn that bar off.
+    """
+
+    slot: int
+    changes: dict
+    display: str = "bars changed"
+    _previous: dict = field(default_factory=dict)
+
+    @property
+    def label(self) -> str:
+        return self.display
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        # Snapshot before touching anything: (was it on, at what velocity).
+        self._previous = {
+            bar: (bar in sample.triggers, sample.velocities.get(bar))
+            for bar in self.changes
+        }
+        for bar, velocity in self.changes.items():
+            sample.set_trigger(bar, velocity is not None, velocity)
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        for bar, (was_on, velocity) in self._previous.items():
+            sample.set_trigger(bar, was_on, velocity)
+
+
+@dataclass
+class CopySlot(Command):
+    """Copy (or move) a whole sample into another slot.
+
+    The copy shares the original's audio array rather than duplicating it:
+    nothing in this program mutates a take's samples in place -- an edit builds a
+    new array -- so the two slots are independent the moment either is edited.
+    """
+
+    src: int
+    dst: int
+    move: bool = False
+    _previous_dst: object = None
+    _previous_src: object = None
+    _installed: object = None
+
+    @property
+    def label(self) -> str:
+        verb = "moved" if self.move else "copied"
+        return f"{verb} slot {self.src + 1} to {self.dst + 1}"
+
+    def apply(self, project) -> None:
+        self._previous_dst = project[self.dst]
+        self._previous_src = project[self.src]
+        if self._previous_src is None:
+            return
+        if self._installed is None:
+            self._installed = project.copy_slot(self.src, self.dst)
+        else:  # redo: put back the very sample we made the first time
+            project.install(self.dst, self._installed)
+        if self.move:
+            project.install(self.src, None)
+
+    def revert(self, project) -> None:
+        project.install(self.dst, self._previous_dst)
+        if self.move:
+            project.install(self.src, self._previous_src)
 
 
 @dataclass
@@ -71,6 +160,7 @@ class ClearTriggers(Command):
 
     slot: int
     _previous: set[int] = field(default_factory=set)
+    _previous_velocities: dict = field(default_factory=dict)
 
     label = "cleared all bars"
 
@@ -79,12 +169,43 @@ class ClearTriggers(Command):
         if sample is None:
             return
         self._previous = set(sample.triggers)
+        self._previous_velocities = dict(sample.velocities)
         sample.triggers.clear()
+        sample.velocities.clear()
 
     def revert(self, project) -> None:
         sample = project[self.slot]
         if sample is not None:
             sample.triggers = set(self._previous)
+            sample.velocities = dict(self._previous_velocities)
+
+
+@dataclass
+class ClearBar(Command):
+    """Remove one bar from every sample, for erase-while-looping."""
+
+    bar: int
+    #: (slot, velocity) for every sample that played on this bar.
+    _removed: list = field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        return f"erased bar {self.bar + 1}"
+
+    def apply(self, project) -> None:
+        self._removed = [
+            (sample.slot, sample.velocities.get(self.bar))
+            for sample in project.filled()
+            if self.bar in sample.triggers
+        ]
+        for slot, _ in self._removed:
+            project[slot].set_trigger(self.bar, False)
+
+    def revert(self, project) -> None:
+        for slot, velocity in self._removed:
+            sample = project[slot]
+            if sample is not None:
+                sample.set_trigger(self.bar, True, velocity)
 
 
 @dataclass
@@ -107,6 +228,29 @@ class SetEnabled(Command):
         sample = project[self.slot]
         if sample is not None:
             sample.enabled = not self.enabled
+
+
+@dataclass
+class SetVelocitySensitivity(Command):
+    """Turn velocity response on or off for one sample."""
+
+    slot: int
+    sensitivity: float
+    previous: float
+
+    @property
+    def label(self) -> str:
+        return f"velocity {'on' if self.sensitivity > 0 else 'off'}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.velocity_sensitivity = self.sensitivity
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.velocity_sensitivity = self.previous
 
 
 @dataclass
@@ -152,7 +296,7 @@ class SetBpm(Command):
 
     @property
     def label(self) -> str:
-        return f"{self.bpm:.0f} BPM"
+        return f"{format_bpm(self.bpm)} BPM"
 
     def apply(self, project) -> None:
         project.bpm = self.bpm
@@ -192,6 +336,83 @@ class PutSample(Command):
 
     def revert(self, project) -> None:
         project.install(self.slot, self._previous)
+
+
+@dataclass
+class SetEdit(Command):
+    """Change one non-destructive edit; encoder sweeps coalesce."""
+
+    slot: int
+    field: str
+    value: object
+    previous: object
+    #: How to say it on screen.  The page owns its own wording and units, so
+    #: there is only ever one formatter for a value.
+    display: str = ""
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        if self.display:
+            return self.display
+        return f"{self.field.replace('_', ' ')} {_format_edit(self.value)}"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.set_edits(sample.edits.with_value(self.field, self.value))
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.set_edits(sample.edits.with_value(self.field, self.previous))
+
+    def merge(self, newer: Command) -> bool:
+        if not isinstance(newer, SetEdit):
+            return False
+        if (newer.slot, newer.field) != (self.slot, self.field):
+            return False
+        if newer.at - self.at > MERGE_WINDOW_S:
+            return False
+        self.value = newer.value
+        self.display = newer.display
+        self.at = newer.at
+        return True
+
+
+@dataclass
+class ApplyEdits(Command):
+    """Fold a sample's edits into its recording, keeping the original for undo."""
+
+    slot: int
+    _previous_audio: object = None
+    _previous_edits: object = None
+
+    label = "edits applied"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous_audio = sample.audio
+        self._previous_edits = sample.edits
+        sample.apply_edits()
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or self._previous_audio is None:
+            return
+        sample.audio = self._previous_audio
+        sample.set_edits(self._previous_edits)
+        sample.audio_saved = False
+
+
+def _format_edit(value) -> str:
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, float):
+        return f"{value:.0f}" if abs(value) >= 10 else f"{value:.1f}"
+    return str(value)
 
 
 @dataclass

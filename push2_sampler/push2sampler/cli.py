@@ -8,8 +8,8 @@ from pathlib import Path
 
 from .app import App
 from .audio import Engine
-from .modes import COUNT_IN_BEATS
 from .project import Project
+from .settings import Settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,28 +22,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="project directory (created if missing; default: ./song)",
     )
     parser.add_argument("--bpm", type=float, default=None, help="tempo override")
-    parser.add_argument("--samplerate", type=int, default=48_000)
-    parser.add_argument("--blocksize", type=int, default=256)
-    parser.add_argument("--in-channels", type=int, default=1)
-    parser.add_argument("--out-channels", type=int, default=2)
-    parser.add_argument("--input-device", default=None, help="audio input device name or index")
-    parser.add_argument("--output-device", default=None, help="audio output device name or index")
+    # Everything below defaults to None so that "not given on the command line"
+    # is distinguishable from "given the same value as the settings file".
+    parser.add_argument("--settings", default=None, help="settings file to use")
     parser.add_argument(
-        "--rec-latency-ms", type=float, default=0.0,
+        "--no-settings", action="store_true",
+        help="ignore the settings file: defaults plus whatever is on this command line",
+    )
+    parser.add_argument("--samplerate", type=int, default=None)
+    parser.add_argument("--blocksize", type=int, default=None)
+    parser.add_argument("--in-channels", type=int, default=None)
+    parser.add_argument("--out-channels", type=int, default=None)
+    parser.add_argument("--input-device", default=None, help="audio input device index")
+    parser.add_argument("--output-device", default=None, help="audio output device index")
+    parser.add_argument(
+        "--rec-latency-ms", type=float, default=None,
         help="trim this much from the start of each take to compensate input latency",
     )
     parser.add_argument(
-        "--monitor", choices=("off", "auto", "on"), default="off",
+        "--monitor", choices=("off", "auto", "on"), default=None,
         help="hear the input: never, only while recording, or always. "
              "Default off -- on speakers rather than headphones it feeds back. "
              "Shift+Metronome cycles it on the device.",
     )
     parser.add_argument(
-        "--monitor-gain", type=float, default=1.0,
+        "--monitor-gain", type=float, default=None,
         help="level the monitored input is mixed in at (default 1.0)",
     )
     parser.add_argument(
-        "--count-in", type=int, default=COUNT_IN_BEATS,
+        "--count-in", type=int, default=None,
         help="count-in beats before recording starts (default: 4)",
     )
     parser.add_argument(
@@ -56,9 +63,68 @@ def build_parser() -> argparse.ArgumentParser:
         "--sim", action="store_true",
         help="run the terminal simulator instead of talking to hardware",
     )
+    parser.add_argument(
+        "--bounce", metavar="OUT.WAV", default=None,
+        help="render the project's song to a WAV and exit (needs no hardware)",
+    )
+    parser.add_argument(
+        "--stems", metavar="DIR", default=None,
+        help="render one WAV per filled slot into DIR and exit",
+    )
+    parser.add_argument(
+        "--selftest", action="store_true",
+        help="walk through the hardware with a real Push 2 and write a report "
+             "of what it actually does (see --report)",
+    )
+    parser.add_argument(
+        "--report", default="hardware-report.json",
+        help="where --selftest writes its findings (default: ./hardware-report.json)",
+    )
     parser.add_argument("--list-ports", action="store_true", help="list MIDI ports and exit")
     parser.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     return parser
+
+
+def resolve_settings(args) -> Settings:
+    """Defaults, then the settings file, then this command line.
+
+    Command-line values are applied as overrides: they steer this run without
+    being written back to the file.
+    """
+    path = None if args.no_settings else (Path(args.settings) if args.settings else None)
+    settings = Settings() if args.no_settings else Settings.load(path)
+    overrides = {
+        "samplerate": args.samplerate,
+        "blocksize": args.blocksize,
+        "in_channels": args.in_channels,
+        "out_channels": args.out_channels,
+        "input_device": _device(args.input_device),
+        "output_device": _device(args.output_device),
+        "rec_latency_ms": args.rec_latency_ms,
+        "monitor": args.monitor,
+        "monitor_gain": args.monitor_gain,
+        "count_in_beats": args.count_in,
+    }
+    given = {name: value for name, value in overrides.items() if value is not None}
+    if args.no_play_while_recording:
+        given["play_while_recording"] = False
+    # Say so when a value cannot be used, rather than quietly substituting the
+    # default and leaving someone to wonder why their flag did nothing.
+    refused = [
+        f"{name}={value!r} is not allowed, using {settings.spec(name).coerce(value)!r}"
+        for name, value in given.items()
+        if _differs(settings.spec(name).coerce(value), value)
+    ]
+    settings.apply_overrides(given)
+    if refused:
+        settings.warning = "; ".join(filter(None, [settings.warning, *refused]))
+    return settings
+
+
+def _differs(stored, asked) -> bool:
+    if isinstance(stored, (int, float)) and isinstance(asked, (int, float)):
+        return abs(float(stored) - float(asked)) > 1e-9
+    return stored != asked
 
 
 def _device(value):
@@ -73,31 +139,41 @@ def _device(value):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    if args.bounce or args.stems:
+        return _render(args)
+    if args.selftest:
+        from .selftest import run_selftest
+
+        return run_selftest(Path(args.report))
     if args.list_ports:
         return _list_ports()
     if args.list_devices:
         return _list_devices()
 
+    settings = resolve_settings(args)
+    if settings.warning:
+        print(settings.warning, file=sys.stderr)
+
     project_dir = Path(args.project)
-    project = Project.load(project_dir, samplerate=args.samplerate)
+    project = Project.load(project_dir, samplerate=settings["samplerate"])
     if args.bpm is not None:
         project.bpm = args.bpm
 
     engine = Engine(
-        samplerate=args.samplerate,
-        blocksize=args.blocksize,
-        in_channels=args.in_channels,
-        out_channels=args.out_channels,
-        input_device=_device(args.input_device),
-        output_device=_device(args.output_device),
+        samplerate=settings["samplerate"],
+        blocksize=settings["blocksize"],
+        in_channels=settings["in_channels"],
+        out_channels=settings["out_channels"],
+        input_device=settings["input_device"],
+        output_device=settings["output_device"],
         backend="null" if args.sim else "sounddevice",
         bpm=project.bpm,
         beats_per_bar=project.beats_per_bar,
         song_bars=project.song_bars,
-        rec_latency_ms=args.rec_latency_ms,
-        play_while_recording=not args.no_play_while_recording,
-        monitor=args.monitor,
-        monitor_gain=args.monitor_gain,
+        rec_latency_ms=settings["rec_latency_ms"],
+        play_while_recording=settings["play_while_recording"],
+        monitor=settings["monitor"],
+        monitor_gain=settings["monitor_gain"],
     )
 
     if args.sim:
@@ -134,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         project,
         project_dir=None if args.no_save else project_dir,
         display=display,
-        count_in_beats=args.count_in,
+        settings=settings,
         log=print if args.sim else None,
     )
 
@@ -146,6 +222,26 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"push2sampler: project {project_dir}, {project.bpm:.0f} BPM. Ctrl-C to quit.")
     app.run()
+    return 0
+
+
+def _render(args) -> int:
+    """Offline bounce: no MIDI, no PortAudio, no hardware."""
+    from .render import bounce_to, stems_to
+
+    settings = resolve_settings(args)
+    project = Project.load(Path(args.project), samplerate=settings["samplerate"])
+    if args.bpm is not None:
+        project.bpm = args.bpm
+    if not project.filled():
+        print(f"{args.project} has no samples to render", file=sys.stderr)
+        return 1
+    if args.bounce:
+        path = bounce_to(project, args.bounce)
+        print(f"wrote {path}")
+    if args.stems:
+        for path in stems_to(project, args.stems):
+            print(f"wrote {path}")
     return 0
 
 

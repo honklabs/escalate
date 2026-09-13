@@ -16,9 +16,11 @@ from push2sampler.constants import (
     ENCODER_TRACK,
     Btn,
 )
+from push2sampler.modes import Mode
 from push2sampler.modes import library as library_mode
 from push2sampler.project import Project
-from push2sampler.push2 import SimPush
+from push2sampler.push2 import PadEvent, SimPush
+from push2sampler.settings import EDITABLE, Settings
 
 SR = 8000
 FADE = int(SR * FADE_MS / 1000.0)
@@ -38,7 +40,8 @@ def rig(tmp_path):
     )
     push = SimPush()
     push.open()
-    app = App(push, engine, project, project_dir=tmp_path / "song")
+    settings = Settings(path=tmp_path / "settings.json")
+    app = App(push, engine, project, project_dir=tmp_path / "song", settings=settings)
     return app, push, engine, project
 
 
@@ -774,3 +777,670 @@ def test_clipping_is_shown_on_the_surface(rig):
     assert app.input_clipping is True
     assert push.button_leds[Btn.RECORD] == colors.RED.index
     assert any("CLIP" in line for line in app.status_lines())
+
+
+# ---------------------------------------------------------- mode stack (F-03)
+class Overlay(Mode):
+    """A throwaway overlay, to test the stack without a real page."""
+
+    name = "overlay"
+    transient = True
+
+    def __init__(self, app, tag="a"):
+        super().__init__(app)
+        self.tag = tag
+        self.exits = 0
+
+    def on_exit(self):
+        self.exits += 1
+
+
+def test_overlays_stack_and_pop_in_order(rig):
+    app, _, _, _ = rig
+    first, second = Overlay(app, "a"), Overlay(app, "b")
+    assert app.depth == 1
+    assert app.push_mode(first) is True
+    assert app.push_mode(second) is True
+    assert app.depth == 3
+    assert app.mode is second
+
+    assert app.pop_mode() is True
+    assert app.mode is first
+    assert second.exits == 1
+    assert app.pop_mode() is True
+    assert app.mode.name == "library"
+    assert first.exits == 1
+    assert app.pop_mode() is False  # the root never pops
+
+
+def test_the_stack_is_capped(rig):
+    app, _, _, _ = rig
+    assert app.push_mode(Overlay(app)) is True
+    assert app.push_mode(Overlay(app)) is True
+    assert app.push_mode(Overlay(app)) is True
+    assert app.depth == 4
+    assert app.push_mode(Overlay(app)) is False  # no burying yourself
+    assert app.message == "too many layers open"
+    assert app.depth == 4
+
+
+def test_going_home_unwinds_every_overlay(rig):
+    app, _, _, _ = rig
+    first, second = Overlay(app, "a"), Overlay(app, "b")
+    app.push_mode(first)
+    app.push_mode(second)
+    app.goto_library()
+    assert app.depth == 1
+    assert app.mode.name == "library"
+    assert first.exits == 1
+    assert second.exits == 1
+
+
+def test_session_closes_an_overlay_before_going_home(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert app.mode.name == "sample"
+    app.push_mode(Overlay(app))
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "sample"  # back to the page underneath
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "library"
+
+
+# ------------------------------------------------------ settings page (F-06)
+def test_setup_opens_and_closes_the_settings_page(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.mode.name == "settings"
+    assert app.depth == 2
+    # The pads are dark, so there is no mistaking it for a page that edits audio.
+    assert set(push.pad_leds) == {0}
+
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.mode.name == "library"
+
+
+def test_shift_setup_still_saves_the_project(rig):
+    app, push, engine, _ = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.mode.name == "sample"  # no overlay opened
+    assert app.message == "project saved"
+
+
+def test_each_encoder_edits_its_own_setting(rig):
+    app, push, engine, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+
+    push.turn(ENCODER_TRACK[0], 2)  # count-in
+    pump(app)
+    assert app.settings["count_in_beats"] == 6
+    assert app.count_in_beats == 6
+
+    push.turn(ENCODER_TRACK[1], 1)  # monitor
+    pump(app)
+    assert app.settings["monitor"] == "auto"
+    assert engine.monitor == "auto"
+
+    push.turn(ENCODER_TRACK[2], -4)  # monitor gain
+    pump(app)
+    assert app.settings["monitor_gain"] == pytest.approx(0.8)
+    assert engine.monitor_gain == pytest.approx(0.8)
+
+    push.turn(ENCODER_TRACK[3], 10)  # record latency
+    pump(app)
+    assert app.settings["rec_latency_ms"] == pytest.approx(10.0)
+    assert engine.rec_latency_frames == int(SR * 10 / 1000)
+
+
+def test_pressing_a_settings_button_cycles_its_value(rig):
+    app, push, engine, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.press_button(DISPLAY_ROW_BOTTOM[4])  # play while recording
+    pump(app)
+    assert app.settings["play_while_recording"] is False
+    assert engine.play_while_recording is False
+    assert app.message == "play while rec off"
+
+    push.press_button(DISPLAY_ROW_BOTTOM[1])  # monitor: off -> auto
+    pump(app)
+    assert app.settings["monitor"] == "auto"
+
+
+def test_the_count_in_setting_changes_the_next_take(rig):
+    app, push, engine, project = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[0], -2)  # two beats of count-in
+    pump(app)
+    push.press_button(Btn.SETUP)
+    pump(app)
+    assert app.count_in_beats == 2
+
+    push.press_pad(0)
+    pump(app)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    assert engine.count_in_beats_left == 2
+    record_take(app, engine, 1)
+    assert project[0] is not None
+
+
+def test_settings_are_written_when_the_page_closes(rig, tmp_path):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[0], 1)
+    pump(app)
+    assert not (tmp_path / "settings.json").exists()  # not yet
+
+    push.press_button(Btn.SETUP)
+    pump(app)
+    saved = json.loads((tmp_path / "settings.json").read_text())
+    assert saved["count_in_beats"] == 5
+    assert app.message == "settings saved"
+
+
+def test_a_device_that_will_not_open_keeps_the_old_one(rig, monkeypatch):
+    app, push, engine, _ = rig
+    before = engine.blocksize
+    engine.backend = "sounddevice"  # pretend there is a real stream to reopen
+    monkeypatch.setattr(
+        engine, "_start_sounddevice",
+        lambda: (_ for _ in ()).throw(RuntimeError("no such device")),
+    )
+    push.press_button(Btn.SETUP)
+    pump(app)
+    push.turn(ENCODER_TRACK[7], 1)  # block size: needs a stream restart
+    pump(app)
+    # The engine names the real problem rather than a generic failure.
+    assert app.message == "audio: no such device"
+    assert engine.blocksize == before  # put back
+    assert app.mode.name == "settings"  # and the instrument is still running
+
+
+def test_editable_settings_all_fit_the_button_row(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.SETUP)
+    pump(app)
+    lit = [cc for cc in DISPLAY_ROW_BOTTOM if push.button_leds.get(cc, 0) > 0]
+    assert len(lit) == len(EDITABLE)
+    lines = app.status_lines()
+    assert lines[0].startswith("SETTINGS")
+    assert any("count-in" in line for line in lines)
+
+
+# ------------------------------------------------------ perform mode (NF-04)
+def live_rig(rig, slots=(0, 1)):
+    """A rig with a couple of playable samples and the loop running."""
+    app, push, engine, project = rig
+    for slot in slots:
+        project.put(slot, take(engine, bars=1, value=0.5), bars=1)
+    app.rebuild_schedule()
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.PLAY)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    return app, push, engine, project
+
+
+def test_shift_play_opens_perform_mode_and_starts_the_loop(rig):
+    app, push, engine, _ = live_rig(rig)
+    assert app.mode.name == "perform"
+    assert app.depth == 2  # an overlay over the library
+    assert engine.is_playing
+
+
+def test_a_pad_fires_its_sample_on_the_next_grid_line(rig):
+    app, push, engine, _ = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    engine.process_offline(fpbar // 2)  # mid-bar
+
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(fpbar)
+    silence = fpbar - fpbar // 2
+    assert np.all(out[: silence - 1] == 0.0)  # waits for the bar line
+    assert out[silence + FADE, 0] > 0.0
+
+
+def test_an_empty_pad_fires_nothing(rig):
+    app, push, engine, _ = live_rig(rig)
+    push.press_pad(40)
+    pump(app)
+    assert np.all(engine.process_offline(200) == 0.0)
+
+
+def test_quantize_cycles_and_off_means_now(rig):
+    app, push, engine, _ = live_rig(rig)
+    assert app.mode.quantize_beats == 4.0
+    push.press_button(Btn.FIXED_LENGTH)
+    pump(app)
+    assert app.mode.quantize_beats == 0.0
+    assert app.message == "quantize off"
+
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] > 0.0  # no waiting
+
+
+def test_record_writes_what_you_play_into_the_song(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    assert app.mode.writing is True
+
+    engine.process_offline(fpbar + fpbar // 2)  # half way through bar 1
+    push.press_pad(0)
+    pump(app)
+    # Bar-quantised, so it sounds in bar 2 and that is where it is written.
+    assert project[0].triggers == {2}
+    assert len(engine._schedule[2]) == 1
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == set()
+
+
+def test_playing_without_record_changes_nothing(rig):
+    app, push, engine, project = live_rig(rig)
+    push.press_pad(0)
+    pump(app)
+    assert project[0].triggers == set()
+    assert app.history.can_undo is False
+
+
+def test_replaying_a_bar_that_is_already_written_is_not_a_second_edit(rig):
+    app, push, engine, project = live_rig(rig)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.press_pad(0)
+    pump(app)
+    assert project[0].triggers == {0}
+    push.press_pad(0)
+    pump(app)
+    assert "already plays" in app.message
+    assert project[0].triggers == {0}
+
+
+def test_delete_erases_bars_as_the_playhead_passes(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    project[0].triggers.update({0, 1, 2, 3})
+    project[1].triggers.add(1)
+    app.rebuild_schedule()
+
+    push.press_button(Btn.DELETE)
+    pump(app)
+    assert app.delete_armed is True
+
+    engine.process_offline(fpbar + 10)  # into bar 1
+    pump(app)
+    assert project[0].triggers == {0, 2, 3}  # bar 1 wiped, for every sample
+    assert project[1].triggers == set()
+    assert app.message == "erased bar 2"
+
+    engine.process_offline(fpbar)  # into bar 2
+    pump(app)
+    assert project[0].triggers == {0, 3}
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].triggers == {0, 2, 3}
+
+
+def test_erasing_stops_when_delete_is_unarmed(rig):
+    app, push, engine, project = live_rig(rig)
+    fpbar = int(engine.frames_per_bar)
+    project[0].triggers.update({1, 2})
+    push.press_button(Btn.DELETE)
+    pump(app)
+    push.press_button(Btn.DELETE)  # unarmed again
+    pump(app)
+    engine.process_offline(fpbar + 10)
+    pump(app)
+    assert project[0].triggers == {1, 2}
+
+
+def test_the_pads_show_what_is_playable_and_what_is_sounding(rig):
+    app, push, engine, project = live_rig(rig)
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[40] == colors.WHITE_DIM.index  # empty: nothing to fire
+
+    push.press_pad(0)
+    pump(app)
+    engine.process_offline(int(engine.frames_per_bar))
+    pump(app)
+    assert push.pad_leds[0] == colors.AMBER.index
+
+
+def test_session_leaves_perform_mode_for_the_library(rig):
+    app, push, _, _ = live_rig(rig)
+    push.press_button(Btn.SESSION)
+    pump(app)
+    assert app.mode.name == "library"
+    assert app.depth == 1
+
+
+def test_shift_play_again_closes_perform_mode(rig):
+    app, push, _, _ = live_rig(rig)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.PLAY)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.mode.name == "library"
+
+
+# ------------------------------------------------- velocity on the surface
+def test_how_hard_you_hit_a_pad_sets_the_level(rig):
+    app, push, engine, project = live_rig(rig)
+    sample = project[0]
+    sample.velocity_sensitivity = 1.0
+    app.mode.quantize_index = 0  # fire immediately, so the level is easy to read
+
+    push.inject(PadEvent(0, True, 64))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] == pytest.approx(0.5 * 64 / 127, abs=0.01)
+
+
+def test_velocity_is_ignored_until_the_sample_asks_for_it(rig):
+    app, push, engine, project = live_rig(rig)
+    app.mode.quantize_index = 0
+    push.inject(PadEvent(0, True, 30))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    out = engine.process_offline(200)
+    assert out[FADE + 10, 0] == pytest.approx(0.5, abs=0.01)  # flat, as recorded
+
+
+def test_a_played_in_arrangement_keeps_its_dynamics(rig):
+    app, push, engine, project = live_rig(rig)
+    project[0].velocity_sensitivity = 1.0
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.inject(PadEvent(0, True, 55))
+    push.inject(PadEvent(0, False, 0))
+    pump(app)
+    assert project[0].velocity_at(0) == 55
+    # The schedule's gain is the sample's gain (1.0) scaled by the velocity --
+    # the 0.5 in the fixture is the audio's amplitude, not its gain.
+    assert engine._schedule[0][0].gain == pytest.approx(55 / 127, abs=0.01)
+
+
+def test_accent_turns_velocity_on_for_a_sample(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    assert project[0].velocity_sensitivity == 0.0
+
+    push.press_button(Btn.ACCENT)
+    pump(app)
+    assert project[0].velocity_sensitivity == 1.0
+    assert app.message == "velocity on"
+    assert push.button_leds[Btn.ACCENT] > 0
+
+    push.press_button(Btn.ACCENT)
+    pump(app)
+    assert project[0].velocity_sensitivity == 0.0
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].velocity_sensitivity == 1.0
+
+
+def test_the_sample_page_shows_how_hard_each_bar_was_played(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    sample = project[0]
+    sample.velocity_sensitivity = 1.0
+    sample.set_trigger(0, True, velocity=127)
+    sample.set_trigger(1, True, velocity=70)
+    sample.set_trigger(2, True, velocity=20)
+    app.rebuild_schedule()
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[1] == colors.GREEN_MID.index
+    assert push.pad_leds[2] == colors.GREEN_DIM.index
+
+
+def test_without_velocity_every_bar_is_the_same_green(rig):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=0, bars=1)
+    project[0].set_trigger(0, True, velocity=20)
+    project[0].set_trigger(1, True)
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index
+    assert push.pad_leds[1] == colors.GREEN.index
+
+
+# --------------------------------------------------------- bouncing (NF-05)
+def test_shift_record_bounces_the_song_to_a_file(rig, tmp_path):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1, triggers={0, 1})
+    app.rebuild_schedule()
+    pump(app)
+
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.bounce is not None
+    assert app.message == "bouncing..."
+    # The grid becomes one progress bar while it renders.
+    assert colors.AMBER_DIM.index in push.pad_leds
+    assert any("BOUNCING" in line for line in app.status_lines())
+
+    for _ in range(400):  # the event loop steps the render a chunk at a time
+        app.tick()
+        if app.bounce is None:
+            break
+    assert app.bounce is None
+    bounces = list((tmp_path / "song" / "bounces").glob("*.wav"))
+    assert len(bounces) == 1
+    assert "bounced" in app.message
+
+    from push2sampler import wavio
+
+    audio, rate = wavio.read(bounces[0])
+    assert rate == SR
+    assert audio.shape[1] == 2
+    assert np.abs(audio).max() > 0.4
+
+
+def test_bouncing_an_empty_song_says_so(rig):
+    app, push, _, _ = rig
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.RECORD)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.bounce is None
+    assert app.message == "nothing to bounce yet"
+
+
+def test_a_second_bounce_request_is_refused_while_one_runs(rig):
+    app, push, engine, project = rig
+    project.put(0, take(engine, bars=1), bars=1, triggers={0})
+    app.rebuild_schedule()
+    assert app.start_bounce() is True
+    assert app.start_bounce() is False
+    assert app.message == "already bouncing"
+
+
+def test_recording_still_works_unshifted(rig):
+    app, push, _, _ = rig
+    push.press_button(Btn.RECORD)  # no Shift: the old meaning
+    pump(app)
+    assert app.mode.name == "record"
+    assert app.bounce is None
+
+
+# ----------------------------------------------------- sample editor (NF-03)
+def open_editor(rig, slot=0):
+    app, push, engine, project = rig
+    record_into(app, push, engine, slot=slot, bars=1)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    return app, push, engine, project
+
+
+def test_device_opens_the_editor_over_the_sample_page(rig):
+    app, push, _, _ = open_editor(rig)
+    assert app.mode.name == "edit"
+    # The sample page replaces the library rather than stacking on it, so the
+    # editor is the only overlay: depth 2, not 3.
+    assert app.depth == 2
+
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    assert app.mode.name == "sample"  # back to where it was opened from
+
+
+def test_each_encoder_shapes_one_thing(rig):
+    app, push, _, project = open_editor(rig)
+    sample = project[0]
+
+    push.turn(ENCODER_TRACK[0], 4)  # trim in
+    pump(app)
+    assert sample.edits.trim_start_ms == pytest.approx(20.0)
+    assert app.message == "trim in 20ms"  # the page's wording, not the field name
+
+    push.turn(ENCODER_TRACK[4], 3)  # pitch
+    pump(app)
+    assert sample.edits.pitch_semitones == pytest.approx(3.0)
+
+    push.turn(ENCODER_TRACK[6], 1)  # reverse is a switch
+    pump(app)
+    assert sample.edits.reverse is True
+
+    push.turn(ENCODER_TRACK[5], 4)  # gain is the sample's own, not an edit
+    pump(app)
+    assert sample.gain == pytest.approx(1.2)
+    assert sample.edits.trim_start_ms == pytest.approx(20.0)
+
+
+def test_an_edit_is_heard_without_touching_the_recording(rig):
+    app, push, engine, project = open_editor(rig)
+    sample = project[0]
+    raw_frames = sample.raw_frames
+
+    push.turn(ENCODER_TRACK[1], 20)  # trim 100ms off the end
+    pump(app)
+    assert sample.raw_frames == raw_frames
+    assert sample.frames < raw_frames
+    # ...and the scheduler picks up the shorter version.
+    sample.set_trigger(0, True)
+    app.rebuild_schedule()
+    assert engine._schedule[0][0].buf.shape[0] == sample.frames
+
+
+def test_a_button_under_the_display_puts_a_parameter_back(rig):
+    app, push, _, project = open_editor(rig)
+    push.turn(ENCODER_TRACK[2], 10)  # fade in
+    pump(app)
+    assert project[0].edits.fade_in_ms == pytest.approx(20.0)
+
+    push.press_button(DISPLAY_ROW_BOTTOM[2])
+    pump(app)
+    assert project[0].edits.fade_in_ms == 0.0
+
+    push.press_button(DISPLAY_ROW_BOTTOM[2])  # already there
+    pump(app)
+    assert "already" in app.message
+
+
+def test_a_switch_is_toggled_by_its_button(rig):
+    app, push, _, project = open_editor(rig)
+    push.press_button(DISPLAY_ROW_BOTTOM[7])  # normalise
+    pump(app)
+    assert project[0].edits.normalize is True
+    push.press_button(DISPLAY_ROW_BOTTOM[7])
+    pump(app)
+    assert project[0].edits.normalize is False
+
+
+def test_an_encoder_sweep_is_one_undo_step(rig):
+    app, push, _, project = open_editor(rig)
+    for _ in range(5):
+        push.turn(ENCODER_TRACK[0], 1)
+        pump(app)
+    assert project[0].edits.trim_start_ms == pytest.approx(25.0)
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].edits.trim_start_ms == 0.0
+
+
+def test_shift_device_applies_the_edits_and_undo_takes_them_back(rig):
+    app, push, _, project = open_editor(rig)
+    sample = project[0]
+    raw = sample.audio
+    push.turn(ENCODER_TRACK[6], 1)  # reverse
+    pump(app)
+
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert sample.edits.is_default
+    assert sample.audio is not raw
+    assert app.message == "edits applied"
+
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].audio is raw
+    assert project[0].edits.reverse is True
+
+
+def test_applying_nothing_says_so(rig):
+    app, push, _, _ = open_editor(rig)
+    push.hold_button(Btn.SHIFT, True)
+    push.press_button(Btn.DEVICE)
+    pump(app)
+    push.hold_button(Btn.SHIFT, False)
+    assert app.message == "nothing to apply"
+
+
+def test_the_grid_draws_the_take_and_what_is_being_trimmed(rig):
+    app, push, engine, project = open_editor(rig)
+    # A take that is loud in its first half and silent in its second.
+    half = int(engine.frames_per_bar) // 2
+    audio = np.zeros((half * 2, 1), dtype=np.float32)
+    audio[:half] = 0.8
+    project[0].audio = audio
+    project[0].set_edits(project[0].edits)  # drop the cache
+    pump(app)
+    assert push.pad_leds[0] == colors.GREEN.index  # loud
+    assert push.pad_leds[63] == colors.OFF.index  # silent
+
+    push.turn(ENCODER_TRACK[0], 100)  # trim a long way in
+    pump(app)
+    assert push.pad_leds[0] == colors.RED_DIM.index  # cut away
+
+
+def test_a_pad_auditions_from_that_point(rig):
+    app, push, engine, project = open_editor(rig)
+    push.press_pad(0)
+    pump(app)
+    out = engine.process_offline(200)
+    assert np.abs(out).max() > 0.0
+
+
+def test_the_editor_refuses_to_open_on_an_empty_slot(rig):
+    from push2sampler.modes import SampleEditMode
+
+    app, _, _, _ = rig
+    app.push_mode(SampleEditMode(app, 9))  # slot 10 is empty
+    assert app.mode.name == "library"  # it closed itself again
+    assert app.depth == 1

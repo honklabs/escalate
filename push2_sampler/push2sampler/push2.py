@@ -10,6 +10,10 @@ Two implementations of the same small interface are provided:
 Both deliver input as :class:`PadEvent` / :class:`ButtonEvent` /
 :class:`EncoderEvent` objects through :meth:`PushBase.poll_events`, so the
 application never sees raw MIDI.
+
+Set :attr:`PushBase.capture_raw` to also keep the untranslated messages in
+:attr:`PushBase.raw`.  The hardware probe uses that to learn what the device
+really sends, rather than trusting the maps in :mod:`push2sampler.constants`.
 """
 
 from __future__ import annotations
@@ -58,6 +62,9 @@ class PushBase:
         self._events: queue.SimpleQueue = queue.SimpleQueue()
         self.pad_leds: list[int] = [0] * PAD_COUNT
         self.button_leds: dict[int, int] = {}
+        #: When True, every inbound message is also queued on ``raw`` untouched.
+        self.capture_raw = False
+        self.raw: queue.SimpleQueue = queue.SimpleQueue()
 
     # -- lifecycle ---------------------------------------------------------
     def open(self) -> None:  # pragma: no cover - overridden
@@ -104,6 +111,17 @@ class PushBase:
         """Queue an event as if it came from the hardware."""
         self._events.put(event)
 
+    def next_raw(self, timeout: float = 0.0):
+        """Pop one untranslated message, or None if none arrives in time."""
+        try:
+            return self.raw.get(timeout=timeout) if timeout else self.raw.get_nowait()
+        except queue.Empty:
+            return None
+
+    def drain_raw(self) -> None:
+        while self.next_raw() is not None:
+            pass
+
     # -- subclass hooks ----------------------------------------------------
     def _send_pad(self, index: int, value: int) -> None:  # pragma: no cover
         pass
@@ -121,6 +139,9 @@ class Push2(PushBase):
         self.prefer_user_port = prefer_user_port
         self._inport = None
         self._outport = None
+        #: Port names actually opened, for the hardware report.
+        self.chosen_input: str | None = None
+        self.chosen_output: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
     def open(self) -> None:
@@ -128,6 +149,7 @@ class Push2(PushBase):
 
         in_name = self._pick(mido.get_input_names(), "input")
         out_name = self._pick(mido.get_output_names(), "output")
+        self.chosen_input, self.chosen_output = in_name, out_name
         self._outport = mido.open_output(out_name)
         self._inport = mido.open_input(in_name, callback=self._on_midi)
         self.program_palette()
@@ -198,6 +220,8 @@ class Push2(PushBase):
     # -- input -------------------------------------------------------------
     def _on_midi(self, msg) -> None:
         """``mido`` callback; runs on the rtmidi thread, so only queue work."""
+        if self.capture_raw:
+            self.raw.put(msg)
         event = translate_midi(msg)
         if event is not None:
             self._events.put(event)
@@ -241,6 +265,14 @@ class SimPush(PushBase):
         self.sent.append(("button", cc, value))
 
     # -- convenience for tests/REPL ---------------------------------------
+    def feed_raw(self, msg) -> None:
+        """Deliver a pretend inbound message, translated like the real thing."""
+        if self.capture_raw:
+            self.raw.put(msg)
+        event = translate_midi(msg)
+        if event is not None:
+            self.inject(event)
+
     def press_pad(self, index: int, velocity: int = 100) -> None:
         self.inject_pad_press(index, velocity)
         self.inject_pad_release(index)

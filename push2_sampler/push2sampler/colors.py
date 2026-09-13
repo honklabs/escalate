@@ -33,6 +33,7 @@ WHITE = Color("white", 64, (255, 255, 255))
 WHITE_DIM = Color("white_dim", 65, (36, 36, 36))
 WHITE_MID = Color("white_mid", 75, (96, 96, 96))
 GREEN = Color("green", 66, (0, 255, 60))
+GREEN_MID = Color("green_mid", 76, (0, 120, 30))
 GREEN_DIM = Color("green_dim", 67, (0, 48, 14))
 AMBER = Color("amber", 68, (255, 130, 0))
 AMBER_DIM = Color("amber_dim", 69, (48, 24, 0))
@@ -48,6 +49,7 @@ PALETTE: tuple[Color, ...] = (
     WHITE_DIM,
     WHITE_MID,
     GREEN,
+    GREEN_MID,
     GREEN_DIM,
     AMBER,
     AMBER_DIM,
@@ -67,6 +69,7 @@ SIM_GLYPHS = {
     WHITE_MID.index: "m",
     WHITE_DIM.index: "w",
     GREEN.index: "G",
+    GREEN_MID.index: "h",
     GREEN_DIM.index: "g",
     AMBER.index: "A",
     AMBER_DIM.index: "a",

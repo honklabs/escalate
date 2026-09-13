@@ -19,6 +19,8 @@ class Mode:
     """Base class: handles nothing, lights nothing."""
 
     name = "mode"
+    #: True for a mode that opens *over* another one and pops back to it.
+    transient = False
 
     def __init__(self, app) -> None:
         self.app = app

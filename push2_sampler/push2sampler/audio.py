@@ -65,6 +65,12 @@ MONITOR_ON = "on"
 #: Monitor only while a take is running, which is when a player needs to hear it.
 MONITOR_AUTO = "auto"
 
+#: Quantize amounts for live triggering, in beats.  0 means "right now".
+QUANTIZE_BEATS: tuple[float, ...] = (0.0, 1.0, 2.0, 4.0)
+
+#: Engine attributes :meth:`Engine.restart_stream` is allowed to change.
+RESTARTABLE = ("input_device", "output_device", "blocksize", "in_channels", "out_channels")
+
 IDLE = "idle"
 COUNT_IN = "count_in"
 RECORDING = "recording"
@@ -102,6 +108,8 @@ class Intent:
     rec_state: str
     pos: float
     bpm: float
+    #: A stop waiting for the next bar line.
+    stop_at_bar: bool = False
 
 
 @dataclass(frozen=True)
@@ -227,6 +235,11 @@ class Engine:
         )
         self._last_beat: int | None = None
         self._last_bar: int | None = None
+        #: Voices waiting for their quantised start frame: (start, voice).
+        self._pending: list[tuple[float, Voice]] = []
+        #: A stop asked for at the next bar line rather than right now.  Written
+        #: by the callback, read by the UI purely to say so on screen.
+        self._stop_at_bar = False
 
         self._rec_state = IDLE
         self._rec_buf: np.ndarray | None = None
@@ -284,13 +297,53 @@ class Engine:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
-        if self._stream is not None:
+        self._stop_stream()
+
+    def _stop_stream(self) -> None:
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:  # pragma: no cover - best effort
+            pass
+        self._stream = None
+
+    def restart_stream(self, **changes) -> bool:
+        """Reopen the stream with new devices, block size or channel counts.
+
+        Returns True on success.  On failure the previous settings are put back,
+        the old stream is reopened if it can be, and an ``("audio_error", msg)``
+        event is raised: choosing a device that will not open must not take the
+        instrument down with it.
+
+        Sample rate is deliberately not changeable here -- every loaded take
+        would need resampling first.
+        """
+        unknown = set(changes) - set(RESTARTABLE)
+        if unknown:
+            raise ValueError(f"cannot change {sorted(unknown)} on a running engine")
+        previous = {name: getattr(self, name) for name in changes}
+        if all(previous[name] == value for name, value in changes.items()):
+            return True
+        for name, value in changes.items():
+            setattr(self, name, value)
+        if self.backend != "sounddevice":
+            return True  # nothing to reopen
+        try:
+            self._stop_stream()
+            self._start_sounddevice()
+            return True
+        except Exception as exc:
+            for name, value in previous.items():
+                setattr(self, name, value)
             try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:  # pragma: no cover - best effort
+                self._stop_stream()
+                self._start_sounddevice()
+            except Exception:  # pragma: no cover - the old device went away too
                 pass
-            self._stream = None
+            self.events.put(("audio_error", str(exc)))
+            return False
 
     def _sd_callback(self, indata, outdata, frames, _time, status):
         if status:
@@ -437,6 +490,7 @@ class Engine:
                 rec_state=self._rec_state,
                 pos=self._pos,
                 bpm=self.transport.bpm,
+                stop_at_bar=self._stop_at_bar,
             )
         return replace(current, **changes)
 
@@ -448,14 +502,36 @@ class Engine:
 
     def play(self, from_bar: int = 0) -> None:
         pos = float(from_bar) * self.frames_per_bar
-        self._post(("play", pos), self._intend(running=True, pos=pos))
+        self._post(
+            ("play", pos),
+            self._intend(running=True, pos=pos, stop_at_bar=False),
+        )
 
-    def stop(self) -> None:
+    def stop(self, at_bar_end: bool = False) -> None:
+        """Stop now, or at the next bar line so the last bar finishes.
+
+        A deferred stop leaves the transport running -- and says so through
+        :attr:`stop_pending` -- until the callback reaches the bar boundary, so
+        the loop ends musically instead of mid-phrase.  It never defers a take:
+        a recording stops when you say so.
+        """
+        if at_bar_end and self.is_playing and self.rec_state == IDLE:
+            self._post(("stop_at_bar",), self._intend(stop_at_bar=True))
+            return
         was_recording = self.rec_state != IDLE
-        self._post(("stop",), self._intend(running=False, rec_state=IDLE, pos=0.0))
+        self._post(
+            ("stop",),
+            self._intend(running=False, rec_state=IDLE, pos=0.0, stop_at_bar=False),
+        )
         if was_recording:
             self.events.put(("record_cancelled",))
         self.events.put(("stopped",))
+
+    @property
+    def stop_pending(self) -> bool:
+        """True while a bar-end stop is waiting for the bar line."""
+        intent = self._intent
+        return intent.stop_at_bar if intent else self._stop_at_bar
 
     def toggle_play(self) -> None:
         if self.is_playing:
@@ -489,6 +565,33 @@ class Engine:
         """Play a one-shot outside the transport (auditioning a sample)."""
         self._post(("voice", Voice(buf, gain, slot=slot)))
 
+    def trigger(self, buf: np.ndarray, gain: float = 1.0, slot: int = -1,
+                quantize_beats: float = 0.0) -> None:
+        """Play a sample now, or on the next grid line if quantised.
+
+        The start frame is worked out by the callback rather than here, so it
+        lands on the exact frame of the grid line no matter when the pad was hit.
+        """
+        voice = Voice(buf, gain, slot=slot)
+        if quantize_beats <= 0 or not self.is_playing:
+            self._post(("voice", voice))
+            return
+        self._post(("trigger", quantize_beats * self.frames_per_beat, voice))
+
+    def next_grid_bar(self, quantize_beats: float) -> int:
+        """The bar a trigger quantised by ``quantize_beats`` would land in.
+
+        What the arrangement should record when a pad is played in live.
+        """
+        pos = max(0.0, self.position_frames)
+        if quantize_beats > 0:
+            grid = quantize_beats * self.frames_per_beat
+            pos = math.ceil(pos / grid) * grid
+        song = self.song_frames
+        if self.loop and song > 0 and pos >= song:
+            pos -= song
+        return int(pos // self.frames_per_bar)
+
     # ------------------------------------------------------------------
     # command application (callback thread only)
     # ------------------------------------------------------------------
@@ -506,16 +609,14 @@ class Engine:
         kind = command[0]
         if kind == "play":
             self._pos = command[1]
+            self._stop_at_bar = False  # starting again cancels a pending stop
             self._release_all(samples_only=True)
             self._arm_boundaries()
             self._running = True
         elif kind in ("stop", "cancel"):
-            self._running = False
-            self._rec_state = IDLE
-            self._rec_buf = None
-            self._pos = 0.0
-            self._release_all()
-            self._arm_boundaries()
+            self._stop_now()
+        elif kind == "stop_at_bar":
+            self._stop_at_bar = True
         elif kind == "arm":
             _, bars, keep, buf, pos = command
             self._rec_bars = bars
@@ -523,6 +624,7 @@ class Engine:
             self._rec_buf = buf
             self._rec_written = 0
             self._pos = pos
+            self._stop_at_bar = False
             self._release_all()
             self._arm_boundaries()
             self._rec_state = COUNT_IN if pos < 0 else RECORDING
@@ -532,6 +634,24 @@ class Engine:
             self._reanchor()
         elif kind == "voice":
             self._add_voice(command[1])
+        elif kind == "trigger":
+            grid, voice = command[1], command[2]
+            start = math.ceil(self._pos / grid) * grid if grid > 0 else self._pos
+            if start <= self._pos:
+                self._add_voice(voice)
+            else:
+                self._pending.append((start, voice))
+
+    def _stop_now(self) -> None:
+        """Everything a stop does, from either a command or a deferred bar line."""
+        self._pending.clear()
+        self._stop_at_bar = False
+        self._running = False
+        self._rec_state = IDLE
+        self._rec_buf = None
+        self._pos = 0.0
+        self._release_all()
+        self._arm_boundaries()
 
     def _arm_boundaries(self) -> None:
         """Force the next processed segment to fire its beat and bar events."""
@@ -556,6 +676,7 @@ class Engine:
         while i < frames:
             if self._running:
                 self._fire_boundaries()
+            self._start_due_voices()
             n = min(frames - i, self._segment_limit(frames - i))
             seg = out[i : i + n]
             self._mix(seg, n)
@@ -577,8 +698,23 @@ class Engine:
             self._intent = None
         self._publish_stats(started, out[:frames])
 
+    def _start_due_voices(self) -> None:
+        if not self._pending:
+            return
+        still_waiting = []
+        for start, voice in self._pending:
+            if start <= self._pos:
+                self._add_voice(voice)
+            else:
+                still_waiting.append((start, voice))
+        self._pending = still_waiting
+
     def _segment_limit(self, remaining: int) -> int:
         """How many frames we may render before the next musical boundary."""
+        if self._pending:
+            soonest = min(start for start, _ in self._pending)
+            if soonest > self._pos:
+                remaining = min(remaining, max(1, int(math.ceil(soonest - self._pos))))
         if not self._running:
             return remaining
         limit = remaining
@@ -619,6 +755,12 @@ class Engine:
         if bar == self._last_bar:
             return
         self._last_bar = bar
+        if self._stop_at_bar and self._rec_state == IDLE:
+            # Asked to stop at the end of the bar: this is that line, so stop
+            # before anything new is scheduled onto it.
+            self._stop_now()
+            self.events.put(("stopped",))
+            return
         if self._rec_state == COUNT_IN:
             self._rec_state = RECORDING
             self.events.put(("record_started", self._rec_bars))
