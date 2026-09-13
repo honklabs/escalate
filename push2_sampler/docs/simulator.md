@@ -12,7 +12,13 @@ The modes do not know they are being simulated.
 
 What is fake: the control surface (you type instead of pressing) and the clock
 (a plain thread runs the transport in wall-clock time instead of an audio
-callback). There is no sound, and recording captures silence.
+callback). Nothing comes out of the speakers.
+
+**Recording is not silent**, though: with no audio device to listen to, the
+engine feeds itself a 220 Hz stand-in tone, so a simulated take has something
+in it. That is deliberate -- a silent take makes every downstream page look
+broken, and a bounce of nothing is not a check of anything. It does mean a
+simulated song sounds like a test tone, which is what it is.
 
 Which makes it good for three things:
 
@@ -101,7 +107,7 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
-`convert`/`slice`
+`convert`/`slice` `layout`/`about`/`info`
 `clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
@@ -200,8 +206,9 @@ Check the result without the simulator at all:
 python -m push2sampler --bounce /tmp/out.wav my-song
 ```
 
-(Silence, in this case — the simulator recorded nothing. The *structure* is
-real: 2 bars of sample on bars 1 and 9, in a 64-bar song.)
+(A 220 Hz tone, in this case: see above. The *structure* is what is real --
+2 bars of sample on bars 1 and 9, in a 64-bar song — and that is what the
+bounce is for checking.)
 
 ---
 
@@ -296,6 +303,11 @@ shift on
 b1               # send slot 1 to outputs 3/4 (needs --out-channels 4)
 shift off
 mix              # close
+
+# ask what the take sounds like
+about            # a spectrogram, a role, a pitch, a tempo -- each with a confidence
+b1               # accept the suggested name
+about            # close
 
 # slice an 8-bar take into a kit
 slice            # the take, with its cuts marked

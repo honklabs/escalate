@@ -126,6 +126,7 @@ to another page of 64.
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
 | **Device** | open the editor |
 | **Convert** | slice this take across the pads |
+| **Layout** | what this take sounds like, and a name for it |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
 | **Delete** then a pad | clear every bar of this sample |
@@ -211,6 +212,32 @@ is the earliest moment the engine knows about.
 
 Recording is untouched: the nudge is applied on the way to the speakers, so it
 affects playback and bounces but never where a take was captured.
+
+---
+
+## About — what a take sounds like (**Layout** on a sample page)
+
+The pads are a **spectrogram**: time across, frequency up (lowest at the
+bottom), brightness is energy. A kick sits along the bottom, a hat across the
+top, a held note is one horizontal line.
+
+| Control | Does |
+| --- | --- |
+| any pad | hear the take |
+| **button 1 below** | accept the suggested name — the only thing this page changes |
+| **Layout** / **Session** | close |
+
+| Reading | |
+| --- | --- |
+| sounds like | `low drum` `bright drum` `drum` `bass` `tone` `noise` |
+| pitch | the note, for pitched takes only |
+| tempo | from the gaps between hits — absent when it cannot be trusted |
+| hits | how many, and per second |
+| brightness | `dark` `warm` `bright` `very bright`, plus the centroid |
+
+**Every reading shows its confidence**, and a weak one says `not sure` rather
+than being rounded into a fact. Five roles, not six: nothing here can tell a
+snare from a hat, so a snare reads as `bright drum`.
 
 ---
 

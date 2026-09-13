@@ -544,9 +544,44 @@ slice and leaving you guessing. It is very good on percussive material and only
 approximate on sustained overlapping notes — for those, bars or beats is the
 better cut.
 
+### Step 24: ask it what it heard
+
+You have a library of takes named `S01`, `S04`, `S09`. On any sample page,
+**press Layout.**
+
+The pads become a **spectrogram** — time going across, pitch going up with the
+lowest sounds at the bottom, brighter where there is more energy. A kick sits
+along the bottom. A hat is a stripe across the top. A held note is one
+horizontal line. It is the only page that shows you what is *in* a sound rather
+than how loud it is.
+
+The display tells you what the instrument makes of it:
+
+```
+sounds like: low drum (0.97)
+about 120 BPM (0.98)   8 hit(s)   2.0/s
+dark (123 Hz)   low 97% mid 3% high 1%   peak 0.97
+```
+
+**Press button 1** and it names the slot for you — `kick`, `hat`, `bass A2`,
+`tone A4`. One **Undo** if you disagree. That is the only thing this page can
+change: it tells you what it thinks and waits for you to decide.
+
+**Read the numbers in brackets.** They are confidences, and they are the point.
+`tone A4 (0.89)` is the instrument being sure; `tone A4 (0.21)  not sure` is it
+telling you not to trust it. Where it cannot trust itself at all it says so —
+`no tempo to read` rather than a figure it does not believe.
+
+It is honest about what it cannot do, too. It will not tell a snare from a hat,
+so a snare comes back as `bright drum` — nothing in the measurements separates
+those, and a confident wrong label would be worse than a vague right one. It
+will not name a pitch below about 60 Hz, because a short take has nothing to
+resolve down there. A chord reads as a `tone` with low confidence, which is
+correct: a chord is not one note.
+
 <a id="settings"></a>
 
-### Step 24: the settings worth knowing
+### Step 25: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -581,7 +616,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 25: tempo, click, loop
+### Step 26: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -617,7 +652,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 26: shape a take
+### Step 27: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -647,7 +682,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 27: name it, colour it
+### Step 28: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -663,7 +698,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 28: keep two versions of the arrangement
+### Step 29: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -677,7 +712,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 29: start another song, without a terminal
+### Step 30: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -693,7 +728,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 30: undo
+### Step 31: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -715,7 +750,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 31: bounce it
+### Step 32: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

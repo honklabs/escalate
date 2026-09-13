@@ -49,6 +49,7 @@ from .mixer import MixerMode
 from .perform import PerformMode
 from .record import RecordMode
 from .sample import SampleMode
+from .info import InfoMode
 from .sample_edit import SampleEditMode
 from .slice import SliceMode
 from .song import SongMode
@@ -63,6 +64,7 @@ __all__ = [
     "Mode",
     "PerformMode",
     "RecordMode",
+    "InfoMode",
     "SampleEditMode",
     "SliceMode",
     "SampleMode",

@@ -9,7 +9,7 @@ same material, read [Getting started](getting-started.md) instead.
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
   [Swap](#swapping-two-samples) · [Slice](#slice-page) ·
-  [Editor](#sample-editor) ·
+  [About](#about-page) · [Editor](#sample-editor) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
   [Output routing](#output-routing) · [Browser](#project-browser) ·
   [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
@@ -526,6 +526,101 @@ loudest are kept **in time order**, because a kit built from the first 64 of
 The sensitivity encoder says so when it cannot do anything — it applies to
 transient slicing only, and a knob that turns silently in two of three modes
 would look broken.
+
+### About page
+
+**Layout** from a sample page. The instrument has heard everything you played,
+so it can tell you something about it — entirely from DSP, with no network, no
+model weights and nothing to install.
+
+The pads are a **spectrogram**: columns are time, rows are frequency with the
+lowest at the bottom, brightness is energy. It is the one view of a take no
+other page gives — [the editor](#sample-editor) shows the envelope and this
+shows what is inside it. A kick is a bright blob along the bottom, a hat a
+stripe across the top, a held note a horizontal line. Rows are spaced by
+**octaves**, not linearly: a linear split would put every drum in the bottom
+row and give five rows to hiss nobody can hear.
+
+| Control | Action |
+| --- | --- |
+| Any pad | Hear the take |
+| Button 1 below the display | **Accept the suggested name** |
+| **Layout**, **Session**, **Note**, **◀** | Close |
+
+Accepting the name is the **only** thing this page can change. A page whose job
+is to tell you what it thinks should not quietly act on it.
+
+#### What it reads, and how sure it is
+
+```
+ABOUT slot 1 kick   4.00s  2 bar(s)
+sounds like: low drum (0.97)
+about 120 BPM (0.98)   8 hit(s)   2.0/s
+dark (123 Hz)   low 97% mid 3% high 1%   peak 0.97
+button 1: name it 'kick'   pad: hear it
+every reading is a measurement, not a fact - Layout: close
+```
+
+**Every reading carries a confidence, and low confidence is shown rather than
+rounded away.** `tone A4 (0.89)` and `tone A4 (0.21)  not sure` are different
+statements, and the page prefers saying `no tempo to read` to printing a figure
+it does not believe. That last line is not decoration: a guess stated
+confidently is worse than no guess.
+
+| Reading | What it is |
+| --- | --- |
+| **sounds like** | One of `low drum`, `bright drum`, `drum`, `bass`, `tone`, `noise` |
+| **pitch** | The fundamental and its note name, for pitched takes only |
+| **tempo** | Read from the gaps between hits; absent when it cannot be trusted |
+| **hits** | How many attacks, and how many per second |
+| **brightness** | `dark` / `warm` / `bright` / `very bright`, and the spectral centroid |
+| **bands** | How the energy splits below 200 Hz, 200–2000, and above |
+
+#### Five roles, not six
+
+The plan asked for `kick / snare / hat / bass / pad / vocal`. **Those six are
+not separable by these measurements**, and finding that out was the first
+result of prototyping: a synthesised snare classified as a hat at 0.85
+confidence, because nothing in band energy or envelope tells a noise burst with
+a 200 Hz body from one without — and `pad` versus `vocal` is the same problem.
+
+So the vocabulary is what the measurements can stand behind, and the honest
+cost is that **a snare comes back as `bright drum`.** A label the instrument
+cannot defend would be worse than a coarser one it can.
+
+| Told apart by | Which roles |
+| --- | --- |
+| Envelope — does it decay? | drums vs. everything sustained |
+| Band energy | `low drum` vs. `bright drum` |
+| Harmonic structure | `bass` / `tone` vs. `noise` |
+| Pitch | `bass` (below 160 Hz) vs. `tone` |
+
+#### Where the numbers stop
+
+- **Pitch** is good to within 2% on a clear note — inside a semitone (5.95%),
+  which is what naming one requires. Below about **60 Hz** there is nothing a
+  short take can resolve, and the page says no pitch rather than guessing. A
+  **chord** reads as a `tone` at low confidence, correctly: a chord is not one
+  note, so only a third of its energy lies on any one harmonic series.
+- **Tempo** is exact to a fraction of a BPM on material with crisp attacks and
+  useless on material whose attacks are smeared, so below a confidence
+  threshold it is not reported at all. It also has an **unresolvable octave
+  ambiguity** — 90 BPM in eighths and 180 BPM in quarters are the same
+  recording — which the page resolves using the one thing a sampler knows and
+  a general analyser does not: [the session's own tempo](#tapping-a-tempo).
+- **Names** are generic on purpose. The measurements know the sound is a low
+  struck thing, not that it is your 808. A pitched take gets its note, because
+  the note is the one specific thing actually measured.
+
+#### Not built: arrangement hints
+
+The plan also asked for a hint proposing *bars* for a new sample from what
+already occupies them. It is not here, deliberately: a proposal that lights a
+pattern and waits for a press is the same mechanic
+[generative patterns](#not-built-yet) will need, and building it twice — once
+for hints and once for patterns — would be the wrong order. It waits for that
+item, and the propose-then-accept shape is already set by this page's name
+button.
 
 ### Sample editor
 
@@ -1557,15 +1652,18 @@ So you do not go looking:
   did ship, in the two places a bar grid can carry them.
 - **No per-layer editing** of an overdub: layers can be added and removed, not
   soloed or re-balanced against each other.
-- **Nothing that listens to your audio and suggests anything** — no tempo or
-  key detection, no naming from what it hears. [Slicing](#slice-page) did ship;
-  the rest of the `v2.0` ideas in `plans.md` have not.
+- **No key detection**, and nothing that proposes *bars* for you.
+  [Slicing](#slice-page) and [the About page](#about-page) did ship — tempo,
+  pitch, brightness and a name suggestion, each with a confidence — but a hint
+  that proposes an arrangement waits for generative patterns, which needs the
+  same propose-then-accept mechanic.
+- **No generative trigger patterns** yet: bars are still toggled, painted,
+  filled or played in by hand.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: a mode banner, transport, levels and
   messages. No waveform drawing, no graphics — and it has never rendered on
   real hardware.
 
-`plans.md` in the project root tracks all of it: 52 of the 61 planned items are
-shipped — every release train up to `v1.5`, and the first of the ten `v2.0`
-ideas.
+`plans.md` in the project root tracks all of it: 53 of the 61 planned items are
+shipped — every release train up to `v1.5`, and two of the ten `v2.0` ideas.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

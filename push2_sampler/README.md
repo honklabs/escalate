@@ -336,6 +336,48 @@ is 31 of 31 within 0.7 ms, a ghost note at a tenth the level survives, and
 silence, noise and a held tone all yield nothing. Overlapping sustained notes
 are approximate, which is why bars and beats exist.
 
+### 4c. About: what the instrument thinks it heard
+
+`Layout` on a sample page. The pads become a **spectrogram** -- time across,
+frequency up with the lowest at the bottom, brightness is energy, rows spaced
+by octaves so a drum does not occupy one row and hiss five. A kick is a blob
+along the bottom, a hat a stripe across the top, a held note a line.
+
+The display reads back what `analysis.describe` measured: a role, a pitch with
+its note name, a tempo, how many hits and how dense, brightness as a centroid,
+and the energy split across three bands. **Every reading carries a confidence,
+and a weak one says so** rather than being rounded into a fact -- the page's
+last line is "every reading is a measurement, not a fact", and that is the
+design rather than a disclaimer. Button 1 accepts a suggested name, and is the
+only thing on the page that can change the project.
+
+**The plan asked for six roles and the features support five.** Six rounds of
+prototyping established that `kick / snare / hat / bass / pad / vocal` is not
+separable by band energy and envelope: a synthesised snare classified as a hat
+at 0.85 confidence, and `pad` versus `vocal` is the same problem. The
+vocabulary is therefore what the measurements can defend -- `low drum`,
+`bright drum`, `drum`, `bass`, `tone`, `noise` -- and the honest cost is that a
+snare reads as a bright drum.
+
+The prototype found five more things, each measured rather than guessed:
+autocorrelation on a chord finds the GCD period (220+277+330 came back as
+55 Hz, making every pad a bass); white noise classified as a hat at 0.92
+confidence until an envelope gate went in, because a struck sound decays and
+noise does not; periodicity is not pitch confidence (a kick every half second
+is 0.95 periodic *at the hit rate* and duly reported a 1200 Hz "pitch");
+scoring harmonicity as the mean harmonic strength inverted the measure, so a
+pure sine scored 0.13 and white noise 0.54; and note names were a semitone or
+two out until the peak was interpolated, because one FFT bin at 110 Hz is 10%
+and a semitone is 5.95%. The note-naming helper itself was an octave low --
+440 Hz came back "A3" -- caught only because the test named the notes it
+expected.
+
+Tempo gets the same treatment: exact to a fraction of a BPM on crisp attacks,
+useless on smeared ones, so below a confidence threshold it is **not reported
+at all**. Its octave ambiguity (90 BPM in eighths is 180 in quarters, and
+nothing in the timing distinguishes them) is resolved with the one thing a
+sampler knows and a general analyser does not: the session's own tempo.
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -605,7 +647,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-1026 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1106 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -624,7 +666,8 @@ its zoom, scenes, click routing and pre-roll, the project browser's metadata-onl
 scan, the MIDI clock PLL against a synthetic sender, importing from disk, play
 modes and choke groups, master playback, swapping two slots, per-slot output
 routing, swing and per-sample nudges measured in frames, onset detection against
-signals with chosen onset frames, the slice page's refusals, the monitor page's
+signals with chosen onset frames, pitch to within a semitone and tempo to
+within 2 BPM on material built at a known one, the slice page's refusals, the monitor page's
 refusals, every internal doc link, and every older project format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
@@ -633,14 +676,14 @@ No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **52 are shipped: every train up to v1.5,
-and the first v2.0 idea**; each carries a status note saying what was built and
+several people work on it at once. **53 are shipped: every train up to v1.5,
+and two of the v2.0 ideas**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v2.0 — Instrument` is under way: slicing shipped, and the rest — local
-analysis that can tell you something about what you played, and the other ideas
-in `plans.md` §8 — has not. The one thing this
+`v2.0 — Instrument` is under way: slicing and the listening assistant have
+shipped; generative patterns, the other ideas in `plans.md` §8, and the two
+remaining nice-to-haves have not. The one thing this
 project cannot do for itself is the human hardware pass — the display protocol
 and most of the button map are still taken from Ableton's document rather than
 from a device.

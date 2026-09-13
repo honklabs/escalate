@@ -12,6 +12,90 @@ plan.
 
 ## Unreleased
 
+### The instrument tells you what it heard (`IN-02`)
+
+`Layout` on a sample page opens an **About** page. The pads become a
+spectrogram — time across, frequency up with the lowest at the bottom,
+brightness is energy, rows spaced by octaves so a drum does not take one row
+and hiss five — and the display reads back what was measured: a role, a pitch
+with its note name, a tempo, how many hits and how dense, brightness, and the
+energy split across three bands. All DSP: no network, no model weights, nothing
+to install.
+
+**Every reading carries a confidence, and a weak one says so.** `tone A4
+(0.89)` and `tone A4 (0.21)  not sure` are different statements, and the page
+prints `no tempo to read` in preference to a figure it does not believe. Its
+last line — "every reading is a measurement, not a fact" — is the design, not a
+disclaimer.
+
+Button 1 accepts a suggested name (`kick`, `hat`, `bass A2`, `tone A4`) as one
+undo step, and is the only thing on the page that can change the project: a
+page whose job is to tell you what it thinks should not quietly act on it.
+
+#### Five roles, not the six the plan asked for
+
+`kick / snare / hat / bass / pad / vocal` **is not separable by band energy and
+envelope**, and establishing that was the first result of prototyping: a
+synthesised snare classified as a hat at 0.85 confidence, because nothing in
+those features tells a noise burst with a 200 Hz body from one without — and
+`pad` versus `vocal` is the same problem from the other end.
+
+So the vocabulary is what the measurements can defend — `low drum`, `bright
+drum`, `drum`, `bass`, `tone`, `noise` — and the honest cost, written into a
+test as *expected* behaviour, is that a snare reads as a bright drum. A label
+the instrument cannot stand behind is worse than a coarser one it can.
+
+#### What the other five rounds found
+
+- **Autocorrelation on a chord finds the GCD period.** A 220/277/330 chord came
+  back as 55 Hz, which made every pad look like a bass.
+- **White noise classified as a hat, 0.92 confident.** Band energy cannot
+  separate them — both are mostly high. What does is that a struck sound decays
+  and noise does not, and that feature was already being computed.
+- **Periodicity is not pitch confidence.** A kick every half second is 0.95
+  periodic *at the hit rate*, and duly reported a 1200 Hz "pitch" — which was
+  the top of the search range.
+- **Scoring harmonicity as the mean harmonic strength inverted it.** A pure
+  sine has energy in harmonic 1 only, so its mean was max/8: it scored 0.13
+  while white noise, all eight bands equally full, scored 0.54. Tones became
+  noise and noise became tones.
+- **Note names were wrong until the peak was interpolated.** Pitch landed
+  within one FFT bin, but one bin at 110 Hz is 10% and a semitone is 5.95%.
+  And the note-naming helper was itself an octave low — 440 Hz returned "A3" —
+  caught only because the test named the notes it expected instead of checking
+  that a string came back.
+
+#### Tempo: exact, useless, or silent
+
+Measured across 90/120/140/170 BPM at one, two and four hits per beat, material
+with **crisp attacks** reads its true tempo to within 0.4 BPM. Material whose
+attacks are **smeared** — a synthesised kick whose body sweeps for 150 ms —
+reads 20 to 80 BPM out, and a coarser minimum onset gap does not help: measured
+at 30, 60 and 100 ms it was wrong at all three. The confidence was honest
+throughout, so below a threshold **no tempo is reported at all**.
+
+Tempo also has an **unresolvable octave ambiguity** from onsets alone: 90 BPM
+in eighths and 180 in quarters are the same recording, and measured, the
+eighths read 180 at full confidence. Resolving it properly needs a model of
+where the strong beats fall. Instead the page passes the **session's own
+tempo** as a reference — the one piece of context a sampler has and a general
+analyser does not.
+
+#### The arrangement hint waits for generative patterns
+
+The plan also asked for a hint proposing *bars* for a new sample. It is not
+here on purpose: a proposal that lights a pattern and waits for a press is
+exactly the mechanic `IN-03` needs, and building it twice would be the wrong
+order. The propose-then-accept shape is already set by this page's name button.
+
+#### And it corrected a doc claim
+
+`docs/simulator.md` said "recording captures silence", twice. It does not: with
+no audio device the engine feeds itself a 220 Hz stand-in tone, deliberately,
+so a simulated take is not silent and every downstream page does not look
+broken. The About page is what exposed it — it reported a clean A3 from a
+simulated recording.
+
 ### Slice a take across the pads (`IN-01`)
 
 The first of the `v2.0` ideas. `Convert` on a sample page turns one take into a

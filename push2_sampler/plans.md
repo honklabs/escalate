@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **52 of the 61 items below are shipped** — every train up to and
-including `v1.5`, and the first of the ten `v2.0` ideas. Three of those shipped
+Status: **53 of the 61 items below are shipped** — every train up to and
+including `v1.5`, and two of the ten `v2.0` ideas. Three of those shipped
 in part or in a different shape, and each says so in its own note: `CC-13`
 shipped only the half that needs no unverified hardware, `NF-09` shipped MIDI
 clock and left Link a seam, and `NH-02` shipped as two features because the one
@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -358,6 +358,12 @@ do for itself.
 † `CC-13` shipped its dimmer-library half only. Its global-brightness SysEx
 needs a command byte verified against Ableton's manual, which cannot be done
 here, so it waits for `F-08` — see the item.
+
+† `IN-02` shipped its analysis and info page; its **arrangement hint** waits
+for `IN-03`, which needs the same propose-then-accept mechanic — building it
+twice would be the wrong order. Its role vocabulary is also five rather than
+the six the spec named, because six is not separable by these features. See
+the item.
 
 † `NH-02` shipped as swing **and** a per-sample nudge. Swing as specified (8th
 notes) cannot act on a bar-addressed arrangement at all, so swing went where
@@ -1928,6 +1934,83 @@ tempo of a loop built at 120 BPM reads 120 ± 2; proposals never mutate the
 project without an explicit accept.
 
 **Deps.** `F-09`, `IN-01` (shares `analysis.py`).
+
+**Status: shipped, with the role vocabulary cut from six to five and the
+arrangement hint deliberately deferred.** `analysis.describe` returns a
+`Description` (role, confidence, pitch and note, tempo and confidence, onset
+count and density, centroid, bands, loudness, sustain); `modes/info.py` is the
+page, on `Layout` from a sample page; its button 1 accepts a suggested name
+through the existing `SetName`.
+
+**Six rounds of prototyping, and the first finding was a product decision
+rather than a bug.**
+
+`kick / snare / hat / bass / pad / vocal` **is not separable by band energy and
+envelope.** A synthesised snare classified as a hat at 0.85 confidence, because
+nothing in those features tells a noise burst with a 200 Hz body from one
+without; `pad` versus `vocal` is the same problem from the other end. So the
+vocabulary is what the measurements can defend — `low drum`, `bright drum`,
+`drum`, `bass`, `tone`, `noise` — and the honest cost, recorded in a test as
+expected behaviour, is that a snare reads as a bright drum. A label the
+instrument cannot stand behind is worse than a coarser one it can, and this
+project has said that about the display, the palette and the clock already.
+
+Five more, each a measurement:
+
+1. **Autocorrelation on a chord finds the GCD period.** A 220/277/330 chord
+   came back as 55 Hz, which made every pad look like a bass. Replaced by
+   matching against a harmonic series.
+2. **White noise classified as a hat, 0.92 confident.** Band energy alone
+   cannot separate them — both are mostly high. What does is that a struck
+   sound decays and noise does not, and the feature was already being computed.
+3. **Periodicity is not pitch confidence.** A kick every half second is 0.95
+   periodic *at the hit rate*, and duly reported a 1200 Hz "pitch" — the top of
+   the search range.
+4. **Scoring harmonicity as the mean harmonic strength inverted the measure.**
+   A pure sine has energy in harmonic 1 only, so its mean was max/8: it scored
+   0.13 while white noise, with all eight bands equally full, scored 0.54.
+   Tones became noise and noise became tones. The fraction-of-energy measure
+   was right all along; its sub-octave bias needed a separate "the fundamental
+   must be present" guard, not a different measure.
+5. **Note names were wrong until the peak was interpolated.** Pitch landed
+   within one FFT bin, but one bin at 110 Hz is 10% and a semitone is 5.95%.
+   Parabolic interpolation brings the worst error to 1.1%. And the note-naming
+   helper itself was an octave low — 440 Hz returned "A3" — caught only because
+   the test named the notes it expected rather than checking that a string came
+   back.
+
+**Two decisions about tempo, which the spec asked for in one line.**
+
+The acceptance test (`120 BPM reads 120 ± 2`) passes on material with crisp
+attacks: measured across 90/120/140/170 BPM at one, two and four hits per beat,
+every reading is within 0.4 BPM. On material whose attacks are *smeared* — a
+synthesised kick whose body sweeps downward for 150 ms — it reads 20 to 80 BPM
+out, and a coarser minimum onset gap does not help: measured at 30, 60 and
+100 ms it was wrong at all three. The confidence was honest throughout
+(0.00–0.24 against 0.98–1.00), so **below a threshold no tempo is reported at
+all.** "No clear tempo" beats "about 98 BPM (loose)" when the answer is 120.
+
+And tempo has an **unresolvable octave ambiguity** from onsets alone: 90 BPM in
+eighths and 180 in quarters are the same recording, and measured, the eighths
+read 180 at full confidence. Resolving it properly needs a model of where the
+strong beats fall, which is a great deal of machinery for a line on an info
+page. Instead `describe` takes an optional `reference_bpm` and the page passes
+the session's tempo — the one piece of context a *sampler* has that a general
+analyser does not.
+
+**The arrangement hint was not built, and this is the reason.** A proposal that
+lights a pattern in flashing yellow and waits for a press is exactly the
+mechanic `IN-03`'s pattern mode needs, and building it twice — once for hints,
+once for patterns — would be the wrong order. The propose-then-accept *shape*
+is already set by this page's name button, which is the smallest honest version
+of it. When `IN-03` lands, the hint is a second producer feeding the same
+preview-and-commit path.
+
+**It also corrected a doc claim.** `docs/simulator.md` said "recording captures
+silence" in two places. It does not: with no audio device the engine feeds
+itself a 220 Hz stand-in tone, deliberately, so that a simulated take is not
+silent and every downstream page does not look broken. The info page is what
+exposed it — it reported a clean A3 from a simulated recording.
 
 ### IN-03 — Generative trigger patterns `size: M`
 

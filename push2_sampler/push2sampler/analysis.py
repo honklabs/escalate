@@ -358,3 +358,417 @@ def slice_buffers(buf: np.ndarray, points: list[int]) -> list[np.ndarray]:
         if end > start:
             out.append(buf[start:end])
     return out
+
+
+# ==========================================================================
+# What a take sounds like (IN-02)
+# ==========================================================================
+# `describe` answers the questions a player would ask about a slot -- what kind
+# of sound is this, what note, how fast, how bright, how loud -- entirely from
+# DSP.  No network, no model weights, nothing to install.
+#
+# THE SPEC ASKED FOR SIX ROLES AND THE FEATURES SUPPORT FIVE.  Six rounds of
+# prototyping against synthesised material with known answers, and the first
+# finding was a product one rather than a bug:
+#
+#   1. `kick / snare / hat / bass / pad / vocal` IS NOT SEPARABLE by band
+#      energy and envelope.  A synthesised snare classified as a hat, 0.85
+#      confident, because nothing here tells a noise burst with a 200 Hz body
+#      from one without; `pad` and `vocal` are the same problem.  So the
+#      vocabulary is what the measurements can stand behind -- `low drum`,
+#      `bright drum`, `drum`, `bass`, `tone`, `noise` -- and the honest cost is
+#      that a snare comes back as "bright drum".  A label the instrument cannot
+#      defend is worse than a coarser one it can.
+#   2. AUTOCORRELATION ON A CHORD FINDS THE GCD PERIOD, not the root: a
+#      220/277/330 chord came back as 55 Hz, which made every pad look like a
+#      bass.  Replaced by matching against a harmonic series.
+#   3. WHITE NOISE CLASSIFIED AS A HAT, 0.92 confident.  The feature that fixes
+#      it was already being computed: a struck sound decays and noise does not,
+#      so envelope sustain gates it.
+#   4. PERIODICITY IS NOT PITCH CONFIDENCE.  A kick every half second is 0.95
+#      periodic -- at the HIT RATE -- and duly reported a 1200 Hz "pitch",
+#      which was the top of the search range.
+#   5. SCORING HARMONICITY AS THE MEAN HARMONIC STRENGTH INVERTED IT.  A pure
+#      sine has energy in harmonic 1 only, so its mean is max/8: it scored
+#      0.13 while white noise, with all eight bands equally full, scored 0.54.
+#      Tones became noise and noise became a tone.  Fraction of total energy on
+#      the series was right all along; its sub-octave bias needed the separate
+#      "the fundamental must be present" guard, not a different measure.
+#   6. PITCH WAS BIASED LOW BY THE BAND WIDTH.  A candidate whose +/-4% band
+#      merely contains the true peak scores like the true f0, and argmax takes
+#      the lowest: 110 Hz read 97, 440 read 409.  Fixed by refining onto the
+#      actual peak.
+#   7. 55 Hz WAS NOT RESOLVABLE AT ALL in the onset detector's 1024-point
+#      window -- 47 Hz bins.  Pitch gets its own 4096-point window (11.7 Hz),
+#      which is also why `PITCH_FLOOR_HZ` exists rather than pretending.
+#   8. EVEN THEN, NOTE NAMES WERE WRONG.  Pitch landed within one bin, but one
+#      bin at 110 Hz is 10% and a semitone is 5.95%, so the name was a
+#      semitone or two out.  Parabolic interpolation across the peak brings the
+#      worst error to 1.1%, which names every test note correctly.
+#   9. And the note-naming helper itself was an octave low -- 440 Hz came back
+#      as "A3" -- caught only because the test named the notes it expected.
+#
+# Measured after all that, on synthesised signals: a kick pattern is `low
+# drum`, hats are `bright drum`, a snare is `bright drum` (see finding 1), a
+# 55-880 Hz sine is `bass`/`tone` with its note named correctly, a chord is
+# `tone` at low confidence (correctly: a chord is not one note), white noise is
+# `noise`, and silence is nothing at all.
+
+#: Window for pitch work.  Longer than the onset detector's, because a bass
+#: note needs the resolution and 1024 points cannot give it.
+PITCH_FFT = 4096
+#: Harmonics matched, and each band's half-width as a fraction of its centre.
+HARMONICS = 8
+HARMONIC_BAND = 0.04
+#: Below this fundamental there is nothing a short take can resolve.
+PITCH_FLOOR_HZ = 60.0
+PITCH_CEILING_HZ = 1200.0
+#: Harmonicity above this is a note; below it, unpitched.
+TONAL_MIN = 0.18
+#: An f0 below this is called `bass` rather than `tone`.
+BASS_MAX_HZ = 160.0
+#: Fraction of a take within 20% of its peak, above which it is "sustained".
+PERCUSSIVE_MAX = 0.35
+#: Band edges for the bright/dark split, in Hz.
+LOW_HZ, HIGH_HZ = 200.0, 2000.0
+#: A peak below this is silence as far as any of this is concerned.
+SILENT_PEAK = 0.001
+#: Tempo is only claimed from at least this many onsets.
+TEMPO_MIN_ONSETS = 4
+#: Inter-onset gaps outside this range are not a beat.
+TEMPO_MIN_GAP_S, TEMPO_MAX_GAP_S = 0.05, 2.0
+#: Tempo is folded by octaves into this range, the way a person would read it.
+TEMPO_LOW, TEMPO_HIGH = 60.0, 190.0
+#: Below this confidence no tempo is reported at all.
+#:
+#: Measured: material with crisp attacks (a click or sampled-drum loop) reads
+#: its true tempo to within 0.2 BPM at confidence 0.98-1.00, while material
+#: whose attacks are smeared -- a synthesised kick whose body sweeps downward
+#: for 150 ms -- reads 20-80 BPM out at confidence 0.00-0.24.  A coarser
+#: minimum onset gap did not help: measured at 30, 60 and 100 ms the smeared
+#: case was wrong at all three.  The confidence was honest throughout, so the
+#: fix is to act on it: "no clear tempo" beats "about 98 BPM (loose)" when the
+#: real answer is 120.
+TEMPO_MIN_CONFIDENCE = 0.25
+
+NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+#: Role names.  Five plus `noise`; see finding 1 for why not the spec's six.
+ROLE_LOW_DRUM = "low drum"
+ROLE_BRIGHT_DRUM = "bright drum"
+ROLE_DRUM = "drum"
+ROLE_BASS = "bass"
+ROLE_TONE = "tone"
+ROLE_NOISE = "noise"
+ROLES = (ROLE_LOW_DRUM, ROLE_BRIGHT_DRUM, ROLE_DRUM, ROLE_BASS, ROLE_TONE,
+         ROLE_NOISE)
+
+#: A short name suggestion per role, for the naming page.  Deliberately generic:
+#: the instrument knows the sound is a low struck thing, not that it is your
+#: 808.
+ROLE_NAMES = {
+    ROLE_LOW_DRUM: "kick",
+    ROLE_BRIGHT_DRUM: "hat",
+    ROLE_DRUM: "drum",
+    ROLE_BASS: "bass",
+    ROLE_TONE: "tone",
+    ROLE_NOISE: "noise",
+}
+
+
+def note_name(hz: float) -> str:
+    """A pitch as a note name, or "" for no pitch.
+
+    A4 = 440.  The first version of this returned "A3" for 440 Hz and the only
+    reason it was caught is that the test named the notes it expected -- which
+    is the argument for writing the expectation down rather than eyeballing
+    frequencies.
+    """
+    if hz <= 0:
+        return ""
+    semitones = int(round(12.0 * np.log2(hz / 440.0))) + 57
+    if semitones < 0:
+        return ""
+    return f"{NOTE_NAMES[semitones % 12]}{semitones // 12}"
+
+
+def loudness(buf) -> tuple[float, float]:
+    """``(rms, peak)`` of a buffer, both 0.0 when it is empty."""
+    mono = _mono(np.asarray(buf)) if buf is not None else np.zeros(0)
+    if mono.size == 0:
+        return 0.0, 0.0
+    return float(np.sqrt(np.mean(mono ** 2))), float(np.abs(mono).max())
+
+
+def sustain(buf) -> float:
+    """Fraction of the take within 20% of its peak: 0 struck, 1 held.
+
+    The feature that separates "a hat" from "two seconds of white noise",
+    which band energy could not (finding 3).
+    """
+    mono = np.abs(_mono(np.asarray(buf))) if buf is not None else np.zeros(0)
+    if mono.size == 0:
+        return 0.0
+    top = float(mono.max())
+    return float((mono > top * 0.2).mean()) if top > 0 else 0.0
+
+
+def bands(buf, samplerate: int) -> tuple[float, float, float]:
+    """Fraction of energy below 200 Hz, 200-2000, and above, over loud frames.
+
+    Quiet frames are dropped: the silence between hits would otherwise drag a
+    drum loop's spectrum towards whatever the noise floor looks like.
+    """
+    magnitudes = _magnitudes(_mono(np.asarray(buf)))
+    if magnitudes.size == 0:
+        return (0.0, 0.0, 0.0)
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / samplerate)
+    energy = magnitudes.sum(axis=1)
+    if energy.max() <= 0:
+        return (0.0, 0.0, 0.0)
+    loud = magnitudes[energy >= energy.max() * 0.1]
+    low = float(loud[:, freqs < LOW_HZ].sum())
+    mid = float(loud[:, (freqs >= LOW_HZ) & (freqs < HIGH_HZ)].sum())
+    high = float(loud[:, freqs >= HIGH_HZ].sum())
+    total = low + mid + high
+    if total <= 0:
+        return (0.0, 0.0, 0.0)
+    return (low / total, mid / total, high / total)
+
+
+def centroid(buf, samplerate: int) -> float:
+    """Spectral centroid in Hz over the loud frames: how bright it is."""
+    magnitudes = _magnitudes(_mono(np.asarray(buf)))
+    if magnitudes.size == 0:
+        return 0.0
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / samplerate)
+    energy = magnitudes.sum(axis=1)
+    if energy.max() <= 0:
+        return 0.0
+    loud = magnitudes[energy >= energy.max() * 0.1]
+    total = float(loud.sum())
+    if total <= 0:
+        return 0.0
+    return float((loud * freqs).sum() / total)
+
+
+def _loudest_spectrum(buf, samplerate: int):
+    """Magnitudes and bin frequencies of the loudest `PITCH_FFT` window."""
+    mono = _mono(np.asarray(buf, dtype=np.float32))
+    if mono.size == 0:
+        return None, None
+    if mono.size < PITCH_FFT:
+        mono = np.pad(mono, (0, PITCH_FFT - mono.size))
+    stride = max(1, PITCH_FFT // 4)
+    starts = range(0, max(1, len(mono) - PITCH_FFT + 1), stride)
+    best = max(starts, key=lambda s: float(np.abs(mono[s:s + PITCH_FFT]).sum()))
+    window = np.hanning(PITCH_FFT).astype(np.float32)
+    segment = mono[best:best + PITCH_FFT] * window
+    return np.abs(np.fft.rfft(segment)), np.fft.rfftfreq(PITCH_FFT, 1.0 / samplerate)
+
+
+def harmonicity(buf, samplerate: int) -> tuple[float, float]:
+    """``(f0_hz, 0..1)``: the best fundamental, and how much sits on its series.
+
+    The confidence is the fraction of the loudest window's energy lying within
+    4% of harmonics 1-8 of `f0`.  A sine is near 1, a chord about a third
+    (correctly: a chord is not one note), white noise near 0.
+    """
+    frame, freqs = _loudest_spectrum(buf, samplerate)
+    if frame is None:
+        return 0.0, 0.0
+    total = float(frame.sum())
+    if total <= 0:
+        return 0.0, 0.0
+    nyquist = float(freqs[-1])
+    peak_bin = float(frame.max())
+    best_score, best_f0 = 0.0, 0.0
+    for f0 in np.geomspace(PITCH_FLOOR_HZ, min(PITCH_CEILING_HZ, nyquist / 2), 300):
+        harmonics = f0 * np.arange(1, HARMONICS + 1)
+        harmonics = harmonics[harmonics < nyquist]
+        if harmonics.size < 2:
+            continue
+        first = (freqs > f0 * (1 - HARMONIC_BAND)) & (freqs < f0 * (1 + HARMONIC_BAND))
+        if not first.any() or float(frame[first].max()) < peak_bin * 0.25:
+            # Finding 5: without this, a low f0 scores on its upper harmonics
+            # alone and everything tonal comes back a bass.
+            continue
+        energy = 0.0
+        for harmonic in harmonics:
+            band = ((freqs > harmonic * (1 - HARMONIC_BAND))
+                    & (freqs < harmonic * (1 + HARMONIC_BAND)))
+            if band.any():
+                energy += float(frame[band].sum())
+        score = energy / total
+        if score > best_score:
+            best_score, best_f0 = score, f0
+    if best_f0 <= 0:
+        return 0.0, 0.0
+    return _refine_pitch(frame, freqs, best_f0), min(1.0, best_score)
+
+
+def _refine_pitch(frame, freqs, f0: float) -> float:
+    """The real peak in `f0`'s band, interpolated across its neighbours.
+
+    Two findings in one function.  Taking the band's own centre left the
+    estimate biased low by up to the band width (6); taking the nearest bin
+    left it up to one bin out, which at 110 Hz is 10% -- wider than the 5.95%
+    of a semitone, so note names came out wrong (8).
+    """
+    band = np.flatnonzero((freqs > f0 * (1 - HARMONIC_BAND))
+                          & (freqs < f0 * (1 + HARMONIC_BAND)))
+    if band.size == 0:
+        return float(f0)
+    k = int(band[int(np.argmax(frame[band]))])
+    if 0 < k < len(frame) - 1:
+        left, here, right = float(frame[k - 1]), float(frame[k]), float(frame[k + 1])
+        denominator = left - 2.0 * here + right
+        if denominator != 0.0:
+            shift = float(np.clip(0.5 * (left - right) / denominator, -0.5, 0.5))
+            return float(freqs[k] + shift * (freqs[1] - freqs[0]))
+    return float(freqs[k])
+
+
+def tempo(onset_frames, samplerate: int,
+          reference_bpm: float = 0.0) -> tuple[float, float]:
+    """``(bpm, 0..1)`` from the gaps between onsets, or ``(0, 0)``.
+
+    The most common gap between hits *is* the beat, or a division of it, in
+    almost any rhythmic material -- and the onsets have already been found, so
+    this costs nothing on top. The confidence is how tightly the gaps cluster:
+    a machine-exact loop is near 1, a rubato performance near 0.
+
+    **Tempo has an unresolvable octave ambiguity from onsets alone.** "90 BPM
+    with a hit on every eighth" and "180 BPM with a hit on every beat" are the
+    same recording, and nothing in the timing distinguishes them -- only a
+    model of where the strong beats fall would, which is a great deal of
+    machinery for a reading on an info page.  Measured, a 90 BPM loop played in
+    eighths reads 180 at full confidence, and that answer is not wrong so much
+    as the other half of a pair.
+
+    So `reference_bpm` is the way out that a *sampler* has and a general
+    analyser does not: the session already has a tempo, and of the octaves of
+    the detected figure the one nearest the session's is almost always the one
+    meant.  Without a reference the figure is folded into a range a person
+    would read and left there.
+    """
+    frames = np.asarray(list(onset_frames or []), dtype=np.float64)
+    if frames.size < TEMPO_MIN_ONSETS:
+        return 0.0, 0.0
+    gaps = np.diff(frames) / max(1, samplerate)
+    gaps = gaps[(gaps > TEMPO_MIN_GAP_S) & (gaps < TEMPO_MAX_GAP_S)]
+    if gaps.size < 3:
+        return 0.0, 0.0
+    median = float(np.median(gaps))
+    if median <= 0:
+        return 0.0, 0.0
+    spread = float(np.median(np.abs(gaps - median))) / median
+    bpm = 60.0 / median
+    if reference_bpm and reference_bpm > 0:
+        # Pick the octave nearest the session, comparing in log space so that
+        # "half" and "double" are equally far away.
+        candidates = [bpm * 2.0 ** n for n in range(-3, 4)]
+        candidates = [c for c in candidates if TEMPO_LOW / 2 <= c <= TEMPO_HIGH * 2]
+        if candidates:
+            bpm = min(candidates,
+                      key=lambda c: abs(np.log2(c / reference_bpm)))
+    else:
+        for _ in range(8):
+            if bpm < TEMPO_LOW:
+                bpm *= 2.0
+            elif bpm > TEMPO_HIGH:
+                bpm /= 2.0
+            else:
+                break
+    confidence = max(0.0, min(1.0, 1.0 - spread * 4.0))
+    if confidence < TEMPO_MIN_CONFIDENCE:
+        # Saying nothing is the honest answer: see TEMPO_MIN_CONFIDENCE.
+        return 0.0, confidence
+    return bpm, confidence
+
+
+class Description:
+    """What listening to one take established.  Plain attributes, no behaviour.
+
+    `role` is None when nothing could be said -- silence, or an empty slot.
+    Every confidence is 0..1 and every one of them is allowed to be low: this
+    page's job is to say what it thinks *and* how sure it is, because a guess
+    stated confidently is worse than no guess.
+    """
+
+    __slots__ = ("role", "confidence", "detail", "f0", "note", "pitch_confidence",
+                 "centroid", "rms", "peak", "sustain", "bands", "onsets",
+                 "density", "bpm", "bpm_confidence", "seconds")
+
+    def __init__(self, **fields) -> None:
+        for name in self.__slots__:
+            setattr(self, name, fields.get(name))
+
+    @property
+    def suggested_name(self) -> str:
+        """A short name for this take, or "" when there is nothing to say.
+
+        Generic on purpose: the measurements know the sound is a low struck
+        thing, not that it is your 808.  A pitched take gets its note, because
+        that is the one specific thing actually measured.
+        """
+        if not self.role:
+            return ""
+        base = ROLE_NAMES.get(self.role, self.role)
+        if self.role in (ROLE_BASS, ROLE_TONE) and self.note:
+            return f"{base} {self.note}"
+        return base
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging convenience
+        return f"<Description {self.role!r} {self.confidence:.2f} {self.detail!r}>"
+
+
+def describe(buf, samplerate: int, onset_frames=None,
+             reference_bpm: float = 0.0) -> Description:
+    """Everything `analysis` can say about one take.
+
+    `onset_frames` is passed in when the caller already has them (the slice
+    page does), because finding them is the expensive part.  Never raises: an
+    empty or silent buffer comes back with `role` None, which is the honest
+    answer and what the info page renders.
+    """
+    audio = np.asarray(buf, dtype=np.float32) if buf is not None else np.zeros((0, 1))
+    seconds = audio.shape[0] / max(1, samplerate)
+    rms, peak = loudness(audio)
+    if audio.size == 0 or peak <= SILENT_PEAK:
+        return Description(role=None, confidence=0.0, detail="silent", f0=0.0,
+                           note="", pitch_confidence=0.0, centroid=0.0, rms=rms,
+                           peak=peak, sustain=0.0, bands=(0.0, 0.0, 0.0),
+                           onsets=[], density=0.0, bpm=0.0, bpm_confidence=0.0,
+                           seconds=seconds)
+
+    found = list(onset_frames) if onset_frames is not None else onsets(audio, samplerate)
+    low, mid, high = bands(audio, samplerate)
+    held = sustain(audio)
+    f0, harmonic = harmonicity(audio, samplerate)
+    bpm, bpm_confidence = tempo(found, samplerate, reference_bpm)
+
+    if held < PERCUSSIVE_MAX:
+        if low > 0.45:
+            role, confidence, detail = ROLE_LOW_DRUM, low, "low, struck"
+        elif high > 0.5:
+            role, confidence, detail = ROLE_BRIGHT_DRUM, high, "bright, struck"
+        else:
+            role, confidence, detail = ROLE_DRUM, max(mid, 0.4), "struck"
+    elif harmonic > TONAL_MIN:
+        role = ROLE_BASS if f0 < BASS_MAX_HZ else ROLE_TONE
+        confidence, detail = harmonic, f"{f0:.0f} Hz"
+    else:
+        role, confidence, detail = ROLE_NOISE, 1.0 - harmonic, "sustained, unpitched"
+
+    pitched = role in (ROLE_BASS, ROLE_TONE)
+    return Description(
+        role=role, confidence=float(min(1.0, confidence)), detail=detail,
+        f0=f0 if pitched else 0.0,
+        note=note_name(f0) if pitched else "",
+        pitch_confidence=harmonic,
+        centroid=centroid(audio, samplerate), rms=rms, peak=peak, sustain=held,
+        bands=(low, mid, high), onsets=found,
+        density=len(found) / seconds if seconds > 0 else 0.0,
+        bpm=bpm, bpm_confidence=bpm_confidence, seconds=seconds,
+    )
