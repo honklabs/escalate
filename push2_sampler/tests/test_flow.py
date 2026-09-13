@@ -1621,3 +1621,294 @@ def test_the_schedule_carries_the_mode_and_group(rig):
     entry = project.build_schedule()[0][0]
     assert entry.play_mode == GATE
     assert entry.choke_group == 3
+
+
+# ================================================== CC-19: swap two samples
+def two_samples(rig):
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1, 0.25),
+                              name="kick", color=1))
+    project.install(1, Sample(slot=1, bars=1, audio=take(engine, 1, 0.75),
+                              name="snare", color=6))
+    pump(app)
+    return project
+
+
+def arm_swap(rig):
+    app, push, engine, project = rig
+    app.shift = True
+    push.press_button(Btn.DUPLICATE)
+    pump(app)
+    app.shift = False
+    return app
+
+
+def test_shift_duplicate_arms_swap_and_plain_duplicate_still_copies(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+
+    arm_swap(rig)
+    assert app.swap_armed and not app.duplicate_armed
+
+    push.press_button(Btn.DUPLICATE)      # no shift: the old gesture
+    pump(app)
+    assert app.duplicate_armed and not app.swap_armed
+
+
+def test_two_presses_swap_the_slots(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+
+    push.press_pad(0)
+    pump(app)
+    assert app.swap_armed                  # still waiting for the second
+    assert project[0].name == "kick"
+
+    push.press_pad(1)
+    pump(app)
+    assert not app.swap_armed
+    assert project[0].name == "snare"
+    assert project[1].name == "kick"
+    assert "swapped 1 and 2" in app.message
+
+
+def test_the_swap_is_one_undo_step(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_pad(0)
+    pump(app)
+    push.press_pad(1)
+    pump(app)
+    push.press_button(Btn.UNDO)
+    pump(app)
+    assert project[0].name == "kick"
+    assert project[1].name == "snare"
+
+
+def test_pressing_the_same_slot_twice_cancels(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_pad(0)
+    pump(app)
+    push.press_pad(0)
+    pump(app)
+    assert not app.swap_armed
+    assert project[0].name == "kick"       # nothing moved
+    assert "cancelled" in app.message
+
+
+def test_shift_duplicate_again_cancels_before_any_press(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    arm_swap(rig)
+    assert not app.swap_armed
+
+
+def test_an_empty_first_slot_is_refused_with_a_reason(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_pad(40)                     # empty
+    pump(app)
+    assert app.swap_armed                  # still waiting
+    assert "pick a filled one" in app.message
+
+
+def test_an_empty_second_slot_is_a_move(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_pad(0)
+    pump(app)
+    push.press_pad(40)
+    pump(app)
+    assert project[0] is None
+    assert project[40].name == "kick"
+    assert "moved" in app.message
+
+
+def test_the_picked_slot_holds_white_while_the_rest_flash(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_pad(0)
+    settle(app)
+    assert push.pad_leds[0] == colors.WHITE.index
+    assert push.pad_leds[1] in (colors.USER_COLORS[1].index, colors.OFF.index)
+    assert push.pad_leds[40] == colors.OFF.index      # empty: nothing to pick
+
+
+def test_swap_arming_uses_a_different_colour_from_duplicate(rig):
+    """Two arming states that look the same are worse than either."""
+    app, push, engine, project = rig
+    two_samples(rig)
+    push.press_button(Btn.DUPLICATE)
+    settle(app)
+    duplicate_look = set(push.pad_leds[:2])
+    push.press_button(Btn.DUPLICATE)       # off
+    pump(app)
+    arm_swap(rig)
+    settle(app)
+    swap_look = set(push.pad_leds[:2])
+    assert duplicate_look != swap_look
+
+
+def test_the_display_explains_the_swap_at_each_step(rig):
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    lines = " ".join(app.mode.status_lines())
+    assert "SWAP" in lines
+    assert "first slot" in lines
+
+    push.press_pad(0)
+    pump(app)
+    lines = " ".join(app.mode.status_lines())
+    assert "SWAP slot 1 kick" in lines
+    assert "changes places with" in lines
+
+
+def test_stop_stop_disarms_a_swap(rig):
+    """The panic gesture has to clear every armed state, including new ones."""
+    app, push, engine, project = rig
+    two_samples(rig)
+    arm_swap(rig)
+    push.press_button(Btn.STOP)
+    pump(app)
+    push.press_button(Btn.STOP)
+    pump(app)
+    assert not app.swap_armed
+
+
+# ============================ CC-20: the mode banner says where you are
+def test_every_mode_has_a_banner_and_none_of_them_is_empty(rig):
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1), name="kick"))
+    pump(app)
+
+    seen = {}
+    for opener in (lambda: app.goto_library(),
+                   lambda: app.goto_sample(0),
+                   lambda: app.goto_record(1, 2),
+                   lambda: app.open_mixer(),
+                   lambda: app.open_song(),
+                   lambda: app.open_browser(),
+                   lambda: app.open_settings(),
+                   lambda: app.open_master()):
+        app.goto_library()
+        opener()
+        pump(app)
+        banner, state = app.mode_banner()
+        assert banner and banner.strip(), app.mode.name
+        # Starts with the page's own name, shouted.  Not "all upper case": the
+        # transient form's "over" is a deliberate lowercase connector, and a
+        # slot's own name keeps the case its owner gave it.
+        assert banner[0].isupper(), banner
+        seen[app.mode.name] = banner
+    # Different pages say different things -- a banner that could sit on any
+    # page is not a banner.
+    assert len(set(seen.values())) == len(seen), seen
+
+
+def test_a_mode_with_no_title_falls_back_to_its_name():
+    from push2sampler.modes import Mode
+
+    class Bare(Mode):
+        name = "whatever"
+
+    assert Bare(None).title == "WHATEVER"
+
+
+def test_the_banner_names_what_a_transient_is_layered_over(rig):
+    """The thing people get wrong about layered modes, said out loud."""
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1), name="kick"))
+    app.goto_sample(0)
+    pump(app)
+    app.open_settings()
+    pump(app)
+    banner, _state = app.mode_banner()
+    assert banner.startswith("SETUP")
+    assert "over" in banner
+    assert "SLOT 1" in banner
+
+
+def test_a_page_that_replaced_another_does_not_say_over(rig):
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1)))
+    app.goto_sample(0)
+    pump(app)
+    banner, _state = app.mode_banner()
+    assert "over" not in banner
+
+
+def test_the_banner_turns_recording_while_a_take_runs(rig):
+    app, push, engine, project = rig
+    app.goto_record(0, 1)
+    pump(app)
+    assert app.mode_banner()[1] == "normal"
+    push.press_button(Btn.RECORD)
+    pump(app)
+    assert engine.rec_state != "idle"
+    assert app.mode_banner()[1] == "recording"
+
+
+def test_the_banner_turns_armed_when_something_destructive_is(rig):
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1)))
+    pump(app)
+    push.press_button(Btn.DELETE)
+    pump(app)
+    assert app.delete_armed
+    assert app.mode_banner()[1] == "armed"
+
+
+def test_the_banner_state_comes_from_the_transport_not_the_words(rig):
+    """Colour is emphasis here, so it must be driven by state rather than by
+    whatever the title happens to say."""
+    app, push, engine, project = rig
+    app.goto_record(0, 1)
+    pump(app)
+    title, state = app.mode_banner()
+    assert "RECORD" in title            # the word says record...
+    assert state == "normal"            # ...but nothing is recording yet
+
+
+def test_the_banner_is_not_repeated_in_the_status_lines(rig):
+    """The terminal simulator prints status lines, so a banner in both would
+    show twice there."""
+    app, push, engine, project = rig
+    pump(app)
+    banner, _state = app.mode_banner()
+    assert banner not in app.status_lines()
+
+
+def test_the_record_banner_counts_its_bars(rig):
+    app, push, engine, project = rig
+    app.goto_record(0, 1)
+    pump(app)
+    assert app.mode_banner()[0] == "RECORD 1 BAR"
+    app.goto_record(0, 4)
+    pump(app)
+    assert app.mode_banner()[0] == "RECORD 4 BARS"
+
+
+def test_the_library_banner_names_the_bank(rig):
+    app, push, engine, project = rig
+    pump(app)
+    assert app.mode_banner()[0] == "LIBRARY A"
+    push.press_button(Btn.PAGE_RIGHT)
+    pump(app)
+    assert app.mode_banner()[0] == "LIBRARY B"
+
+
+def test_the_sample_banner_names_the_slot_and_its_name(rig):
+    app, push, engine, project = rig
+    project.install(0, Sample(slot=0, bars=1, audio=take(engine, 1), name="kick"))
+    app.goto_sample(0)
+    pump(app)
+    assert app.mode_banner()[0] == 'SLOT 1 "kick"'

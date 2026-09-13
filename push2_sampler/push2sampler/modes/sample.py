@@ -66,6 +66,12 @@ DOUBLE_TAP_S = 0.35
 class SampleMode(Mode):
     name = "sample"
 
+    @property
+    def title(self) -> str:
+        sample = self.sample
+        named = f' "{sample.name}"' if sample else ""
+        return f"SLOT {self.slot + 1}{named}"
+
     def __init__(self, app, slot: int) -> None:
         super().__init__(app)
         self.slot = slot

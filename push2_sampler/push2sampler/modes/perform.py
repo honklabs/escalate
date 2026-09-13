@@ -33,6 +33,10 @@ def _velocity_scale(sensitivity: float, velocity: int) -> float:
 
 class PerformMode(Mode):
     name = "perform"
+
+    @property
+    def title(self) -> str:
+        return "PERFORM"
     transient = True
 
     def __init__(self, app, quantize_index: int = 3) -> None:

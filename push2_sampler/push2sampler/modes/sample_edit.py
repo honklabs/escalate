@@ -78,6 +78,10 @@ MID = 0.12
 
 class SampleEditMode(Mode):
     name = "edit"
+
+    @property
+    def title(self) -> str:
+        return f"EDIT SLOT {self.slot + 1}"
     transient = True
 
     def __init__(self, app, slot: int) -> None:

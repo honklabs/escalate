@@ -203,6 +203,29 @@ class CopySlot(Command):
 
 
 @dataclass
+class SwapSlots(Command):
+    """Exchange two slots' contents (CC-19).
+
+    The rare command whose ``revert`` is its own ``apply``: swapping the same
+    pair again puts everything back.  Spelled out rather than left to look like
+    a copy-paste slip.
+    """
+
+    a: int
+    b: int
+
+    @property
+    def label(self) -> str:
+        return f"swapped slots {self.a + 1} and {self.b + 1}"
+
+    def apply(self, project) -> None:
+        project.swap_slots(self.a, self.b)
+
+    def revert(self, project) -> None:
+        project.swap_slots(self.a, self.b)
+
+
+@dataclass
 class ClearTriggers(Command):
     """Clear every bar of one sample, remembering them all."""
 

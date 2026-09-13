@@ -26,6 +26,10 @@ from .base import Mode
 
 class SettingsMode(Mode):
     name = "settings"
+
+    @property
+    def title(self) -> str:
+        return "SETUP"
     transient = True
 
     def __init__(self, app) -> None:

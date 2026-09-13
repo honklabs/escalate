@@ -60,6 +60,10 @@ def density_step(count: int) -> int:
 
 class SongMode(Mode):
     name = "song"
+
+    @property
+    def title(self) -> str:
+        return "SONG"
     transient = True
 
     def __init__(self, app) -> None:

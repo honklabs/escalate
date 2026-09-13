@@ -12,6 +12,10 @@ from .base import Mode
 class RecordMode(Mode):
     name = "record"
 
+    @property
+    def title(self) -> str:
+        return f"RECORD {self.bars} BAR{'S' if self.bars != 1 else ''}"
+
     def __init__(self, app, slot: int, bars: int = 1) -> None:
         super().__init__(app)
         self.slot = slot

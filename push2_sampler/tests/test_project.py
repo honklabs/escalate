@@ -486,3 +486,204 @@ def test_repairing_a_length_folds_the_edits_in():
     assert project.repair(0) is True
     assert sample.frames == project.expected_frames(1)
     assert sample.edits.is_default  # fitting is destructive, so it commits them
+
+
+# ============================================== CC-19: swapping two slots
+def _sample(slot, value=0.3, **kw):
+    import numpy as np
+
+    from push2sampler.project import Sample
+
+    fields = dict(slot=slot, bars=1,
+                  audio=np.full((8000, 1), value, dtype=np.float32))
+    fields.update(kw)
+    return Sample(**fields)
+
+
+def test_every_sample_field_is_either_copied_or_listed_as_not_copied():
+    """The guard that stops the next field being forgotten.
+
+    Colour tags, overdub layers, play modes and choke groups each arrived in a
+    different release, and none of them updated ``copy_slot`` -- so duplicating
+    a slot quietly lost all four.  A field added from now on has to be either
+    carried by the copy or named in NOT_COPIED on purpose.
+    """
+    import dataclasses
+
+    from push2sampler.project import Project, Sample
+
+    project = Project(samplerate=8000, bpm=120.0)
+    source = _sample(0, color=5, play_mode="gate", choke_group=2, gain=0.7,
+                     velocity_sensitivity=1.0, source_bpm=98.0,
+                     source_samplerate=8000, name="kick")
+    source.triggers = {0, 4}
+    source.velocities = {4: 90}
+    project.install(0, source)
+    copy = project.copy_slot(0, 1)
+
+    for f in dataclasses.fields(Sample):
+        if f.name in Project.NOT_COPIED:
+            continue
+        mine, theirs = getattr(copy, f.name), getattr(source, f.name)
+        if isinstance(theirs, np.ndarray):
+            # The audio array is shared by design, not duplicated -- nothing
+            # here mutates a take's samples in place.
+            assert mine is theirs, f"copy_slot dropped {f.name}"
+        elif isinstance(theirs, list):
+            assert [a.shape for a in mine] == [a.shape for a in theirs], f.name
+        else:
+            assert mine == theirs, f"copy_slot dropped {f.name}"
+
+
+def test_copy_slot_carries_the_colour_mode_and_group():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0, color=4, play_mode="retrigger", choke_group=3))
+    copy = project.copy_slot(0, 1)
+    assert (copy.color, copy.play_mode, copy.choke_group) == (4, "retrigger", 3)
+
+
+def test_copy_slot_carries_the_layers_without_sharing_the_list():
+    import numpy as np
+
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    source = _sample(0)
+    source.add_layer(np.full((8000, 1), 0.1, dtype=np.float32))
+    project.install(0, source)
+    copy = project.copy_slot(0, 1)
+    assert copy.layer_count == source.layer_count == 2
+    copy.add_layer(np.zeros((8000, 1), dtype=np.float32))
+    assert source.layer_count == 2      # the lists are not the same object
+
+
+def test_swap_exchanges_contents_and_keeps_the_slot_numbers():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0, name="kick", color=1))
+    project.install(9, _sample(9, name="snare", color=6))
+    assert project.swap_slots(0, 9)
+
+    assert project[0].name == "snare"
+    assert project[9].name == "kick"
+    # The slot number is identity everywhere else, so it stays with the slot.
+    assert project[0].slot == 0
+    assert project[9].slot == 9
+    assert (project[0].color, project[9].color) == (6, 1)
+
+
+def test_swap_carries_the_arrangement():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    first = _sample(0, name="a")
+    first.triggers = {0, 2, 4}
+    second = _sample(1, name="b")
+    second.triggers = {8}
+    project.install(0, first)
+    project.install(1, second)
+    project.swap_slots(0, 1)
+    assert project[0].triggers == {8}
+    assert project[1].triggers == {0, 2, 4}
+
+
+def test_swapping_with_an_empty_slot_is_a_move():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(3, _sample(3, name="lead"))
+    assert project.swap_slots(3, 40)
+    assert project[3] is None
+    assert project[40].name == "lead"
+    assert project[40].slot == 40
+
+
+def test_swapping_two_empty_slots_does_nothing():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    assert project.swap_slots(2, 3) is False
+
+
+def test_swapping_a_slot_with_itself_is_refused():
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0))
+    assert project.swap_slots(0, 0) is False
+
+
+def test_swapping_out_of_range_is_refused():
+    from push2sampler.project import Project, SLOT_COUNT
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0))
+    assert project.swap_slots(0, SLOT_COUNT) is False
+    assert project.swap_slots(-1, 0) is False
+    assert project[0] is not None
+
+
+def test_a_swap_marks_the_audio_unsaved_so_the_wavs_are_rewritten():
+    """The WAV's filename comes from the slot number, so both have to be
+    written again under their new names."""
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    for slot in (0, 1):
+        sample = _sample(slot)
+        sample.audio_saved = True
+        project.install(slot, sample)
+    project.swap_slots(0, 1)
+    assert not project[0].audio_saved
+    assert not project[1].audio_saved
+
+
+def test_a_swap_survives_a_save_and_load(tmp_path):
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0, name="kick", value=0.25))
+    project.install(1, _sample(1, name="snare", value=0.75))
+    project.swap_slots(0, 1)
+    project.save(tmp_path / "song")
+
+    reloaded = Project.load(tmp_path / "song", samplerate=8000)
+    assert reloaded[0].name == "snare"
+    assert reloaded[1].name == "kick"
+    # And the audio went with the names, not just the metadata.
+    assert float(abs(reloaded[0].audio).max()) == pytest.approx(0.75, abs=0.01)
+    assert float(abs(reloaded[1].audio).max()) == pytest.approx(0.25, abs=0.01)
+
+
+def test_the_swap_command_undoes_by_applying_itself_again():
+    from push2sampler.history import History, SwapSlots
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(0, _sample(0, name="kick"))
+    project.install(1, _sample(1, name="snare"))
+    history = History()
+
+    history.do(project, SwapSlots(0, 1))
+    assert project[0].name == "snare"
+    history.undo(project)
+    assert project[0].name == "kick"
+    history.redo(project)
+    assert project[0].name == "snare"
+
+
+def test_undoing_a_swap_into_an_empty_slot_puts_it_back():
+    from push2sampler.history import History, SwapSlots
+    from push2sampler.project import Project
+
+    project = Project(samplerate=8000, bpm=120.0)
+    project.install(5, _sample(5, name="pad"))
+    history = History()
+    history.do(project, SwapSlots(5, 20))
+    assert project[5] is None and project[20].name == "pad"
+    history.undo(project)
+    assert project[5].name == "pad" and project[20] is None
+    assert project[5].slot == 5

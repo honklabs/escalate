@@ -311,6 +311,20 @@ p 0              # highlight the first entry
 p 0              # and open it, or import it
 session
 
+# watch it play from the samples' side, then swap two slots
+shift on
+session          # master playback
+shift off
+play
+wait 3
+session
+shift on
+dup              # arm swap
+shift off
+p 0
+p 1              # slots 1 and 2 trade places
+undo
+
 # settings
 setup
 k 1 +2           # count-in beats
@@ -383,6 +397,10 @@ See [Getting started, step 2](getting-started.md#step-2-run-the-probe).
 
 ## What the simulator will not tell you
 
+- **What a flash looks like.** Master playback decays a pad over 180 ms, and
+  the simulator prints a grid only when you ask for one -- so you see whichever
+  instant you happened to sample, not the flash. The decay steps are pinned by
+  tests instead.
 - **Timing against a real clock.** The null backend advances the transport on a
   thread; it is close enough to watch a playhead, but not a measurement.
 - **Anything about latency.** There is no input, so record-latency compensation

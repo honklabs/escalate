@@ -324,6 +324,84 @@ Both settings are per sample, saved with the project (format 7), and each change
 is one undo step. Pressing the mode that is already set says so and does not
 consume an undo step.
 
+### Master playback mode
+
+**Shift**+**Session** opens the page whose only job is playback. It is the
+library grid — all 64 slots exactly where they always are, honouring the
+current bank — and **each pad flashes as its sample fires**.
+
+Every other page is for editing. The library shows what *exists*, a sample page
+shows where *one take* plays, the song page shows the arrangement as a heat map.
+None of them is the view you want while the whole thing runs and you are
+listening; for that you had to pick one sample's page and watch a single row of
+the truth.
+
+| Control | Does |
+| --- | --- |
+| any filled pad | audition it |
+| **Play** / **Stop** | as everywhere else |
+| **Page ◀** / **Page ▶** | another bank of 64 |
+| **Session**, **Note**, **Left** | leave, back to the library |
+
+| Pad | Means |
+| --- | --- |
+| the slot's own colour | filled and resting |
+| dim green | filled but muted — it never flashes |
+| white, then mid white | it just fired |
+| off | empty slot |
+
+**Delete**, **Mute** and **Duplicate** are deliberately inert here. This is the
+one page where you are listening rather than deciding, so a stray press should
+cost nothing; pressing one says so rather than arming anything.
+
+The display counts **how many slots fired in the bar you are in** — a number
+that tells you whether a section is as busy as it feels — and how many are
+sounding right now.
+
+#### Why the flash marks the attack
+
+`Engine.sounding` is true for as long as a voice is alive, so a four-bar pad is
+sounding for four bars. A view that lit its pad for all of them would say
+nothing about the music. The engine therefore publishes a second set — the
+slots that *started* a voice in the last block — and that is what this page
+reads. A four-bar pad flashes once.
+
+Every attack goes through one place in the engine, so a sample fired **by hand**
+in perform mode, or auditioned from the library, flashes too.
+
+The flash lasts about a fifth of a second, in two steps. At 120 BPM an eighth
+note is 250 ms, so it reads as one hit per note rather than smearing into the
+next. It is white rather than a brighter version of the slot's own colour
+because the palette has brightness steps for white and green only — the eight
+user colours have no dim variants — so white is the one flash that reads the
+same against every resting colour.
+
+### Swapping two samples
+
+**Shift**+**Duplicate** arms a swap; the filled pads flash cyan. Press one pad
+and it holds white — "this one" — then press the pad it should change places
+with. Pressing the same pad twice cancels, as does **Shift**+**Duplicate**
+again.
+
+`Duplicate` on its own is unchanged: it still copies a slot to the next empty
+one, with **Shift** on the *pad* press moving it instead. Swap is a separate
+chord rather than a third state of the button, because cycling
+copy → move → swap would turn "move" into a mode and change a gesture that
+already works.
+
+Everything moves: the audio, the bars it plays on, its velocities, name,
+colour, gain, play mode, choke group and edits. The slot **numbers** stay put —
+a slot number is identity everywhere else in this program, from the schedule to
+the WAV filename to every undo entry, so the *contents* move and each sample's
+own record of which slot it is in is rewritten to match.
+
+Picking an empty slot second is allowed, and is a move: the gesture is the same
+to the hands, so refusing it would only be surprising. The whole thing is one
+**Undo** — and it is the rare command whose undo is simply itself applied again.
+
+A sounding voice keeps its own buffer, so swapping while the song plays cuts
+nothing; the next bar line picks up the new arrangement.
+
 ### Sample editor
 
 **Device** from a sample page. Non-destructive: the recording is untouched until
@@ -713,6 +791,35 @@ the absent-safe fallback, and says `link unavailable` when the library is
 missing — which it has been in every environment this program has ever run in.
 Nothing behind that import has been exercised. Choosing `link` will tell you so
 and leave you on the internal clock rather than pretending.
+
+## The display
+
+Three regions, each answering a different question.
+
+| Where | What it says |
+| --- | --- |
+| **top, large** | the page you are on — `LIBRARY A`, `SLOT 7 "kick"`, `RECORD 4 BARS` |
+| middle | what this page does, and its current state |
+| **bottom, large** | where the music is: `BAR 17A · 3 · 124 BPM` |
+
+The banner is the same words in the same place every time, which is what makes
+it glanceable; it comes from the mode itself rather than from parsing its first
+status line, because a status line is prose that changes with state.
+
+A page layered **over** another says so: `SETUP  over SLOT 7`. Perform mode,
+the settings page and the editor all open on top of whatever you were doing,
+and forgetting that is the single most common confusion about this program —
+leaving **Shift**+**Record** on a sample page re-records the take, while in the
+library it bounces the song.
+
+The banner turns **red** while a take is recording and **amber** while something
+destructive is armed. Colour is emphasis only: the words already say the same
+thing, because a display this program has never seen render on real hardware is
+a bad place to put information that exists nowhere else.
+
+Vertical space is the real constraint — 160 pixels — so the banner costs one of
+the text lines. A machine with no scalable font gets the banner at body size
+rather than not at all.
 
 ## Colours
 

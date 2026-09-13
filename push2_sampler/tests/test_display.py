@@ -112,3 +112,85 @@ def test_close_is_safe_without_pyusb():
 def test_draw_needs_pillow_and_says_so():
     with pytest.raises(ImportError):
         Push2Display(FakeUsb()).draw(["hello"])
+
+
+# ============================== CC-20: the mode banner on the big display
+def _draw(display, *args, **kwargs):
+    """Call ``display.draw`` with a stand-in for PIL, recording the text.
+
+    Pillow is optional and not installed in CI, and what these tests are about
+    is *where each region lands*, not how PIL rasterises it.
+    """
+    import sys
+    import types
+
+    placed: list[tuple[int, str]] = []
+
+    class Recorder:
+        def text(self, xy, text, fill=None, font=None):
+            placed.append((xy[1], text))
+
+    fake = types.ModuleType("PIL")
+    fake.Image = types.SimpleNamespace(new=lambda mode, size, colour: object())
+    fake.ImageDraw = types.SimpleNamespace(Draw=lambda image: Recorder())
+    saved = sys.modules.get("PIL")
+    sys.modules["PIL"] = fake
+    try:
+        display.draw(*args, **kwargs)
+    finally:
+        if saved is None:
+            del sys.modules["PIL"]
+        else:
+            sys.modules["PIL"] = saved
+    return placed
+
+
+def _display():
+    from push2sampler.display import Push2Display
+
+    display = Push2Display(FakeUsb())
+    display.draw_image = lambda image: None
+    return display
+
+
+def test_the_banner_is_drawn_above_the_text_and_costs_one_line():
+    """160 px is the real constraint, so each big region costs a text line."""
+    from push2sampler.display import BANNER_HEIGHT
+
+    placed = _draw(_display(), ["one", "two", "three", "four", "five"],
+                   readout="BAR 3", banner="SLOT 7")
+    texts = [text for _y, text in placed]
+
+    assert texts[0] == "SLOT 7"                    # banner first, at the top
+    assert "BAR 3" in texts                        # readout still drawn
+    # Banner and readout each take a line, so three of five fit between them.
+    assert texts[1:4] == ["one", "two", "three"]
+    assert "four" not in texts
+    assert placed[0][0] < placed[1][0]             # banner above the text
+    assert placed[1][0] >= BANNER_HEIGHT
+
+
+def test_without_a_banner_five_lines_still_fit():
+    placed = _draw(_display(), ["a", "b", "c", "d", "e"])
+    assert [text for _y, text in placed] == ["a", "b", "c", "d", "e"]
+
+
+def test_draw_still_works_with_only_lines():
+    """Anything holding a display keeps working without the new arguments."""
+    placed = _draw(_display(), ["just lines"])
+    assert [text for _y, text in placed] == ["just lines"]
+
+
+def test_at_least_one_text_line_survives_both_regions():
+    """Banner plus readout must not squeeze the text out entirely."""
+    placed = _draw(_display(), ["only one"], readout="BAR 1", banner="SETUP")
+    assert "only one" in [text for _y, text in placed]
+
+
+def test_the_banner_state_picks_a_colour():
+    from push2sampler.display import BANNER_COLORS
+
+    assert BANNER_COLORS["recording"] != BANNER_COLORS["normal"]
+    assert BANNER_COLORS["armed"] != BANNER_COLORS["normal"]
+    assert BANNER_COLORS.get("nonsense", BANNER_COLORS["normal"]) \
+        == BANNER_COLORS["normal"]

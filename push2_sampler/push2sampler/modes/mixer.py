@@ -38,6 +38,10 @@ METER_PEAK = 0.95
 
 class MixerMode(Mode):
     name = "mixer"
+
+    @property
+    def title(self) -> str:
+        return "MIXER"
     transient = True
 
     def __init__(self, app, row: int = 0) -> None:

@@ -321,6 +321,15 @@ class Engine:
         self._stop_evt = threading.Event()
         #: Slots heard in the most recent block; read by the UI for LED feedback.
         self.sounding: tuple[int, ...] = ()
+        #: Slots that *started* a voice during the last block (NF-12).
+        #:
+        #: Not the same question as ``sounding``, which is true for as long as
+        #: a voice lives: a four-bar pad is sounding for four bars, and a view
+        #: that lit its pad for all of them would say nothing.  This is the
+        #: attack, so a pad can flash on it.  Callback-written, UI-read, the
+        #: same single-writer arrangement as ``sounding``.
+        self.fired: tuple[int, ...] = ()
+        self._firing: set[int] = set()
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -822,6 +831,10 @@ class Engine:
     # ------------------------------------------------------------------
     def _process(self, out: np.ndarray, inp: np.ndarray | None, frames: int) -> None:
         started = time.perf_counter()
+        # Cleared before commands are applied, not after: a voice queued by the
+        # UI -- an audition, a pad played in perform mode -- starts inside
+        # _apply_commands, and clearing afterwards threw that attack away.
+        self._firing.clear()
         satisfying = self._apply_commands()
         out[:frames] = 0.0
         i = 0
@@ -845,6 +858,7 @@ class Engine:
         if gain != 1.0:
             out[:frames] *= gain
         np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
+        self.fired = tuple(sorted(self._firing)) if self._firing else ()
         if inp is not None and frames:
             self._meter_input(inp[:frames])
         # Only drop the intent if the UI has not published a newer one since we
@@ -1014,6 +1028,11 @@ class Engine:
     def _add_voice(self, voice: Voice) -> None:
         if voice.buf is None or voice.buf.shape[0] == 0:
             return
+        if voice.slot >= 0:
+            # Recorded here rather than in _start_scheduled so a sample fired
+            # by hand in perform mode counts too -- every attack goes through
+            # this one door.
+            self._firing.add(voice.slot)
         # These scans are bounded by MAX_VOICES + MAX_RELEASING and only run
         # when a voice starts -- a handful of times per bar, never per frame.
         if sum(1 for v in self._voices if v.releasing is None) >= MAX_VOICES:

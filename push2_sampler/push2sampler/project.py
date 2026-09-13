@@ -524,10 +524,54 @@ class Project:
             source_bpm=source.source_bpm,
             source_samplerate=source.source_samplerate,
             edits=source.edits,
+            color=source.color,
+            play_mode=source.play_mode,
+            choke_group=source.choke_group,
+            layers=list(source.layers),
         )
         self.slots[dst] = copy
         self.dirty = True
         return copy
+
+    #: Fields a copy deliberately does *not* take from its source.
+    #:
+    #: Everything else must be carried, and ``test_project`` asserts that every
+    #: field of ``Sample`` is in one list or the other.  Three features in a row
+    #: -- colour tags, overdub layers, play modes -- each added a field and none
+    #: updated ``copy_slot``, so duplicating a slot quietly lost them.
+    NOT_COPIED: tuple[str, ...] = (
+        "slot",          # the copy's own identity
+        "name",          # gets a "+" so the two are tellable apart
+        "audio_saved",   # the copy has never been written under its own name
+    )
+
+    def swap_slots(self, a: int, b: int) -> bool:
+        """Exchange the contents of two slots.  True if anything moved.
+
+        The *contents* move and the slot numbers stay put, because a slot
+        number is identity everywhere else in this program -- the schedule, the
+        velocity map, the WAV filename, every undo entry -- so each sample's
+        ``slot`` is rewritten to match its new home rather than travelling with
+        it.
+
+        Swapping with an empty slot is a move, and is allowed: the gesture is
+        the same to the hands, so refusing it would only be surprising.
+        """
+        if a == b or not (0 <= a < SLOT_COUNT and 0 <= b < SLOT_COUNT):
+            return False
+        first, second = self.slots[a], self.slots[b]
+        if first is None and second is None:
+            return False
+        self.slots[a], self.slots[b] = second, first
+        for slot in (a, b):
+            sample = self.slots[slot]
+            if sample is not None:
+                sample.slot = slot
+                # The WAV's filename comes from the slot number, so the audio
+                # has to be written again under its new one.
+                sample.audio_saved = False
+        self.dirty = True
+        return True
 
     def copy_bar_range(self, slot: int, src_start: int, dst_start: int,
                        length: int, move: bool = False) -> dict[int, int | None]:

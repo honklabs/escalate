@@ -139,6 +139,8 @@ class App:
         self._confirm_slot: int | None = None
         self.mute_armed = False
         self.duplicate_armed = False
+        #: Armed for a swap (CC-19): the next two pads trade places.
+        self.swap_armed = False
         #: cc -> when it was pressed, for the press-feedback flash.
         self._flashes: dict[int, float] = {}
         self._reconnect_at = 0.0
@@ -270,6 +272,7 @@ class App:
         self.delete_armed = False
         self.mute_armed = False
         self.duplicate_armed = False
+        self.swap_armed = False
 
     def goto_library(self) -> None:
         """Unwind every overlay and land on a fresh library."""
@@ -475,6 +478,24 @@ class App:
             if self.project[slot] is None:
                 return slot
         return None
+
+    def open_master(self) -> None:
+        """Shift+Session: watch the song play from the samples' side (NF-12).
+
+        Replaces the mode rather than layering over it.  This is somewhere you
+        settle into and leave by pressing Session, not something you peek at
+        over a page you were editing -- and a transient would make Session mean
+        "back to the editor", which is the opposite of what it should mean here.
+        """
+        from .modes.master import MasterMode
+
+        if self.mode.name == "master":
+            self.goto_library()
+            return
+        while self.depth > 1:
+            self.mode.on_exit()
+            self._modes.pop()
+        self.set_mode(MasterMode(self))
 
     def open_import(self) -> None:
         from .modes.import_browser import ImportBrowserMode
@@ -816,8 +837,10 @@ class App:
         elif cc == Btn.UNDO:
             self.redo() if self.shift else self.undo()
         elif cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT):
+            if cc == Btn.SESSION and self.shift:
+                self.open_master()
             # An overlay closes back to what was underneath; otherwise home.
-            if not self.pop_mode():
+            elif not self.pop_mode():
                 self.goto_library()
         elif cc == Btn.MIX:
             self.open_mixer()
@@ -899,7 +922,8 @@ class App:
         double = pressed_at - self._stopped_at < DOUBLE_STOP_S
         self._stopped_at = pressed_at
         if double:
-            armed = self.delete_armed or self.mute_armed or self.duplicate_armed
+            armed = (self.delete_armed or self.mute_armed
+                     or self.duplicate_armed or self.swap_armed)
             self._clear_modifiers()
             self.engine.stop()
             self.notify("all clear" if armed else "stopped")
@@ -1015,6 +1039,29 @@ class App:
             line += f" · {'SYNC' if getattr(self.clock, 'locked', True) else 'sync?'}"
         return line
 
+    def mode_banner(self) -> tuple[str, str]:
+        """``(banner, state)`` for the display's top line (CC-20).
+
+        A transient page reads ``SETUP  over SAMPLE 7``, because knowing you
+        will come back to a sample page is exactly what people get wrong about
+        layered modes -- the simulator guide already has to warn about it in
+        prose.
+
+        The state picks the colour, and only where the word already says the
+        same thing: colour is emphasis here, never the sole carrier, because a
+        display this program has never seen render is a bad place to put
+        information that exists nowhere else.
+        """
+        title = self.mode.title
+        if self.mode.transient and self.depth > 1:
+            beneath = self._modes[-2]
+            title = f"{title}  over {beneath.title}"
+        if self.engine.rec_state != "idle":
+            return title, "recording"
+        if self.delete_armed or self.mute_armed or self.duplicate_armed or self.swap_armed:
+            return title, "armed"
+        return title, "normal"
+
     def status_lines(self) -> list[str]:
         lines = list(self.mode.status_lines())
         transport = "PLAY" if self.engine.is_playing else "STOP"
@@ -1071,7 +1118,9 @@ class App:
         if self.display is not None and now - self._last_display >= 0.1:
             self._last_display = now
             try:
-                self.display.draw(self.status_lines(), self.transport_readout())
+                banner, state = self.mode_banner()
+                self.display.draw(self.status_lines(), self.transport_readout(),
+                                  banner=banner, banner_state=state)
             except Exception as exc:  # pragma: no cover - display is optional
                 self.notify(f"display error: {exc}")
                 self.display = None

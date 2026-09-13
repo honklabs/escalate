@@ -12,6 +12,70 @@ plan.
 
 ## Unreleased
 
+### v1.5 — Watch it play
+
+Three features you asked for, and one bug they uncovered.
+
+#### Master playback mode (`NF-12`)
+
+`Shift`+`Session` opens the page whose only job is playback: the library grid,
+all 64 slots where they always are, **each pad flashing white as its sample
+fires** before falling back to the slot's own colour. One glance says what is
+carrying a section and what is sitting out — which no editing page shows.
+
+The flash marks the **attack**, not the duration. `Engine.sounding` is true for
+as long as a voice lives, so a 4-bar pad would hold its pad lit for four bars
+and say nothing; the engine now publishes `fired` — the slots that *started* a
+voice in the last block — recorded in `_add_voice` so a sample played by hand in
+perform mode or auditioned from the library flashes too.
+
+Delete, Mute and Duplicate are inert here and say so: this is the page where you
+are listening rather than deciding. The display counts how many slots fired in
+the bar you are in.
+
+Its own tests caught a bug in it: `_firing` was cleared *after* commands were
+applied, so an attack from a queued command was thrown away in the same block it
+happened.
+
+#### Swap two samples (`CC-19`)
+
+`Shift`+`Duplicate` arms a swap. The filled pads flash cyan, the pad you pick
+holds white, the second press exchanges them — audio, bars, velocities, name,
+colour, gain, play mode, choke group and edits. The slot *numbers* stay put,
+because a slot number is identity everywhere else in this program. Picking an
+empty slot second is a move, and is allowed. One undo step, and the rare command
+whose undo is itself applied again.
+
+`Duplicate` alone is unchanged. Swap is a separate chord rather than a third
+state of the button: cycling copy → move → swap would turn "move" into a mode
+and change a gesture that already works.
+
+#### Duplicate was silently losing four fields
+
+Found while building the swap. `copy_slot` never carried a slot's **colour tag**,
+its **overdub layers**, its **play mode** or its **choke group** — three
+features, each added in a different release, and none of them updated the
+copier. So `Duplicate` quietly dropped all four.
+
+Fixed, and guarded against the next one: `Project.NOT_COPIED` names the fields a
+copy deliberately skips, and a test walks every field of `Sample` asserting it is
+in one list or the other.
+
+#### The mode you are in, on the big display (`CC-20`)
+
+The display gained a third region: a large banner along the top saying which
+page you are on — `LIBRARY A`, `SLOT 7 "kick"`, `RECORD 4 BARS`. It comes from
+the mode itself rather than from parsing a status line, because a banner has to
+be the same words in the same place to be glanceable.
+
+A layered page says so: **`SETUP  over SLOT 7`**. Forgetting that perform mode,
+the settings page and the editor open *on top of* what you were doing is the
+single most common confusion about this program, and now the screen says it.
+
+Red while a take records, amber while something destructive is armed — and only
+where the words already say the same thing. The colour display has still never
+rendered on real hardware, so nothing in this program is visible only there.
+
 ### A tempo change no longer moves the playhead
 
 A bug, found while building the clock and worth its own entry because it has

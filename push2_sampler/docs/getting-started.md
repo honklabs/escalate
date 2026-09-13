@@ -401,6 +401,38 @@ And from the terminal, when a browser is more trouble than it is worth:
 python -m push2sampler --import ~/Music/samples/kick.wav my-first-song
 ```
 
+### Step 11d: watch it play
+
+Everything so far has been editing. Now just listen.
+
+Press **Shift**+**Session**. The grid is your library again, but nothing here
+edits anything: **each pad flashes white as its sample fires.** Press **Play**
+and watch. One glance tells you what is carrying a section and what is sitting
+out, which is hard to see from any of the editing pages.
+
+Press a pad to hear that sample on its own. **Delete**, **Mute** and
+**Duplicate** do nothing here on purpose — this is the page for listening, so a
+stray press costs nothing. **Session** goes back.
+
+The flash marks the moment a sample *starts*, not how long it lasts: a 4-bar pad
+blinks once rather than staying lit for four bars. The display counts how many
+slots fired in the bar you are in.
+
+### Step 11e: put two samples in the wrong order, then fix it
+
+Say your kick is on pad 1 and your snare on pad 2, and you would rather it was
+the other way round.
+
+1. **Shift**+**Duplicate.** The filled pads flash cyan.
+2. **Press the kick's pad.** It holds white — "this one".
+3. **Press the snare's pad.** They trade places.
+
+Everything goes with them: the audio, the bars each plays on, names, colours,
+gains, play modes. One **Undo** puts it back.
+
+Picking an *empty* pad second moves the sample there instead, which is the same
+gesture and does what you would expect.
+
 ### Step 12: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of

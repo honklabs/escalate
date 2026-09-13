@@ -96,6 +96,15 @@ everything in every bank plays regardless of which one you are looking at.
   number of bars is flagged off-grid at its real length, with the same one-button
   repair as a take recorded at another tempo. `--import FILE [--slot N]` does the
   same from a terminal.
+* `Shift`+`Session` opens **master playback**: the same grid with nothing to
+  edit, each pad flashing as its sample fires. The flash marks the *attack*
+  rather than the duration -- the engine publishes a "fired this block" set for
+  it, because `sounding` cannot tell starting from sounding -- so a 4-bar pad
+  blinks once instead of holding its pad lit for four bars.
+* `Shift`+`Duplicate` **swaps** two slots: press one pad, then the pad it should
+  change places with. Audio, bars, name, colour, gain, play mode and choke group
+  all move; the slot *numbers* stay put, because a slot number is identity
+  everywhere else in this program. One undo step.
 
 ### 2. Record mode
 

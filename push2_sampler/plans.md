@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **45 of the 61 items below are shipped**, which completes the `v1.1`,
-`v1.2` and `v1.3` trains; `v1.4` is three items from done. One of the 42 (`CC-13`) shipped only
+Status: **48 of the 61 items below are shipped**, which completes the `v1.1`,
+`v1.2`, `v1.3` and `v1.5` trains; `v1.4` has three items left. One of the 42 (`CC-13`) shipped only
 the half that does not need unverified hardware. Each shipped item carries a status note saying
 what was built and where it deviated from this plan and why.
 
@@ -341,7 +341,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.2 — Playable**~~ | recording and arranging feel good | **complete** — ~~`F-06`~~ ~~`F-07`~~ ~~`NF-03`~~ ~~`NF-04`~~ ~~`NF-10`~~ ~~`NH-01`~~ ~~`NH-04`~~ ~~`NH-07`~~ ~~`NH-08`~~ ~~`CC-02`~~ ~~`CC-07`~~ ~~`CC-09`~~ ~~`CC-11`~~ ~~`CC-12`~~ |
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | **v1.4 — Plays with others** ← next | sync, import, and a verified surface | ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ `NH-02` `NH-11` `NH-12` |
-| **v1.5 — Watch it play** | the song as a performance, not an edit | `NF-12` `CC-19` `CC-20` |
+| ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
 | **v2.0 — Instrument** | the ideas nobody else has | `IN-01` `IN-02` `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
@@ -1336,6 +1336,36 @@ Valuable, not load-bearing. Each is independently shippable.
 
 ### NF-12 — Master playback mode `size: M`
 
+**Status: shipped.** `Shift`+`Session` opens `modes/master.py`: the library
+grid, honouring the current bank, with each pad flashing white as its sample
+fires and falling back to the slot's own colour. Delete, Mute and Duplicate are
+inert and say so. The display counts how many slots fired in the bar you are in.
+
+The engine gained the one thing it was missing, exactly as the item predicted:
+`Engine.fired`, the slots that *started* a voice in the last block, published
+per block beside `sounding`. Recorded in `_add_voice` rather than in
+`_start_scheduled`, so a sample fired by hand in perform mode or auditioned
+from the library flashes too -- every attack goes through that one door.
+
+Deviations:
+
+- **The flash is timed in the mode, not off `App.blink`.** The item asked for
+  blink so the surface stays on one heartbeat, but blink is a 2 Hz square wave
+  and cannot express steps inside 180 ms. It is still no new machinery: a dict
+  of timestamps read on the render pass, no timer and no thread.
+- **The flash is white, not a brighter slot colour.** The palette has
+  brightness steps for white and green only; the eight user colours have no dim
+  variants, so white is the one flash that reads the same against every resting
+  colour. Two steps rather than the three the item guessed at.
+- **It replaces the page rather than layering.** A transient would make
+  `Session` mean "back to the editor", which is the opposite of what it should
+  mean on a page you settle into.
+
+One bug, found by its own tests: `_firing` was cleared *after* `_apply_commands`,
+so an attack from a queued command -- an audition, a pad played in perform mode
+-- was thrown away in the same block it happened.
+
+
 **Problem.** There is nowhere to just *watch the song play*. The library grid
 shows what exists, a sample page shows where one take plays, and the song page
 (`NF-01`) shows the arrangement as a heat map — but none of them is the view you
@@ -2086,6 +2116,30 @@ sounding states still override; unset colour falls back to green.
 
 ### CC-19 — Swap two samples `size: S`
 
+**Status: shipped.** `Shift`+`Duplicate` arms it; the filled pads flash cyan,
+the pad you pick holds white, the second press exchanges them. `Project.
+swap_slots` moves the contents and rewrites each `Sample.slot`, and `SwapSlots`
+in `history.py` is the one command whose `revert` is its own `apply`.
+
+Decisions the item left open, settled by writing them:
+
+- **A chord, not a third state of the Duplicate button.** Cycling
+  copy -> move -> swap would turn "move" -- currently a Shift on the *second*
+  press -- into a mode, changing a gesture that already works.
+- **Cyan against dark, not against the duplicate gesture's dim blue.** A test
+  caught these looking identical for half of every blink. Going dark also means
+  only the slots you can actually pick are lit, which is the question the
+  gesture asks.
+
+It also uncovered a real bug it had to fix first: **`copy_slot` silently dropped
+four fields.** Colour tags (`CC-18`), overdub layers (`NH-04`), play modes and
+choke groups (`NF-02`) each arrived in a different release and none of them
+updated the copier, so `Duplicate` quietly lost all four. Fixed, and guarded:
+`Project.NOT_COPIED` names the fields a copy deliberately skips, and a test
+walks `dataclasses.fields(Sample)` asserting every field is in one list or the
+other -- so the next one cannot be forgotten.
+
+
 **Problem.** `Duplicate` copies a slot and `Shift`+`Duplicate` moves it, but
 there is no way to **exchange** two. Getting the kick and the snare the wrong
 way round currently takes three gestures and a spare slot — move A somewhere
@@ -2132,6 +2186,25 @@ step; audio files are rewritten so a save/load round-trip keeps the swap.
 **Deps.** `NF-04` (the duplicate gesture it shares arming with).
 
 ### CC-20 — The mode you are in, on the big display `size: S`
+
+**Status: shipped.** `Push2Display.draw` gained a third region: a banner along
+the top, from a new `Mode.title` that defaults to the mode's own name upper-cased
+so nothing has to opt in. A transient reads `SETUP  over SLOT 7`. Red while a
+take records, amber while something destructive is armed, white otherwise --
+and only where the words already say the same thing.
+
+Deviations: the banner costs one of the four text lines rather than fitting
+alongside them, which 160 pixels makes unavoidable; and there is no
+`Mode.title`-less fallback to parsing a status line, because a status line is
+prose that changes with state and a banner has to be the same words in the same
+place to be glanceable at all.
+
+**Still unverified, and the item said so before it was built:** the colour
+display has never rendered on real hardware, and cannot on the one machine that
+has run against a real Push, because `pyusb` has no `libusb` there (`F-08`
+finding 6). Every region is pinned by tests against a fake USB device. Nothing
+in this program is visible *only* on the display.
+
 
 **Problem.** The display's five text lines are dense, and the mode you are in is
 implied by what they say rather than stated. When you look up mid-take, "which

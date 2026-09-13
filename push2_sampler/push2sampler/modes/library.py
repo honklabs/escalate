@@ -18,6 +18,7 @@ from ..history import (
     DeleteSample,
     RecallScene,
     SetEnabled,
+    SwapSlots,
     StoreScene,
 )
 from ..project import BANK_SLOTS, SCENE_COUNT
@@ -30,11 +31,17 @@ HOLD_PREVIEW_S = 0.4
 class LibraryMode(Mode):
     name = "library"
 
+    @property
+    def title(self) -> str:
+        return f"LIBRARY {self.app.bank_letter}"
+
     def __init__(self, app) -> None:
         super().__init__(app)
         self._held_slot: int | None = None
         self._held_since = 0.0
         self._auditioned = False
+        #: First slot of a swap, once one has been picked (CC-19).
+        self._swap_from: int | None = None
 
     def on_exit(self) -> None:
         self._clear_hold()
@@ -58,6 +65,9 @@ class LibraryMode(Mode):
         if self.app.mute_armed:
             if sample is not None:
                 self.app.do(SetEnabled(index, not sample.enabled))
+            return True
+        if self.app.swap_armed:
+            self._swap(index, sample)
             return True
         if self.app.duplicate_armed:
             self.app.duplicate_armed = False
@@ -116,6 +126,32 @@ class LibraryMode(Mode):
             return
         self.app.do(CopySlot(index, destination, move=self.app.shift))
 
+    def _swap(self, index: int, sample) -> None:
+        """Two presses: pick a slot, then the slot it changes places with."""
+        if self._swap_from is None:
+            if sample is None:
+                self.app.notify("nothing in that slot - pick a filled one first")
+                return
+            self._swap_from = index
+            self.app.notify(
+                f"swap slot {index + 1} {sample.name} with... (Duplicate cancels)"
+            )
+            return
+        first = self._swap_from
+        if index == first:
+            self._swap_from = None
+            self.app.swap_armed = False
+            self.app.notify("swap cancelled")
+            return
+        other = self.project[index]
+        self._swap_from = None
+        self.app.swap_armed = False
+        self.app.do(SwapSlots(first, index))
+        if other is None:
+            self.app.notify(f"moved slot {first + 1} to {index + 1}")
+        else:
+            self.app.notify(f"swapped {first + 1} and {index + 1}")
+
     def _scene(self, index: int) -> None:
         """One of the eight snapshots: Shift stores, a plain press recalls.
 
@@ -157,7 +193,24 @@ class LibraryMode(Mode):
             self._scene(DISPLAY_ROW_BOTTOM.index(cc))
             return True
         if cc == Btn.DUPLICATE:
+            if self.app.shift:
+                # Shift+Duplicate is the other kind of duplicate.  A chord
+                # rather than a third state of the Duplicate button: cycling
+                # copy -> move -> swap would turn "move", which is currently a
+                # Shift on the second press, into a mode, and change a gesture
+                # that already works.
+                self.app.swap_armed = not self.app.swap_armed
+                self.app.duplicate_armed = False
+                self.app.delete_armed = self.app.mute_armed = False
+                self._swap_from = None
+                self.app.notify(
+                    "swap armed: press the two slots to exchange"
+                    if self.app.swap_armed else "swap off"
+                )
+                return True
             self.app.duplicate_armed = not self.app.duplicate_armed
+            self.app.swap_armed = False
+            self._swap_from = None
             self.app.delete_armed = self.app.mute_armed = False
             self.app.notify(
                 "duplicate armed: press a slot (Shift to move)"
@@ -176,6 +229,9 @@ class LibraryMode(Mode):
             # the grid you are looking at is a different sixty-four.
             for i in range(PAD_COUNT):
                 pads[i] = colors.BLUE_DIM.index
+            return
+        if self.app.swap_armed:
+            self._render_swap(pads)
             return
         sounding = set(self.engine.sounding)
         upcoming = self._next_bar_slots()
@@ -205,6 +261,25 @@ class LibraryMode(Mode):
             else:
                 pads[i] = colors.GREEN_DIM.index
 
+    def _render_swap(self, pads: list[int]) -> None:
+        """Filled slots flash cyan; the one already picked holds white.
+
+        Cyan against *dark* rather than against the duplicate gesture's dim
+        blue: pulsing blue over dim blue and pulsing cyan over dim blue look
+        identical for half of every blink, and two arming states that look the
+        same are worse than either.  Going dark also means only the slots you
+        can actually pick are lit, which is the question the gesture asks.
+        """
+        blink = self.app.blink
+        for i in range(PAD_COUNT):
+            slot = self.app.slot_at(i)
+            if self._swap_from is not None and slot == self._swap_from:
+                pads[i] = colors.WHITE.index
+            elif self.project[slot] is not None:
+                pads[i] = colors.USER_COLORS[1].index if blink else colors.OFF.index
+            else:
+                pads[i] = colors.OFF.index
+
     def _next_bar_slots(self) -> set[int]:
         """Slots that will come in on the next bar, so you can see what is next."""
         if not self.engine.is_playing:
@@ -229,13 +304,32 @@ class LibraryMode(Mode):
     def render_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.SESSION] = BTN_ON
         buttons[Btn.MUTE] = BTN_BRIGHT if self.app.mute_armed else BTN_DIM
-        buttons[Btn.DUPLICATE] = BTN_BRIGHT if self.app.duplicate_armed else BTN_DIM
+        buttons[Btn.DUPLICATE] = (
+            BTN_BRIGHT if (self.app.duplicate_armed or self.app.swap_armed)
+            else BTN_DIM
+        )
         for index, cc in enumerate(DISPLAY_ROW_BOTTOM[:SCENE_COUNT]):
             buttons[cc] = BTN_ON if self.project.scene_filled(index) else BTN_DIM
 
     def status_lines(self) -> list[str]:
         filled = len(self.project.filled())
         muted = sum(1 for s in self.project.filled() if not s.enabled)
+        if self.app.swap_armed:
+            if self._swap_from is None:
+                return [
+                    "SWAP",
+                    "press the first slot, then the one it changes places with",
+                    "everything moves: audio, bars, name, colour, mode, gain",
+                    "Shift+Duplicate again to cancel",
+                ]
+            picked = self.project[self._swap_from]
+            name = picked.name if picked else "?"
+            return [
+                f"SWAP slot {self._swap_from + 1} {name}",
+                "now press the slot it changes places with",
+                "an empty slot is allowed - that is a move",
+                "press the same slot again to cancel",
+            ]
         if self.app.duplicate_armed:
             return [
                 "DUPLICATE",
@@ -254,7 +348,7 @@ class LibraryMode(Mode):
             f"  {filled} in all, {muted} muted",
             f"Page left/right: bank   Shift+Page: song page   {scenes} scene(s)",
             "blank pad: record   tap: open page   hold: audition",
-            "Shift+Record: bounce   Duplicate: copy   buttons below: scenes",
+            "Shift+Record: bounce   Duplicate: copy   Shift+Duplicate: swap",
         ]
         if self.app.bounce is not None:
             return ["BOUNCING", f"{self.app.bounce.progress * 100:.0f}%",

@@ -33,6 +33,10 @@ HOLD_DELETE_S = 1.2
 
 class BrowserMode(Mode):
     name = "browser"
+
+    @property
+    def title(self) -> str:
+        return "PROJECTS"
     transient = True
 
     def __init__(self, app) -> None:

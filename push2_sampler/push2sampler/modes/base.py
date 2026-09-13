@@ -22,6 +22,17 @@ class Mode:
     #: True for a mode that opens *over* another one and pops back to it.
     transient = False
 
+    @property
+    def title(self) -> str:
+        """What the display's banner calls this page (CC-20).
+
+        Taken from the mode rather than parsed out of its first status line:
+        a status line is prose that changes with state, and a banner has to be
+        the same words in the same place every time or it is not glanceable.
+        Defaults to the mode's own name, so nothing has to opt in.
+        """
+        return self.name.upper()
+
     def __init__(self, app) -> None:
         self.app = app
 

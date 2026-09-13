@@ -36,6 +36,10 @@ IMPORT, UP, ROOT, HOME = 0, 1, 2, 4
 
 class ImportBrowserMode(Mode):
     name = "import"
+
+    @property
+    def title(self) -> str:
+        return "IMPORT"
     transient = True
 
     def __init__(self, app, directory=None) -> None:

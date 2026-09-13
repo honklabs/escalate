@@ -21,6 +21,10 @@ COLOR_ROW = names.ROWS
 
 class TagMode(Mode):
     name = "tag"
+
+    @property
+    def title(self) -> str:
+        return f"NAME SLOT {self.slot + 1}"
     transient = True
 
     def __init__(self, app, slot: int) -> None:

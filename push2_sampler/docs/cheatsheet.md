@@ -24,6 +24,7 @@ need it. This is the *what*, for when you have already done that once.
 | **Undo** | take back the last edit (64 deep) |
 | **Shift**+**Undo** | redo |
 | **Session** / **Note** / **Left arrow** | back — leave this page |
+| **Shift**+**Session** | master playback: watch the song from the samples grid |
 | **Clip** | song overview (open / close) |
 | **Mix** | mixer page (open / close) |
 | **Browse** | project browser (open / close) |
@@ -58,6 +59,7 @@ The page you start on, and the one **Session** always returns you to.
 | **Shift**+**Record** | bounce the song to `bounces/<timestamp>.wav` |
 | **Mute** then a pad | mute / unmute that slot |
 | **Duplicate** then a pad | copy that slot to the next empty one |
+| **Shift**+**Duplicate** | arm swap: the next two pads trade places |
 | **Duplicate** then **Shift** + a pad | move it instead of copying |
 | **buttons below the display** | recall one of 8 scenes |
 | **Shift** + a button below | store the arrangement in that scene |
@@ -143,6 +145,42 @@ to another page of 64.
 | white | the playhead, anywhere else |
 | flashing blue | the first bar of a block you are duplicating |
 | faint white | 4-bar phrase mark; brighter every 16 bars |
+
+---
+
+## Master playback (**Shift**+**Session**)
+
+The library grid, and nothing to edit. Each pad **flashes white as its sample
+fires**, then falls back to the slot's own colour.
+
+| Control | Does |
+| --- | --- |
+| any filled pad | audition it |
+| **Play** / **Stop** | as everywhere |
+| **Page ◀/▶** | another bank |
+| **Session** | leave |
+
+**Delete**, **Mute** and **Duplicate** do nothing here on purpose — this is the
+page where you are listening, not deciding. The display counts how many slots
+fired in the bar you are in.
+
+The flash marks the **attack**, not how long the sample lasts: a 4-bar pad
+flashes once rather than holding its pad lit for four bars.
+
+---
+
+## Swap two samples (**Shift**+**Duplicate**)
+
+| Step | |
+| --- | --- |
+| **Shift**+**Duplicate** | arms it; filled pads flash cyan |
+| first pad | holds white — "this one" |
+| second pad | they trade places |
+| the same pad twice | cancels |
+
+Everything moves: audio, the bars it plays on, name, colour, gain, play mode,
+choke group. The slot *numbers* stay put. Picking an empty second slot is a
+**move**, and is allowed. One **Undo**.
 
 ---
 
