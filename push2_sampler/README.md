@@ -203,6 +203,31 @@ step however many bars it wrote.
   absent from the output file **entirely**. The render now covers a full cycle —
   the lowest common multiple of every audible sample's `every_n`, capped at 8
   passes — and the schedule is tiled across it.
+* **Alternate takes** put several recordings of one part on one pad, up to
+  eight. `Shift` + **Record** keeps the new take *beside* the old one instead of
+  replacing it; encoder 3 picks which you are listening to, and encoder 4 (or
+  button 7) decides how a trigger chooses: `fixed` always plays the one you
+  picked, `cycle` advances one take per **pass** of the loop, and `random` picks
+  per **trigger** from the project's dice — which is the difference between a
+  loop that breathes across repeats and a part that never quite repeats. Three
+  real performances of one snare on `random` is the difference between a sampler
+  and a drummer.
+
+  `random` needed its own dice stream, and the reason is not tidiness. "Did this
+  bar play?" is `roll(...) < chance`, so on a 60 % bar every trigger you hear has
+  a roll below 0.6 — reusing that number to index three takes puts all of them in
+  the first two thirds and the third take **never sounds at all**. Measured
+  55.8 / 44.2 / 0.0 on the shared stream, 33.2 / 33.3 / 33.5 once the seed is
+  salted.
+
+  Alternates are not layers: overdubs **sum**, alternates **replace**, so the two
+  never coexist and adding a take flattens the layer breakdown. The edits and a
+  length repair apply to *every* take, because they describe the part rather than
+  one recording of it. And a `cycle` slot is a pass divisor exactly like
+  `every_n` — three takes mean the song does not repeat until pass three, so a
+  one-pass bounce would write take 1 and silently discard the other two. Project
+  format 11; one WAV per take, and a slot whose take files have gone opens as a
+  plain single-take slot rather than losing the take.
 * **Accent** decides whether this sample responds to how hard you hit a pad.
   With it off (the default) every bar plays at the sample's own level, which is
   what a take toggled in by hand should do. With it on, the green of each bar
@@ -725,13 +750,33 @@ both ports in both directions. Writes `midi-report.json`.
 `--selftest` fills this in. Until then, treat every row as a guess that the
 program is built to be corrected on.
 
+## The feature page
+
+```
+python tools/feature_page.py feature-grid.html
+```
+
+Builds the public feature page -- all 61 items on a 64-pad grid, coloured with
+the program's own pad meanings -- from `plans.md`. Every item's code, title,
+size, release and shipped state is read from the plan; the test count is read by
+collecting the suite; the item the page opens on is read from `CHANGELOG.md`,
+which unlike the roadmap table is in the order things happened.
+
+It exists because the page already claimed to be generated from the plan and was
+not: the numbers had been transcribed by hand, and two releases later the page
+said 45 items shipped when the number was 47, with six shipped items still
+coloured as unbuilt. The only thing the plan does not supply is the one-line
+description of each feature -- a plan item is a spec, and a spec is not a
+description -- so those live in the script, and rendering refuses if any item
+lacks one.
+
 ## Tests
 
 ```
 python -m pytest tests -q
 ```
 
-1332 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1433 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -754,8 +799,11 @@ signals with chosen onset frames, pitch to within a semitone and tempo to
 within 2 BPM on material built at a known one, every Euclidean rhythm in
 Toussaint's table plus maximal evenness for every length up to 64, the slice page's refusals, the monitor page's
 refusals, the chance dice (uniformity, purity, and that what you hear is
-bar-for-bar what gets bounced), every internal doc link, and every older project
-format still loading.
+bar-for-bar what gets bounced), alternate takes (cycling in order across passes,
+a reproducible random, the starved-third-take correlation the salt exists for,
+and every take of a cycling slot reaching the bounced file), the feature page
+generator against the plan it reads, every internal doc link, and every older
+project format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap

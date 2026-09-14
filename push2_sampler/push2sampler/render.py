@@ -20,6 +20,7 @@ import numpy as np
 
 from . import wavio
 from .audio import Engine
+from .project import TAKE_CYCLE
 
 #: Audio rendered per step, in seconds of song.
 CHUNK_SECONDS = 2.0
@@ -42,11 +43,24 @@ def passes_needed(project) -> int:
     song that genuinely varies over four passes bounces as four passes.  One
     when nothing uses the feature, which is every project that has not asked
     for it.
+
+    A slot **cycling** its alternates (IN-06) is a pass divisor too: three takes
+    on `cycle` mean the song does not repeat until pass three, and bouncing one
+    pass would put take 1 in the file and silently discard the other two.  Same
+    bug as `every_n`'s, arriving by a different door.  `random` is not a
+    divisor: it never repeats, so there is no cycle to cover, and one pass of it
+    is as representative as any other.
     """
     divisors = {
         max(1, int(sample.every_n or 1))
         for sample in project.filled()
         if project.audible(sample) and sample.triggers
+    }
+    divisors |= {
+        sample.take_count
+        for sample in project.filled()
+        if project.audible(sample) and sample.triggers
+        and sample.take_mode == TAKE_CYCLE
     }
     total = 1
     for divisor in sorted(divisors):

@@ -10,7 +10,122 @@ plan.
 
 ---
 
-## Unreleased
+## v1.6.0
+
+Three items of the **`v2.0` Instrument** train, and a page that can no longer
+lie about them. With `IN-06` and `NH-10` in, 57 of the 61 items in
+[`plans.md`](plans.md) are shipped; `IN-04`, `IN-05`, `IN-07` and `NH-09`
+remain.
+
+Tags for this directory are scoped (`push2sampler-v1.6`) and, as with every
+release before it, **no tag has actually been pushed** — the credentials can
+push branches but not tag refs, so the version in `push2sampler/__init__.py`
+and this file are the record.
+
+### The feature page is generated now (`tools/feature_page.py`)
+
+The public feature page's footer said its codes, titles, sizes and releases were
+read from `plans.md`, "so this page cannot drift from it". That was not true:
+they had been transcribed by hand, and two releases later the page said **45
+items shipped when the number was 47**, with six shipped items still coloured as
+unbuilt.
+
+A claim a document makes about itself has to be enforced by something, so:
+
+```
+python tools/feature_page.py feature-grid.html
+```
+
+reads the roadmap table for each item's release and whether it is struck
+through, reads each item's own heading for its title and size, counts the test
+suite by collecting it, and takes "the most recently shipped item" from the
+**changelog** rather than the roadmap table — the table groups by release and
+says nothing about *when* within one, which is why the page had been opening on
+the wrong item.
+
+The one thing the plan does not supply is the one-line description of each
+feature, because the plan's own prose is a specification and a specification is
+not a description. Those live in the script, and `build()` refuses to render a
+page if any plan item lacks one. 26 tests
+(`tests/test_feature_page.py`) hold the rest, including that the template's
+JavaScript braces survive `str.format`, that the only external resources are the
+two allowed font hosts, and that a title containing `<` or `&` is escaped.
+
+### Several recordings of one part, on one pad (`IN-06`)
+
+**Shift**+**Record** on a sample page keeps the new take *beside* the existing
+one instead of replacing it, up to eight. **Encoder 3** picks which you are
+listening to; **encoder 4** (or **button 7**) decides how a trigger chooses:
+
+| Mode | Chooses |
+| --- | --- |
+| `fixed` | always the take you selected |
+| `cycle` | the next take on each **pass** of the loop — pass 1 plays take 1 |
+| `random` | a take per **trigger**, from the project's dice |
+
+`cycle` is per pass and `random` is per trigger, which is the difference between
+a loop that breathes across repeats and a part that never quite repeats. Three
+real performances of one snare on `random` is the difference between a sampler
+and a drummer.
+
+#### The alternates needed their own dice
+
+Not for tidiness. "Did this bar play?" is `roll(...) < chance`, so on a 60 % bar
+every trigger you hear has a roll below 0.6 — and reusing that number to index
+three takes puts all of them in the first two thirds. The third take does not
+sound *rarely*; it **never sounds at all**.
+
+```
+shared stream : 55.8 / 44.2 /  0.0
+salted        : 33.2 / 33.3 / 33.5
+```
+
+`_TAKE_SALT` is the fix, and the measurement above is a test.
+
+#### And a cycling slot lengthens a bounce
+
+Exactly as `every Nth pass` does, and for the same reason: three takes on
+`cycle` mean the song does not repeat until pass three, so a one-pass bounce
+would write take 1 and silently discard the other two. `passes_needed` now
+counts cycling take counts alongside the `every_n` divisors — an 8-bar song with
+a three-take cycling slot bounces 24 bars, with a different take in each third.
+`random` is deliberately **not** a divisor: it never repeats, so there is no
+cycle to cover.
+
+#### Alternates are not layers
+
+Overdubs **sum**; alternates **replace**. Both cannot be true of one pad, so the
+two never coexist: adding an alternate flattens the layer breakdown, and
+**Shift**+**New** says so rather than peeling the wrong one. The audio is the
+layers' sum either way, so nothing audible is lost — only the ability to undo an
+overdub made before you went looking for alternates. Overdubbing a slot that has
+alternates overdubs the **selected** one.
+
+Three things follow from alternates being alternates *of one part*, each with a
+test: the **edits** apply to every take, a length **repair** fits every take,
+and an alternate **keeps the original's length** (the record page refuses to
+change it — a take of a different length would change the arrangement).
+
+#### Two places the plan had to give way
+
+- **"`Sample.takes: list[Take]` instead of a single buffer"** would have
+  invalidated every other field's relationship to `audio`. Shipped as the same
+  shape `layers` already has: the list is empty for an ordinary slot, and when
+  it is not, `audio is takes[active_take]` — one invariant, maintained in one
+  method, and `set_takes` collapses a one-element list back to empty because
+  "one alternate" and "no alternates" are the same state.
+- **"Pads on the sample page's top row select the active take"** would have
+  stolen bars 1–8 of the arrangement, which is what those pads *are*. The
+  selection is encoder 3 instead. Likewise **"recording into a filled slot adds
+  a take, per a setting"**: a setting that silently changes what **Record** does
+  is worse than two gestures you can see — you would press **Record** expecting
+  a fresh take and quietly collect eight.
+
+Project format **11**, one WAV per take; every older format loads as a plain
+single-take slot, and a slot whose take files have gone missing opens playing
+the audio it always had. `AddTake`, `RemoveTake`, `SetActiveTake` and
+`SetTakeMode` are each one undo step. 75 new tests
+(`tests/test_takes.py`), 1407 in total.
 
 ### Bars that only sometimes play (`NH-10`)
 

@@ -95,6 +95,16 @@ _MIX_B = 0xBF58476D1CE4E5B9
 _MIX_C = 0x94D049BB133111EB
 _MASK = (1 << 64) - 1
 
+#: A second dice stream, for choosing an alternate take (IN-06).
+#:
+#: It must not be the same stream the probability gate uses, and the reason is
+#: not tidiness.  "Did this bar play?" is `roll(...) < chance`, so on a 60 % bar
+#: every trigger you hear has a roll below 0.6 -- and reusing that number to
+#: index three takes would put every one of them in the first two thirds.  The
+#: third take would *never* sound.  Measured: 55.8 / 44.2 / 0.0 on the same
+#: stream, 33.2 / 33.3 / 33.5 once the seed is salted.
+_TAKE_SALT = 0x2545F4914F6CDD1D
+
 
 def roll(seed: int, pass_number: int, bar: int, slot: int) -> float:
     """A number in ``[0, 1)`` from where you are, not from how you got there.
@@ -161,6 +171,11 @@ class ScheduledSample:
     probability: int = 100
     #: Play only on every Nth pass; 0 and 1 both mean every pass.
     every_n: int = 0
+    #: Alternate takes of this slot, in order (IN-06).  Empty or one-long means
+    #: there is nothing to choose and `buf` simply plays.
+    alternates: tuple = ()
+    #: How to choose among them: fixed / cycle / random.  See `Engine._take_for`.
+    take_mode: str = "fixed"
 
 
 @dataclass(frozen=True)
@@ -1125,10 +1140,38 @@ class Engine:
         if entry.choke_group is not None:
             self._release_choke(entry.choke_group, entry.slot)
         self._add_voice(Voice(
-            entry.buf, entry.gain, entry.slot,
+            self._take_for(entry, bar), entry.gain, entry.slot,
             play_mode=mode, choke_group=entry.choke_group, start_bar=bar,
             channel=entry.channel,
         ))
+
+    def _take_for(self, entry, bar: int):
+        """Which alternate of this slot sounds on this trigger (IN-06).
+
+        Decided here, at the moment the sample sounds, for the same reason the
+        play mode and choke group are: it is a question about *now*.  And
+        decided from where we are rather than from a counter, so a bounce and a
+        live pass of the same bar choose the same take.
+        """
+        takes = getattr(entry, "alternates", ()) or ()
+        if len(takes) < 2:
+            return entry.buf
+        mode = getattr(entry, "take_mode", "fixed")
+        if mode == "cycle":
+            # Pass 1 plays take 1.  Derived from the pass, not incremented per
+            # trigger, so a slot triggered on eight bars plays *one* take per
+            # pass rather than walking the list eight times a pass.
+            return takes[(self.pass_number - 1) % len(takes)]
+        if mode == "random":
+            # Per *trigger*, not per pass: a different alternate on each bar is
+            # what stops a repeated hit sounding machine-stamped, and it is what
+            # `cycle` is for when you want one take to hold a whole pass.
+            index = int(
+                roll(self.chance_seed ^ _TAKE_SALT, self.pass_number, bar, entry.slot)
+                * len(takes)
+            )
+            return takes[min(index, len(takes) - 1)]
+        return entry.buf
 
     def _slot_sounding(self, slot: int) -> bool:
         return any(

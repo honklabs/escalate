@@ -322,11 +322,14 @@ class App:
             self._modes.pop()
         self.set_mode(LibraryMode(self))
 
-    def goto_record(self, slot: int, bars: int | None = None) -> None:
+    def goto_record(self, slot: int, bars: int | None = None,
+                    alternate: bool = False) -> None:
         existing = self.project[slot]
         if bars is None:
             bars = existing.bars if existing is not None else 1
-        self.set_mode(RecordMode(self, slot, bars))
+        # An alternate needs something to be an alternate *of* (IN-06).
+        alternate = alternate and existing is not None
+        self.set_mode(RecordMode(self, slot, bars, alternate=alternate))
 
     def goto_sample(self, slot: int) -> None:
         if self.project[slot] is None:
