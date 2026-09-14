@@ -26,6 +26,11 @@ Browser
     The projects on disk, as pads: open, create, duplicate or delete a song
     without going back to a terminal.
 
+Harmony
+    The library grid coloured by how each slot's notes sit against one
+    reference slot: green fits, amber is a neighbour, red clashes, white has no
+    harmony to compare.  One button transposes a clashing loop into line.
+
 Song
     The whole arrangement as a heat map: every bar against every slot, with a
     zoom into any eight-by-eight cell where each pad is one bar of one slot.
@@ -44,6 +49,7 @@ from __future__ import annotations
 
 from .base import COUNT_IN_BEATS, Mode
 from .browser import BrowserMode
+from .harmony import HarmonyMode
 from .library import LibraryMode
 from .mixer import MixerMode
 from .perform import PerformMode
@@ -60,6 +66,7 @@ from .settings import SettingsMode
 __all__ = [
     "COUNT_IN_BEATS",
     "BrowserMode",
+    "HarmonyMode",
     "LibraryMode",
     "MixerMode",
     "Mode",

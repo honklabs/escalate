@@ -712,7 +712,50 @@ Two things not to be surprised by:
 A bounce covers a cycling slot's whole cycle, so all three takes end up in the
 file — an 8-bar song with a three-take cycling snare bounces 24 bars.
 
-### Step 28: find out how tight you played
+### Step 28: find out which of your loops fit together
+
+You now have several parts. Some of them are in the same key and some are not,
+and until you play them together you do not know which.
+
+On any sample page with a **pitched** part on it — a chord loop, a bass line, a
+sung note, not a drum — **press Scale.**
+
+The library grid comes back, but coloured by how each slot sits against *this*
+one:
+
+- **flashing** — the slot everything is being compared to
+- **green** — fits: its notes sit inside this one's
+- **amber** — close, a note or two apart
+- **red** — clashes
+- **dim white** — a drum, or nothing with a key in it. Not a problem, just not
+  a question about keys.
+
+Press a red pad. You hear it, and the display says
+`clashes   C C# D# F F# G# A# B   button 1: move it -6`.
+
+**Press button 1.** The loop drops six semitones and the pad goes green. That
+was the editor's own **pitch** control being set for you — open the editor and
+you will see it there, non-destructive as ever, and one **Undo** takes it back.
+
+Press button 1 again and nothing happens: `already fits - nothing to move`. The
+suggestion is found by turning the notes until they clash least, so once they
+do, the answer is to stay put.
+
+**Shift + a pad** compares everything against that slot instead, which is the
+second question everyone asks.
+
+Two things worth knowing about what this is telling you:
+
+- **It is about notes, not about keys.** The display does offer a key —
+  `about C major (a guess, 0.90)` — and means the "guess" part. Working out
+  which note is the *tonic* is genuinely hard: a held Cmaj7 gets called E minor,
+  because those four notes really do sit in E minor too. The colours never come
+  from the name, which is why they are right when the name is wrong.
+- **A very low bass hedges.** Below about C2 the analysis cannot quite resolve a
+  semitone, so a bass part in your key may read amber rather than green. Amber
+  is "look at this", not "this is wrong" — trust your ears over the pad.
+
+### Step 29: find out how tight you played
 
 Still on the **About** page (**Layout** from a sample page), **press button 2.**
 
@@ -751,7 +794,7 @@ for it and discouraging when you did not.
 
 <a id="settings"></a>
 
-### Step 29: the settings worth knowing
+### Step 30: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -786,7 +829,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 30: tempo, click, loop
+### Step 31: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -822,7 +865,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 31: shape a take
+### Step 32: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -852,7 +895,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 32: name it, colour it
+### Step 33: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -868,7 +911,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 33: keep two versions of the arrangement
+### Step 34: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -882,7 +925,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 34: start another song, without a terminal
+### Step 35: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -898,7 +941,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 35: undo
+### Step 36: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -920,7 +963,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 36: bounce it
+### Step 37: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

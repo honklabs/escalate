@@ -23,6 +23,7 @@ from ..history import (
 )
 from ..project import BANK_SLOTS, SCENE_COUNT
 from .base import Mode
+from .harmony import HarmonyMode
 
 #: Hold a filled pad for this long to audition it instead of opening its page.
 HOLD_PREVIEW_S = 0.4
@@ -169,6 +170,20 @@ class LibraryMode(Mode):
             return
         self.app.do(RecallScene(index))
 
+    def _harmony(self) -> None:
+        """Open the harmony page (IN-04).
+
+        Against the first filled slot, because the library has no notion of a
+        selected one -- and `Shift` + a pad inside the page re-references it,
+        which is a cheaper way to reach "against that one" than arming a pick
+        out here and spending a press on it.
+        """
+        filled = self.project.filled()
+        if not filled:
+            self.app.notify("nothing to compare yet")
+            return
+        self.app.push_mode(HarmonyMode(self.app, filled[0].slot))
+
     def on_button(self, cc: int, pressed: bool) -> bool:
         if not pressed:
             return False
@@ -181,6 +196,9 @@ class LibraryMode(Mode):
                 self.app.notify("library full")
             else:
                 self.app.goto_record(slot)
+            return True
+        if cc == Btn.SCALE:
+            self._harmony()
             return True
         if cc == Btn.MUTE:
             # Shortcut for shaping the mix without opening each sample page.

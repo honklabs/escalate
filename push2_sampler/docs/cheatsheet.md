@@ -29,6 +29,7 @@ need it. This is the *what*, for when you have already done that once.
 | **Mix** | mixer page (open / close) |
 | **Browse** | project browser (open / close) |
 | **Shift**+**Browse** | import audio from disk (open / close) |
+| **Scale** | harmony: which loops fit together |
 | **Setup** | settings page (open / close) |
 | **Shift**+**Setup** | save the project right now |
 | **Delete** | arm delete, then press a pad |
@@ -127,6 +128,7 @@ to another page of 64.
 | **Device** | open the editor |
 | **Convert** | slice this take across the pads |
 | **Layout** | what this take sounds like, and a name for it |
+| **Scale** | which other loops fit with this one |
 | **Automate** | generate this sample's bars instead of tapping them |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
@@ -250,6 +252,37 @@ never coexist — adding an alternate flattens the layer breakdown. The edits an
 a length repair apply to *every* take, because they describe the part.
 
 A bounce covers a cycling slot's whole cycle, so all its takes reach the file.
+
+---
+
+## Harmony — which loops fit together (**Scale**)
+
+The library grid, coloured against **one reference slot**: the sample whose page
+you came from, or the first filled slot from the library.
+
+| Pad | Means |
+| --- | --- |
+| flashing | the reference — everything is compared to this |
+| green | fits |
+| amber | close, a note or two apart |
+| red | clashes |
+| dim white | a drum, or nothing with a key in it — nothing to compare |
+
+| Control | Does |
+| --- | --- |
+| any filled pad | hear it, and read how it sits |
+| **Shift** + a pad | compare against *that* slot instead |
+| **button 1 below** | transpose the picked slot into line (one **Undo**) |
+| **Scale** / **Session** | leave |
+
+The transpose is the editor's own **pitch** edit, so it is non-destructive and
+visible there. Accepting twice does nothing the second time, and ties go to the
+smaller move.
+
+The colours come from **pitch-class content**, not from a key. A key name is
+shown and labelled a guess, because naming a tonic is the measurably weak part:
+a held Cmaj7 reads "E minor". A bass part below about C2 is judged on its
+harmonics and can read `close` where it should read `fits`.
 
 ---
 

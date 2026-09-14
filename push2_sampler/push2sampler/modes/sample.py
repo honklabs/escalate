@@ -68,6 +68,7 @@ TAKE_MODE_HELP = {
     "random": "random: a take per hit, same every time",
 }
 from .base import Mode
+from .harmony import HarmonyMode
 from .info import InfoMode
 from .pattern import PatternMode
 from .sample_edit import SampleEditMode
@@ -282,6 +283,9 @@ class SampleMode(Mode):
             return True
         if cc == Btn.CONVERT and sample is not None:
             self.app.push_mode(SliceMode(self.app, self.slot))
+            return True
+        if cc == Btn.SCALE and sample is not None:
+            self.app.push_mode(HarmonyMode(self.app, self.slot))
             return True
         if cc == Btn.LAYOUT and sample is not None:
             self.app.push_mode(InfoMode(self.app, self.slot))
@@ -642,6 +646,7 @@ class SampleMode(Mode):
         buttons[Btn.SELECT] = BTN_DIM
         buttons[Btn.CONVERT] = BTN_ON if sample is not None else 0
         buttons[Btn.LAYOUT] = BTN_ON if sample is not None else 0
+        buttons[Btn.SCALE] = BTN_ON if sample is not None else 0
         buttons[Btn.AUTOMATE] = BTN_ON if sample is not None else 0
         buttons[Btn.NEW] = (
             colors.RED.index if self._layering and self.app.blink else BTN_DIM

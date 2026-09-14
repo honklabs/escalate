@@ -8,7 +8,8 @@ same material, read [Getting started](getting-started.md) instead.
 - [Banks and pages](#banks-and-pages)
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
-  [Swap](#swapping-two-samples) · [Slice](#slice-page) ·
+  [Swap](#swapping-two-samples) · [Harmony](#harmony-page) ·
+  [Slice](#slice-page) ·
   [About](#about-page) · [Pattern](#pattern-page) ·
   [Editor](#sample-editor) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
@@ -217,6 +218,7 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **Mute** | Whether you hear this sample at all |
 | **Accent** | Velocity response on/off for this sample |
 | **Device** | Open the [editor](#sample-editor) |
+| **Scale** | [Which other loops fit with this one](#harmony-page) |
 | **Shift**+**Delete** | Delete this sample and return to the library |
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
@@ -598,6 +600,94 @@ to the hands, so refusing it would only be surprising. The whole thing is one
 
 A sounding voice keeps its own buffer, so swapping while the song plays cuts
 nothing; the next bar line picks up the new arrangement.
+
+### Harmony page
+
+**Scale** opens the library grid coloured by how each slot's notes sit against
+**one reference slot** — the sample whose page you pressed it from. From the
+library it opens against the first filled slot.
+
+| Pad | Means |
+| --- | --- |
+| flashing white/green | the reference: everything is compared to this |
+| green | fits — its notes sit inside the reference's |
+| amber | close — a note or two apart |
+| red | clashes |
+| dim white | no harmony to compare (a drum, or nothing with a key in it) |
+| off | empty slot |
+
+| Control | Does |
+| --- | --- |
+| any filled pad | audition it, and read how it sits |
+| **Shift** + a pad | compare everything against *that* slot instead |
+| Button **1** below the display | apply the suggested transpose to the picked slot |
+| **Scale** / **Session** | leave |
+
+**The transpose is the editor's own pitch edit.** "Move this loop up two
+semitones" is a thing [the editor](#sample-editor) already does, so accepting a
+suggestion sets `pitch_semitones` rather than inventing a second way to say the
+same thing. It is non-destructive, visible on the editor page, and one **Undo**.
+
+Accepting twice does nothing the second time. The suggestion is found by
+rotating the pitch-class content until it clashes least, so after the shift the
+best rotation *is* the one you are on — the page says `already fits - nothing to
+move` rather than drifting another semitone.
+
+Ties go to the **smaller** move. A C# triad against C major was first told to go
+up four semitones, which does land it on F and does fit; down one is just as
+good and is what a hand expects.
+
+#### What it measures, and what it does not
+
+The page answers "do these two clash", and that lives in **pitch-class
+content** — not in a key. Measured against material built in known keys:
+
+| Against a C major progression | Clash | Verdict |
+| --- | --- | --- |
+| itself | 0.028 | fits |
+| A minor | 0.026 | fits |
+| a C triad | 0.010 | fits |
+| a Cmaj7 | 0.009 | fits |
+| G major (the dominant) | 0.041 | fits |
+| D major | 0.135 | close |
+| E♭ major | 0.505 | clashes |
+| F♯ major (the tritone) | 0.524 | clashes |
+
+The number is the fraction of one take's energy landing on notes the other one
+does not use. The two thresholds sit in the gaps in that table rather than
+having been chosen.
+
+**It is asymmetric, on purpose.** "Does adding this to what I have selected
+work" is a directed question: a three-note pad inside a seven-note progression
+fits, while the progression laid over the pad introduces four notes the pad
+never plays.
+
+**A key name is shown, and labelled a guess.** Naming a *tonic* from pitch-class
+weights is a guess about emphasis, and it is measurably the weak part: a held
+Cmaj7 comes back `E minor` — correctly noting those four notes also sit in E
+minor — and a C triad with twelve harmonics does the same. The chroma
+underneath was right on all ten signals tested, so the colours never come from
+the name. The display says `about C major (a guess, 0.90)`.
+
+**Drums are not coloured.** A kick under a chord progression is the most
+ordinary thing in music, so `no harmony to compare` is the answer rather than a
+warning. Deciding that needs **two** independent gates, and each catches a case
+the other misses: the role gate rejects a kick, whose pitch-class content is
+peaked enough to look tonal (0.077); the flatness gate rejects a chromatic run
+(0.001) and white noise that happened to read as a tone (0.008).
+
+#### The bottom octave
+
+A bass part below about C2 is judged on its **harmonics**, and can read `close`
+where it should read `fits`. At the session rates this program uses, the
+analysis window is more than a semitone wide down at 60 Hz, so a very low note
+smears into pitch classes it never played.
+
+That is not a detail: with the analysis band starting at 60 Hz, a C–G–C bass
+figure in octave 1 read as **clashing with its own key**, which is the one
+mistake this page must not make. The band starts at 90 Hz instead, and no
+in-key material tested reads red. The residue is that the lowest octave hedges
+towards `close`, which is a hedge and not a warning.
 
 ### Slice page
 

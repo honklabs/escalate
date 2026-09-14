@@ -90,8 +90,8 @@ def test_a_struck_item_is_shipped_and_an_unstruck_one_is_not(parsed):
     # Spot-check both directions against the table as it stands.
     assert by_code["F-01"].shipped is True
     assert by_code["IN-06"].shipped is True
-    assert by_code["IN-04"].shipped is False
-    assert by_code["IN-04"].state != "shipped"
+    assert by_code["IN-05"].shipped is False
+    assert by_code["IN-05"].state != "shipped"
 
 
 def test_the_in_progress_release_is_the_one_being_built(parsed):
