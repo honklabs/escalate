@@ -10,6 +10,152 @@ plan.
 
 ---
 
+## v2.0.0 — Instrument
+
+The last three items of the **`v2.0` Instrument** train, which finishes the
+plan: **all 61 items in [`plans.md`](plans.md) are shipped.**
+
+Tags for this directory are scoped (`push2sampler-v2.0`) and, as with every
+release before it, **no tag has actually been pushed** — the credentials can
+push branches but not tag refs, so the version in `push2sampler/__init__.py`
+and this file are the record.
+
+One thing has not changed and should be said in the release that claims to
+finish the plan: **most hardware facts in this program are still Ableton's
+document's claims rather than measurements.** `--selftest` has never been
+completed on a device, the colour display has never been seen to render, and
+the touch strip this release gives a job to has never been touched. Those are
+the open items now, and no amount of software finishes them.
+
+### A variation across passes (`IN-05`)
+
+**Shift**+**Clip** on a sample page adds extra bars a sample plays on **only
+every Nth pass**. "Every fourth pass, double the hats." Encoder 1 sets how
+often, encoder 2 how much, a pad adds one by hand, button 8 clears it, and
+**Shift**+**Record** freezes however many passes you ask for as one file.
+
+**It needed no engine change at all.** That is the finding. An extra trigger
+that fires only on every 4th pass *is* a trigger with `NH-10`'s `every_n` of 4,
+so a variation is a second set of bars scheduled with that divisor — and it
+inherited reproducibility, correct bouncing and a readable grid from work
+already done. `passes_needed` grew one clause; that was the whole of
+`render.py`'s involvement, and `audio.py` was not touched.
+
+**It is bars, not a rule.** The spec's "per-pass variation rules" implies
+something evaluated at playback. Storing the bars instead means you can look at
+what pass 4 will do, edit one by hand, and see it on a grid. A rule you have to
+trust is a worse instrument than a pattern you can read.
+
+**And it is arithmetic, not chance.** "Every 4th pass" is a divisor, so the
+project's dice deliberately cannot move it — a fill arriving at unpredictable
+times is not what those words say. There is a test asserting the seed changes
+nothing, because given how much of this came from `NH-10` it is easy to expect
+the opposite. The two still compose: a chance on a variation bar is something
+that sometimes happens, on some passes.
+
+Two smaller findings. **The fill goes in the gaps, not over the span** — the
+first version spread `IN-03`'s euclidean pattern across the span the sample
+occupies, which for hats on bars 1, 3, 5, 7 put the new bars on the old ones and
+subtracted them away to nothing. And **the grid flashes only on the pass
+immediately before**: flashing whenever the variation merely was not due made
+"about to change" and "eventually" the same pixel, which is the one thing the
+plan explicitly asked the display for.
+
+Project format **13**. 44 new tests (`tests/test_living.py`).
+
+### Fitting a take to another tempo (`NH-09`)
+
+Button **6** on a sample page: `off`, `resample` (faster or slower, **pitch moves
+with it**) or `stretch` (WSOLA — pitch held, length changed). The first press
+offers whatever the material wants, because `IN-02` already listened; the button
+then walks all three.
+
+**For a drum break, `resample` is usually the right answer** — a break played
+faster *is* pitched up, and that is a sound records have been made of. Measured,
+a chord's spectrum survives a stretch at 0.96–1.00 similarity and a drum loop's
+at 0.78–0.83, so percussion is precisely what the method is worst at.
+
+A stretching slot is **no longer flagged off-grid**: the length is being handled,
+so the yellow pad would be telling you to fix something already fixed. A change
+too large to absorb still is.
+
+#### Five things the prototype found
+
+- **Every stretch ended in a click.** Running out of input left the tail silent:
+  a 2-second tone at 1.5× finished with 615 frames of nothing and a 0.488 step
+  into them, against a source whose worst sample-to-sample step is 0.063. The
+  read position is clamped, so running out reuses the final frames.
+- **Normalised cross-correlation was measured and rejected.** The textbook
+  similarity measure ran 4× slower and scored *worse* on a chord (0.953 against
+  0.957).
+- **The search had to be vectorised, not tidied.** As a Python loop over
+  candidates a 30-second take took 2.2 s; as one `np.correlate` call it takes
+  0.33 s, bit-for-bit identical.
+- **The search runs on the channel sum.** Per channel it picks different offsets
+  left and right and smears the stereo image — a worse artefact than the one
+  being fixed. A test asserts both channels come back identical.
+- **The plan's own assertion is only valid for one note.** "The dominant
+  frequency is unchanged" says nothing about a chord, whose three near-equal
+  partials make `argmax` pick whichever is momentarily loudest, so each partial
+  is checked separately.
+
+And there is **no worker thread**, which is how the plan's warning is met: "the
+stretching worker must not be started from the audio callback" is answered by
+there being no worker. `StretchJob` is stepped from the frame loop exactly as
+`BounceJob` already was, and a stretch is rebound in one assignment.
+
+Project format **12**. 83 new tests (`tests/test_stretch.py`).
+
+### The strip, the ring and the pulse (`IN-07`)
+
+Three uses for hardware nothing else in this program touched.
+
+The **count-in fills a ring round the border of the grid**, one pad per
+sixteenth, arriving at the top-left corner on the downbeat — a shape you feel
+rather than a number you read. The next pad shows dim before it lands. A
+**pre-roll flashes the ring instead of filling it**, because nothing is being
+counted during the run-up and a ring that started then would arrive a bar early.
+
+The **rightmost column pulses on the beat in every mode**, brighter on the
+downbeat, lit for about a third of a beat. It only paints pads the current page
+left dark — checked by looking for `OFF` rather than by tracking claims, which
+means every mode, including ones not yet written, wins the collision without
+knowing the overlay exists.
+
+The **touch strip scrubs while stopped** (bottom is bar 1, top is the last bar,
+and the grid follows to the page you land on) and picks a **loop range** with
+**Shift**, from your finger to the end of that page. It is refused while playing
+or recording and says so.
+
+**That needed a new engine verb, and a test found it.** Scrubbing was written as
+`play(bar)` then `stop()`, and every scrub landed on bar 1 — because `stop`
+rewinds to the top *by design*, being the "back to the start" gesture.
+`Engine.seek` is the missing third thing: a position change on a transport that
+stays stopped, refused while running or recording.
+
+**The strip has never been touched.** That it speaks pitch bend at all is
+Ableton's document's claim, not a measurement. Everything above is built so that
+a strip which sends something else is simply inert; nothing else depends on it.
+This item is done because the work is done, not because the hardware is
+confirmed.
+
+31 new tests (`tests/test_strip.py`).
+
+### And the feature page caught two of its own
+
+Marking the last release complete made the page say **"v2.0 complete, v2.0 in
+progress"**, and left its headline promising "things it does, *or will*" with
+nothing left to will. Both are now conditional, and both were caught by the
+tests added with the generator rather than by reading the page — which is what
+that generator was for.
+
+Its spot-check on an unshipped item had to go too: it named a code and asserted
+it was open, and the codes it named kept shipping. It now tests the *mechanism*
+against a table written in the test, which is what has to hold whatever the plan
+currently says.
+
+---
+
 ## v1.7.0
 
 One item, and the eight prototype rounds it took. **58 of the 61 items in

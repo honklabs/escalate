@@ -24,6 +24,15 @@ from ..constants import (
     PLAY_MODES,
     Btn,
 )
+from ..analysis import describe
+from ..dsp import (
+    STRETCH_LABELS,
+    STRETCH_MODES,
+    STRETCH_OFF,
+    STRETCH_RESAMPLE,
+    STRETCH_WSOLA,
+    suggested_mode,
+)
 from ..history import (
     AddLayer,
     ClearTriggers,
@@ -36,6 +45,7 @@ from ..history import (
     SetChokeGroup,
     SetTakeMode,
     SetPlayMode,
+    SetStretchMode,
     SetEnabled,
     SetChanceSeed,
     SetEveryN,
@@ -69,6 +79,7 @@ TAKE_MODE_HELP = {
 }
 from .base import Mode
 from .harmony import HarmonyMode
+from .living import LivingMode
 from .info import InfoMode
 from .pattern import PatternMode
 from .sample_edit import SampleEditMode
@@ -87,6 +98,11 @@ REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
 PLAY_MODE_BUTTONS: dict[int, str] = dict(zip(DISPLAY_ROW_BOTTOM[1:5], PLAY_MODES))
 #: Button 8 cycles the choke group: off, 1..8, off.
 CHOKE_BUTTON = DISPLAY_ROW_BOTTOM[7]
+#: Button 6 cycles what happens when the song's tempo is not the one this take
+#: was cut at (NH-09): off, resample, stretch.  The last free button on the row,
+#: which is also the right place for it -- it sits beside the off-grid repair on
+#: button 1, and the two are alternative answers to the same problem.
+STRETCH_BUTTON = DISPLAY_ROW_BOTTOM[5]
 #: Button 7 cycles the take mode; `Shift` + it removes the selected take
 #: (IN-06).  Both on one button because `Delete` is already "clear all bars"
 #: and `Shift`+`Delete` is already "delete the sample", so removing one
@@ -127,6 +143,9 @@ class SampleMode(Mode):
         self._copy_from: int | None = None
         #: True while a sound-on-sound take is running for this slot.
         self._layering = False
+        #: What this take is, once anything has asked (NH-09's suggestion).
+        self._role: str | None = None
+        self._role_key: tuple | None = None
 
     @property
     def sample(self):
@@ -284,6 +303,9 @@ class SampleMode(Mode):
         if cc == Btn.CONVERT and sample is not None:
             self.app.push_mode(SliceMode(self.app, self.slot))
             return True
+        if cc == Btn.CLIP and sample is not None and self.app.shift:
+            self.app.push_mode(LivingMode(self.app, self.slot))
+            return True
         if cc == Btn.SCALE and sample is not None:
             self.app.push_mode(HarmonyMode(self.app, self.slot))
             return True
@@ -311,6 +333,9 @@ class SampleMode(Mode):
                 self.app.notify(f"already {PLAY_MODE_LABELS[wanted]}")
             else:
                 self.app.do(SetPlayMode(self.slot, wanted, sample.play_mode))
+            return True
+        if cc == STRETCH_BUTTON and sample is not None:
+            self._cycle_stretch(sample)
             return True
         if cc == TAKE_BUTTON and sample is not None:
             self._take_button(sample)
@@ -425,6 +450,63 @@ class SampleMode(Mode):
             return
         self.app.do(SetActiveTake(self.slot, wanted, sample.active_take))
         self.app.notify(f"take {wanted + 1} of {sample.take_count}")
+
+    def _cycle_stretch(self, sample) -> None:
+        """Button 6: off -> resample -> stretch -> off (NH-09).
+
+        Suggests rather than dictates on the first press of an untouched slot:
+        `IN-02` already knows whether this is a drum, and a drum wants
+        `resample` (a break played faster *is* pitched up, and that is a sound)
+        while a bass line wants the pitch held.  The suggestion only decides
+        which of the two comes first; the button still walks all three.
+        """
+        # off -> the mode this material probably wants -> the other one -> off.
+        # Walking the plain list instead put the suggestion second *and* third,
+        # so a tonal slot oscillated between off and `wsola` and could never
+        # reach `resample` at all -- a test caught it.
+        likely = suggested_mode(self._role_of(sample))
+        if likely == STRETCH_OFF:
+            likely = STRETCH_WSOLA
+        other = (STRETCH_RESAMPLE if likely == STRETCH_WSOLA else STRETCH_WSOLA)
+        order = (STRETCH_OFF, likely, other)
+        current = sample.stretch_mode if sample.stretch_mode in order else STRETCH_OFF
+        wanted = order[(order.index(current) + 1) % len(order)]
+        self.app.do(SetStretchMode(self.slot, wanted, sample.stretch_mode))
+        rate = self.project.stretch_rate_for(sample)
+        detail = ""
+        if wanted != STRETCH_OFF and abs(rate - 1.0) > 0.001:
+            detail = f"   x{rate:.3f} to fit {self.project.bpm:.0f} BPM"
+        self.app.notify(f"tempo: {STRETCH_LABELS[wanted]}{detail}")
+
+    def _role_of(self, sample) -> str | None:
+        """What `IN-02` heard, measured once per take and remembered.
+
+        Only ever asked when the stretch button is pressed, so an FFT per slot
+        is a press cost and not a frame cost.
+        """
+        key = (id(sample.audio), sample.audio.shape)
+        if self._role_key != key:
+            self._role_key = key
+            self._role = describe(
+                sample.effective_audio(self.project.samplerate),
+                self.project.samplerate,
+            ).role
+        return self._role
+
+    def _stretch_help(self, sample) -> str:
+        """What the tempo is doing to this take, or nothing when it fits."""
+        rate = self.project.stretch_rate_for(sample)
+        fits = abs(rate - 1.0) <= 0.001
+        if sample.stretch_mode == STRETCH_OFF:
+            if fits:
+                return ""
+            return (f"recorded at {sample.source_bpm:.0f} BPM: button 6 to fit it "
+                    f"to {self.project.bpm:.0f} without re-cutting it")
+        waiting = "  (computing...)" if self.app.stretching is not None else ""
+        if fits:
+            return f"tempo: {STRETCH_LABELS[sample.stretch_mode]} (nothing to do)"
+        return (f"tempo: {STRETCH_LABELS[sample.stretch_mode]}   "
+                f"x{rate:.3f} to fit {self.project.bpm:.0f} BPM{waiting}")
 
     def _take_help(self, sample) -> str:
         """The alternates line, or how to make some (IN-06)."""
@@ -658,6 +740,14 @@ class SampleMode(Mode):
             # Lit only when there is a choice to make: a single-take slot's
             # button would be a light with nothing behind it.
             buttons[TAKE_BUTTON] = BTN_ON if sample.takes else 0
+            # Lit when stretching is on, and flashing while the job runs.
+            if sample.stretch_mode != STRETCH_OFF:
+                buttons[STRETCH_BUTTON] = (
+                    BTN_BRIGHT if self.app.stretching is not None and self.app.blink
+                    else BTN_ON
+                )
+            else:
+                buttons[STRETCH_BUTTON] = BTN_DIM
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -703,10 +793,11 @@ class SampleMode(Mode):
             f"{PLAY_MODE_LABELS[sample.play_mode]}"
             + (f"  choke {sample.choke_group}" if sample.choke_group else "")
             + (f"  takes {sample.take_mode}" if sample.takes else "")
-            + "   buttons 2-5: mode   7: takes   8: choke group",
+            + "   buttons 2-5: mode   6: tempo   7: takes   8: choke group",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "encoder 1: gain   encoder 2: lay it back behind the beat",
             self._chance_help(sample),
+            self._stretch_help(sample),
             self._take_help(sample),
             "Record: re-record   New: layer   Mute: hear   Device: edit"
             "   Convert: slice   Layout: about   Automate: pattern"

@@ -644,6 +644,27 @@ class Engine:
         return max(0, int(math.ceil(-self.position_frames / self.frames_per_beat)))
 
     @property
+    def count_in_sixteenths(self) -> tuple:
+        """``(elapsed, total)`` sixteenths of the count-in (IN-07).
+
+        For the count-in ring, which fills one pad per sixteenth so the downbeat
+        can be felt arriving rather than read off a number.  ``(0, 0)`` when
+        there is no count-in running, and the pre-roll counts as not started --
+        the run-up is the song playing, not the count.
+        """
+        if self.rec_state != COUNT_IN or self._count_in_frames <= 0:
+            return 0, 0
+        total = int(round(self._count_in_frames / self.frames_per_beat * 4))
+        if total <= 0:
+            return 0, 0
+        per = self._count_in_frames / total
+        remaining = -self.position_frames
+        if remaining > self._count_in_frames:
+            return 0, total            # still in the pre-roll
+        elapsed = int((self._count_in_frames - remaining) // per)
+        return max(0, min(total, elapsed)), total
+
+    @property
     def in_pre_roll(self) -> bool:
         """True while the run-up is playing but the count-in has not started."""
         return (
@@ -759,6 +780,26 @@ class Engine:
             self.events.put(("record_cancelled",))
         self.events.put(("stopped",))
 
+    def seek(self, from_bar: int = 0) -> None:
+        """Move the playhead without starting, for the scrubber (IN-07).
+
+        `stop` deliberately rewinds to bar 1 -- it is the "back to the top"
+        gesture -- so scrubbing could not be built from play-then-stop, which a
+        test caught landing on bar 1 every time.  This is the missing third
+        thing: a position change on a transport that stays stopped.
+
+        Refused while running or recording, because moving the playhead under a
+        take is never what anybody meant.
+        """
+        if self._running or self._rec_state != IDLE:
+            return
+        pos = max(0.0, float(from_bar) * self.frames_per_bar)
+        self._post(
+            ("seek", pos),
+            self._intend(running=False, rec_state=IDLE, pos=pos,
+                         stop_at_bar=False),
+        )
+
     @property
     def stop_pending(self) -> bool:
         """True while a bar-end stop is waiting for the bar line."""
@@ -861,6 +902,12 @@ class Engine:
             self.pass_number = 1
         elif kind in ("stop", "cancel"):
             self._stop_now()
+        elif kind == "seek":
+            # Position only: no voices to release and nothing else to reset,
+            # because nothing was running.
+            self._pos = float(command[1])
+            self._last_beat = None
+            self._last_bar = None
         elif kind == "stop_at_bar":
             self._stop_at_bar = True
         elif kind == "arm":

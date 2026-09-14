@@ -755,7 +755,76 @@ Two things worth knowing about what this is telling you:
   semitone, so a bass part in your key may read amber rather than green. Amber
   is "look at this", not "this is wrong" — trust your ears over the pad.
 
-### Step 29: find out how tight you played
+### Step 29: let the part change every few times round
+
+Chance in step 26 made a bar a maybe. This makes the *arrangement* change on a
+schedule you can see: a **variation**, which is extra bars a sample plays on only
+every Nth pass.
+
+"Every fourth pass, double the hats" is exactly the thing.
+
+Go to the sample page of something with a few bars on it, and **hold Shift and
+press Clip.**
+
+The grid comes back showing the same bars in green — the ones that always play.
+Now **turn encoder 1** to 4, then **encoder 2** up a few clicks. Dim blue pads
+appear in the gaps between your green ones: those are the extra bars, and they
+play on every fourth pass.
+
+Press **Play** and let it go four times round. Passes 1, 2 and 3 are the part you
+arranged. Pass 4 is the part doubled. Then it goes back.
+
+Watch the blue pads while it runs: they **flash** on the pass immediately before
+they play, and turn steady amber on the pass they do. The display counts it out
+too — `pass 2   the extra bars play in 2 passes`.
+
+Two things you can do from here:
+
+- **Press a pad** to add or remove one bar by hand. A bar that already plays
+  every pass says so rather than doing something different — one press should
+  not mean two things.
+- **Encoder 3 then Shift+Record** freezes however many passes you asked for as a
+  single audio file. That is the "print it" button: a performance of a song that
+  does not repeat, captured exactly.
+
+It is worth knowing *what kind* of thing this is. A variation is **arithmetic,
+not chance** — "every 4th pass" is a divisor, so the dice from step 26
+deliberately cannot move it, because a fill arriving at unpredictable times is
+not what those words say. And it is stored as **bars you can look at**, not a
+rule running behind the scenes. You can see exactly what pass 4 will do before it
+happens.
+
+The two compose, though: put a chance on a variation bar and you get something
+that sometimes happens, on some passes. That is about as alive as a 64-bar grid
+gets.
+
+### Step 30: make an old take fit a new tempo
+
+Change the song's tempo — **turn the tempo encoder** down to 90 — and look at the
+library. Your takes have gone **yellow**. They were cut at 120 BPM, and at 90 a
+bar is longer, so they no longer fill the bars they claim.
+
+Step 16 offered one answer: button 1 fits the take by trimming or padding it.
+Here are the two that do not re-cut anything. On a sample page, **press button 6.**
+
+The display says `tempo: stretch (pitch held)   x1.333 to fit 90 BPM`, and the
+pad stops being yellow. The take now plays a third longer and at the same pitch.
+
+Press button 6 again: `resample (pitch moves)`. Now it plays a third longer by
+playing *slower*, which drops the pitch — and for a drum break that is usually
+the answer you want. A break played slower is a sound; a stretched transient is
+a smear.
+
+The program picks whichever of the two your material probably wants for the first
+press, because it already listened to the take in step 28. Percussion gets
+`resample`, a bass line or a chord gets `stretch`. Press again to disagree.
+
+You may notice button 6 flash for a moment. That is the stretch being computed —
+about a third of a second for a thirty-second take — and it happens between
+frames rather than stopping the world. Until it finishes the take plays at its
+old length, because playing something beats playing nothing.
+
+### Step 31: find out how tight you played
 
 Still on the **About** page (**Layout** from a sample page), **press button 2.**
 
@@ -794,7 +863,7 @@ for it and discouraging when you did not.
 
 <a id="settings"></a>
 
-### Step 30: the settings worth knowing
+### Step 32: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -829,7 +898,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 31: tempo, click, loop
+### Step 33: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -865,7 +934,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 32: shape a take
+### Step 34: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -895,7 +964,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 33: name it, colour it
+### Step 35: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -911,7 +980,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 34: keep two versions of the arrangement
+### Step 36: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -925,7 +994,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 35: start another song, without a terminal
+### Step 37: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -941,7 +1010,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 36: undo
+### Step 38: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -963,7 +1032,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 37: bounce it
+### Step 39: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

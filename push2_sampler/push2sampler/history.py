@@ -560,6 +560,62 @@ class SetTakeMode(Command):
 
 
 @dataclass
+class SetVariation(Command):
+    """The bars a sample plays only on some passes, and how often (IN-05)."""
+
+    slot: int
+    bars: set
+    every: int
+    previous_bars: set
+    previous_every: int
+
+    @property
+    def label(self) -> str:
+        if not self.bars or (self.every or 1) <= 1:
+            return f"slot {self.slot + 1}: no variation"
+        return (f"slot {self.slot + 1}: {len(self.bars)} extra bar(s) "
+                f"every {self.every} passes")
+
+    def _write(self, project, bars, every) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.variation_bars = set(bars)
+            sample.variation_every = int(every)
+            project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.bars, self.every)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous_bars, self.previous_every)
+
+
+@dataclass
+class SetStretchMode(Command):
+    """How a take answers a tempo it was not recorded at (NH-09)."""
+
+    slot: int
+    mode: str
+    previous: str
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: tempo {self.mode}"
+
+    def _write(self, project, value: str) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.stretch_mode = value
+            project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.mode)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous)
+
+
+@dataclass
 class SliceTake(Command):
     """Write several slices into several slots at once (IN-01).
 

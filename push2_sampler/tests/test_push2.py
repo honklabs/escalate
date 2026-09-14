@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from push2sampler import colors
 from push2sampler.constants import PAD_COUNT, Btn, index_to_note
 from push2sampler.push2 import (
@@ -20,6 +22,8 @@ class Msg:
     note: int = 0
     velocity: int = 0
     control: int = 0
+    #: The touch strip's 14-bit value, as mido reports it (IN-07).
+    pitch: int = 0
     value: int = 0
 
 
@@ -33,7 +37,33 @@ def test_pad_notes_become_pad_events():
 def test_non_pad_notes_are_ignored():
     assert translate_midi(Msg("note_on", note=0, velocity=120)) is None  # encoder touch
     assert translate_midi(Msg("polytouch", note=92, velocity=40)) is None
-    assert translate_midi(Msg("pitchwheel")) is None
+    assert translate_midi(Msg("clock")) is None
+
+
+def test_the_touch_strip_becomes_a_strip_event():
+    """It used to be dropped; IN-07 gave it a job.
+
+    Unverified against hardware -- that the strip speaks pitch bend at all comes
+    from Ableton's document -- so everything downstream treats it as advisory.
+    """
+    from push2sampler.push2 import StripEvent
+
+    assert translate_midi(Msg("pitchwheel", pitch=-8192)) == StripEvent(0.0, True)
+    assert translate_midi(Msg("pitchwheel", pitch=8191)) == StripEvent(1.0, True)
+    bottom = translate_midi(Msg("pitchwheel", pitch=-4096))
+    assert bottom.position == pytest.approx(0.25, abs=0.001)
+    # The spring-back-to-centre when a finger leaves must not read as "the
+    # middle of the song".
+    assert translate_midi(Msg("pitchwheel", pitch=0)).touched is False
+
+
+def test_the_strip_is_monotonic_across_its_range():
+    positions = [
+        translate_midi(Msg("pitchwheel", pitch=raw)).position
+        for raw in range(-8192, 8192, 97)
+    ]
+    assert positions == sorted(positions)
+    assert positions[0] == 0.0 and positions[-1] < 1.0
 
 
 def test_buttons_and_encoders():

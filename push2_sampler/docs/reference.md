@@ -9,6 +9,7 @@ same material, read [Getting started](getting-started.md) instead.
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
   [Swap](#swapping-two-samples) · [Harmony](#harmony-page) ·
+  [Living song](#living-song-page) ·
   [Slice](#slice-page) ·
   [About](#about-page) · [Pattern](#pattern-page) ·
   [Editor](#sample-editor) ·
@@ -16,6 +17,7 @@ same material, read [Getting started](getting-started.md) instead.
   [Output routing](#output-routing) · [Browser](#project-browser) ·
   [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
   [Settings](#settings-page)
+- [The touch strip and the count-in ring](#the-touch-strip-and-the-count-in-ring)
 - [Clock](#clock--playing-with-other-gear)
 - [The display](#the-display) · [The monitor page](#the-monitor-page)
 - [Scenes](#scenes)
@@ -219,6 +221,7 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **Accent** | Velocity response on/off for this sample |
 | **Device** | Open the [editor](#sample-editor) |
 | **Scale** | [Which other loops fit with this one](#harmony-page) |
+| **Shift**+**Clip** | [Vary it across passes](#living-song-page) |
 | **Shift**+**Delete** | Delete this sample and return to the library |
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
@@ -230,6 +233,7 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **Shift**+encoder 4 | [Reroll the dice](#chance--bars-that-only-sometimes-play) for the whole project |
 | **Shift**+**Record** | Record [another take](#alternate-takes) beside this one |
 | First button **below** the display | [Fit an off-grid take](#off-grid-takes) to its bars |
+| Button **6** below the display | [What happens at another tempo](#fitting-another-tempo): off / resample / stretch |
 | Button **7** below the display | Cycle the take mode; **Shift** removes the selected take |
 
 #### Overdubbing
@@ -522,6 +526,85 @@ Saved with the project (format 10 → **11**), one WAV per take, and every older
 format still loads as a plain single-take slot. If a slot's take files have gone
 missing it opens as a single-take slot playing the audio it always had: losing
 the breakdown must not lose the take.
+
+#### Fitting another tempo
+
+A take remembers the tempo it was cut at, so changing the song's tempo leaves it
+the wrong length — a two-bar loop cut at 240 BPM is 1.83 bars at 220. Button
+**6** below the display decides what to do about it, per sample:
+
+| Mode | Does |
+| --- | --- |
+| `off` | nothing. The take keeps its own length and the library flags it yellow |
+| `resample` | plays it faster or slower. Instant, and **the pitch moves with it** |
+| `stretch` | keeps the pitch and changes the length. Costs a pass over the audio |
+
+**For a drum break, `resample` is usually the right answer.** A break played
+faster *is* pitched up, and that is a sound records have been made of — while
+stretching a transient only smears it. The first press offers whichever mode the
+material wants, because the program already knows
+[what it heard](#about-page): percussion gets `resample`, a bass line or a
+pitched part gets `stretch`. The button then walks all three.
+
+Measured: a chord's spectrum survives a stretch at 0.96–1.00 similarity, a drum
+loop's at 0.78–0.83. That is not a preference, it is what the method is worst at.
+
+**A stretching slot is no longer flagged off-grid**, because the length is being
+handled — the yellow pad and the repair offer would be telling you to fix
+something already fixed. A tempo change too large to absorb (past 4× either way)
+*is* still flagged, because then it genuinely is not handled.
+
+Nothing here runs while audio is playing back. A stretch is computed a slot at a
+time between frames, the button flashes while that happens, and the take plays
+at its old length until the new one is finished — playing something beats playing
+nothing. A 30-second take takes about a third of a second.
+
+Saved with the project (format 10 → **12**); every older format opens with
+stretching off, which is what it always did.
+
+### Living song page
+
+**Shift**+**Clip** on a sample page opens the one thing this program has that a
+grid of certainties cannot do: a **variation**. Extra bars this sample plays on
+only every Nth pass.
+
+"Every fourth pass, double the hats" is what it is for.
+
+| Control | Does |
+| --- | --- |
+| Encoder 1 | how often the variation plays — every 2 to 8 passes |
+| Encoder 2 | how much it adds — extra bars, spread through the gaps |
+| Encoder 3 | how many passes **Shift**+**Record** freezes |
+| any pad | add or remove one bar by hand |
+| Button **8** below the display | clear the variation |
+| **Shift**+**Record** | freeze that many passes as audio |
+| **Clip** / **Session** | leave |
+
+| Pad | Means |
+| --- | --- |
+| green | plays every pass — the arrangement |
+| amber | part of the variation, and **this** is the pass it plays on |
+| flashing amber | it plays on the **next** pass |
+| dim blue | part of the variation, waiting its turn |
+| white | the playhead |
+
+**It is bars, not a rule.** A rule evaluated at playback would be a thing you
+have to trust; a set of bars is a thing you can look at, edit one of by hand, and
+see on a grid. The status line says which pass is next and how far off the
+change is: `pass 2   the extra bars play in 2 passes`.
+
+**And it is arithmetic, not chance.** "Every 4th pass" is a divisor, so the
+project's [dice](#chance--bars-that-only-sometimes-play) deliberately cannot move
+it — rolling for it would make the fill arrive at unpredictable times, which is
+not what the words say. Chance and a variation compose freely: a maybe-bar
+inside a variation is a bar that sometimes plays, on some passes.
+
+A variation lengthens a bounce the same way `every Nth pass` does, so the fill
+is always in the file. **Shift**+**Record** here is the exception: it renders the
+number of passes *you* asked for, because "how long before the song repeats" and
+"give me four times round" are different questions.
+
+Saved with the project (format **13**); every older format opens without one.
 
 ### Master playback mode
 
@@ -1385,6 +1468,41 @@ Choosing a device that will not open is not fatal: the previous device is kept
 and the display says what went wrong.
 
 ---
+
+## The touch strip and the count-in ring
+
+Two pieces of the hardware nobody uses.
+
+**The count-in fills a ring round the edge of the grid**, one pad per sixteenth,
+so a four-beat count-in is sixteen pads arriving at the top-left corner on the
+downbeat. You can feel it coming out of the corner of your eye; a number you
+have to read. The next pad shows dim before it lands, and a **pre-roll** flashes
+the whole ring instead of filling it — nothing is being counted yet, and a ring
+that started during the run-up would arrive a bar early.
+
+**The rightmost column pulses on the beat, in every mode**, as an ambient
+metronome: the bottom pad on beat 1 (brighter, so the downbeat reads), then
+upward. It is lit for about a third of a beat — a pulse, not a lamp — and it
+**only ever paints pads the current page left dark**. A page that means something
+by that column keeps it. A metronome you can see out of the corner of your eye is
+worth having; one that lies about the arrangement is not.
+
+**The touch strip scrubs the transport while stopped.** The bottom of the strip
+is bar 1 and the top is the last bar; the grid follows to the page you land on.
+It is refused while playing or recording and says so — a finger brushing the
+strip mid-phrase must not move the playhead. **Shift** and the strip instead
+picks a loop range: from where your finger is to the end of that page, in one
+gesture.
+
+<a id="the-strip-is-unverified"></a>
+
+**One thing to know: the strip has never been touched.** That it speaks MIDI
+pitch bend at all comes from Ableton's *Push 2 MIDI and Display Interface*
+document, not from a device — `--selftest` has a step for it and has never been
+completed here. Everything above is built so that a strip which turns out to
+send something else is simply inert: nothing else in the program depends on it.
+If the strip does nothing on your Push, that is the most likely reason, and
+[the probe](#command-line) is how it gets fixed.
 
 ## Clock — playing with other gear
 

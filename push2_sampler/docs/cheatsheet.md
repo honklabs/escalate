@@ -38,6 +38,9 @@ need it. This is the *what*, for when you have already done that once.
 | **Tempo encoder** | BPM ±1 per click |
 | **Shift**+**Tempo encoder** | BPM ±10 per click |
 | hold **Tap Tempo** + **Tempo encoder** | BPM ±0.1 per click (beat-matching) |
+| **Touch strip** | scrub the song (when stopped) |
+| **Shift**+**Touch strip** | loop from there to the end of that page |
+| **Rightmost column** | pulses on the beat while playing, in every mode |
 | **Row above the display** | input level meter (not buttons) |
 | any button | briefly lights its own LED, so a dead button is obvious |
 
@@ -129,6 +132,7 @@ to another page of 64.
 | **Convert** | slice this take across the pads |
 | **Layout** | what this take sounds like, and a name for it |
 | **Scale** | which other loops fit with this one |
+| **Shift**+**Clip** | vary it across passes (living song) |
 | **Automate** | generate this sample's bars instead of tapping them |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
@@ -145,6 +149,7 @@ to another page of 64.
 | **Shift**+**encoder 4** | reroll the project's dice, 0 – 63 |
 | **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
 | **buttons 2-5 below** | play mode: one shot / loop / gate / retrig |
+| **button 6 below** | at another tempo: off / resample / stretch |
 | **button 7 below** | take mode; **Shift** removes the selected take |
 | **button 8 below** | choke group: off → 1…8 → off |
 
@@ -252,6 +257,58 @@ never coexist — adding an alternate flattens the layer breakdown. The edits an
 a length repair apply to *every* take, because they describe the part.
 
 A bounce covers a cycling slot's whole cycle, so all its takes reach the file.
+
+---
+
+## Living song — vary it across passes (**Shift**+**Clip**)
+
+Extra bars a sample plays on **only every Nth pass**. "Every fourth pass, double
+the hats."
+
+| Control | Does |
+| --- | --- |
+| **encoder 1** | how often — every 2 to 8 passes |
+| **encoder 2** | how much — extra bars, spread through the gaps |
+| **encoder 3** | how many passes **Shift**+**Record** freezes |
+| any pad | add or remove one bar by hand |
+| **button 8 below** | clear it |
+| **Shift**+**Record** | freeze that many passes as audio |
+
+| Pad | Means |
+| --- | --- |
+| green | plays every pass |
+| amber | varies, and this is the pass |
+| flashing amber | varies, and it plays **next** pass |
+| dim blue | varies, waiting its turn |
+
+It is stored as **bars you can look at**, not a rule you have to trust — and it
+is arithmetic, so the dice cannot move it. A bounce covers the whole cycle.
+
+---
+
+## At another tempo (**button 6** on a sample page)
+
+| Mode | Does |
+| --- | --- |
+| `off` | nothing; the take keeps its length and goes yellow |
+| `resample` | faster or slower, **pitch moves** — usually right for a break |
+| `stretch` | pitch held, length changed — right for a bass line |
+
+The first press offers whatever the material wants; the button then walks all
+three. A stretching slot is no longer flagged off-grid, because the length is
+handled. Computed between frames, so the take plays at its old length until it
+is ready.
+
+---
+
+## The strip and the ring
+
+- **Count-in** fills a ring round the edge of the grid, one pad per 16th.
+- **The rightmost column** pulses on the beat in every mode, and never
+  overwrites a pad the page is using.
+- **The touch strip** scrubs while stopped; **Shift** + it picks a loop range.
+  *The strip has never been verified on real hardware — if it does nothing, that
+  is why.*
 
 ---
 

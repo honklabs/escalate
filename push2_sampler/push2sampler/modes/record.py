@@ -3,7 +3,18 @@
 from __future__ import annotations
 
 from .. import analysis, colors
-from ..constants import BTN_DIM, BTN_OFF, BTN_ON, ENCODER_TRACK, PAD_COUNT, Btn
+from ..constants import (
+    BTN_DIM,
+    BTN_OFF,
+    BTN_ON,
+    ENCODER_TRACK,
+    PAD_COUNT,
+    RING,
+    Btn,
+)
+
+#: Set form, for asking whether a pad is part of the ring.
+RING_SET = frozenset(RING)
 from ..history import AddTake, PutSample
 from ..project import MAX_TAKES, SONG_BARS
 from .base import Mode
@@ -157,6 +168,34 @@ class RecordMode(Mode):
         )
 
     # -- output ------------------------------------------------------------
+    def _count_in_ring(self, pads: list[int]) -> None:
+        """The count-in round the edge of the grid, one pad per 16th (IN-07).
+
+        A shape filling clockwise is something you can feel arriving out of the
+        corner of your eye; a number is something you have to read.  The take's
+        own length still shows in the middle, so you have not lost sight of what
+        you are about to record.
+
+        The pre-roll flashes the whole ring instead of filling it: nothing is
+        being counted yet, and a ring that started filling during the run-up
+        would arrive at the top a bar early.
+        """
+        elapsed, total = self.engine.count_in_sixteenths
+        if self.engine.in_pre_roll or total <= 0:
+            lit = self.engine.beat_phase < 0.5
+            for pad in RING:
+                pads[pad] = colors.RED_DIM.index if lit else colors.OFF.index
+        else:
+            for step in range(min(elapsed, len(RING))):
+                pads[RING[step]] = colors.RED.index
+            # The one about to fill, so the next 16th is visible before it lands.
+            if elapsed < len(RING):
+                pads[RING[elapsed]] = colors.RED_DIM.index
+        # The length, dim, inside the ring: still the thing being recorded.
+        for i in range(self.bars):
+            if i not in RING_SET:
+                pads[i] = colors.WHITE_DIM.index
+
     def render_pads(self, pads: list[int]) -> None:
         state = self.engine.rec_state
         for i in range(PAD_COUNT):
@@ -166,9 +205,7 @@ class RecordMode(Mode):
                 pads[i] = colors.WHITE.index
             return
         if state == "count_in":
-            lit = self.engine.beat_phase < 0.5
-            for i in range(self.bars):
-                pads[i] = colors.RED.index if lit else colors.OFF.index
+            self._count_in_ring(pads)
             return
         bar = self.engine.current_bar
         for i in range(self.bars):

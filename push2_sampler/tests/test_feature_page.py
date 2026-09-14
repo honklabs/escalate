@@ -83,28 +83,65 @@ def test_titles_and_sizes_come_from_the_item_headings(parsed):
         assert item.title == feature_page._plain(heading.group(1))
 
 
-def test_a_struck_item_is_shipped_and_an_unstruck_one_is_not(parsed):
-    """The roadmap table's strikethrough is the whole shipped/open signal."""
+def test_a_struck_item_is_shipped_and_an_unstruck_one_is_not():
+    """The roadmap table's strikethrough is the whole shipped/open signal.
+
+    Tested against a table written here rather than against the real one, which
+    a spot-check twice outlived: the codes it named kept shipping.  The
+    *mechanism* is what has to hold, whatever the plan currently says.
+    """
+    plan = (
+        "| Release | Theme | Contents |\n"
+        "| --- | --- | --- |\n"
+        "| ~~**v9.1 — Done**~~ | all finished | **complete** — ~~`ZZ-01`~~ |\n"
+        "| **v9.2 — Doing** ← in progress | some of it | ~~`ZZ-02`~~† `ZZ-03` |\n"
+        "\n"
+        "### ZZ-01 — First `size: S`\n\n"
+        "### ZZ-02 — Second `size: M`\n\n"
+        "### ZZ-03 — Third `size: L`\n"
+    )
+    trains = feature_page.read_trains(plan)
+    assert [train.version for train in trains] == ["v9.1", "v9.2"]
+    assert [train.complete for train in trains] == [True, False]
+    assert dict(trains[0].codes) == {"ZZ-01": True}
+    # The dagger is a footnote marker, not part of a code.
+    assert dict(trains[1].codes) == {"ZZ-02": True, "ZZ-03": False}
+    titles = feature_page.read_titles(plan)
+    assert titles == {"ZZ-01": ("First", "S"), "ZZ-02": ("Second", "M"),
+                      "ZZ-03": ("Third", "L")}
+
+
+def test_the_real_table_agrees_with_itself(parsed):
+    """Whatever the plan says today, it has to say it consistently."""
     _trains, items = parsed
-    by_code = {item.code: item for item in items}
-    # Spot-check both directions against the table as it stands.
-    assert by_code["F-01"].shipped is True
-    assert by_code["IN-06"].shipped is True
-    assert by_code["IN-05"].shipped is False
-    assert by_code["IN-05"].state != "shipped"
+    for item in items:
+        assert (item.state == "shipped") is item.shipped, item.code
 
 
-def test_the_in_progress_release_is_the_one_being_built(parsed):
-    """`**complete**` in the table is what marks a release done."""
+def test_the_nearest_open_release_is_the_one_being_built(parsed):
+    """`**complete**` in the table is what marks a release done.
+
+    With every release complete -- which is now the case -- there is nothing to
+    colour as "building now", and the page has to be able to say that rather
+    than claiming a release is both finished and in progress.
+    """
     trains, items = parsed
     open_trains = [train for train in trains if not train.complete]
-    assert open_trains, "some release must be in progress"
+    if not open_trains:
+        assert all(item.shipped for item in items)
+        return
     building = open_trains[0].version
     assert all(
         item.state == "now"
         for item in items
         if item.train == building and not item.shipped
     )
+
+
+def test_the_page_says_complete_when_everything_is(page):
+    """The stale-string bug a test caught: "v2.0 complete, v2.0 in progress"."""
+    facts = re.search(r'<p class="facts">(.*?)</p>', page, re.S).group(1)
+    assert "in progress" not in facts or "complete," in facts
 
 
 def test_a_daggered_code_still_parses(parsed):

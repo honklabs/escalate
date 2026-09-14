@@ -57,6 +57,26 @@ class EncoderEvent:
 
 
 @dataclass(frozen=True)
+class StripEvent:
+    """The touch strip moved (IN-07).
+
+    ``position`` is 0.0 at the bottom of the strip and 1.0 at the top, from the
+    14-bit pitch bend the strip sends.  ``touched`` is False for the
+    spring-back-to-centre message the strip sends when a finger leaves it, which
+    must not be read as "you asked for the middle of the song".
+
+    **Unverified against hardware.**  That the strip speaks pitch bend at all
+    comes from Ableton's document rather than from a device; `--selftest` has a
+    step for it and has never been completed.  Everything downstream is written
+    so that a strip which turns out to send something else is inert rather than
+    wrong.
+    """
+
+    position: float
+    touched: bool = True
+
+
+@dataclass(frozen=True)
 class SurfaceOffline:
     """Queued when a write to the surface fails, so the app can say so.
 
@@ -475,7 +495,13 @@ def translate_midi(msg) -> PadEvent | ButtonEvent | EncoderEvent | None:
             delta = encoder_delta(msg.value)
             return EncoderEvent(msg.control, delta) if delta else None
         return ButtonEvent(msg.control, msg.value > 0)
-    # polytouch (pad aftertouch), pitchwheel (touch strip), clock, ... ignored
+    if kind == "pitchwheel":
+        # The touch strip (IN-07).  mido reports pitch as -8192..8191, so the
+        # strip's own range maps onto 0..1 with the centre at 0.5.
+        raw = int(getattr(msg, "pitch", 0))
+        position = (raw + 8192) / 16383.0
+        return StripEvent(max(0.0, min(1.0, position)), touched=raw != 0)
+    # polytouch (pad aftertouch), clock, ... ignored
     return None
 
 
@@ -523,6 +549,10 @@ class SimPush(PushBase):
 
     def turn(self, cc: int, delta: int) -> None:
         self.inject(EncoderEvent(cc, delta))
+
+    def touch_strip(self, position: float, touched: bool = True) -> None:
+        """Move the touch strip, 0.0 at the bottom to 1.0 at the top (IN-07)."""
+        self.inject(StripEvent(max(0.0, min(1.0, float(position))), touched))
 
     def grid(self) -> str:
         """Render the pad LEDs as eight lines of glyphs (top row first)."""

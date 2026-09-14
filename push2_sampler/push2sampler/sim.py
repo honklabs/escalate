@@ -294,6 +294,13 @@ def _dispatch(line: str, app, push: SimPush) -> bool:
         if not 0 <= which < len(ENCODER_TRACK):
             raise ValueError(f"track encoder out of range: {which + 1}")
         push.turn(ENCODER_TRACK[which], delta)
+    elif cmd in ("strip", "x"):
+        # 0 at the bottom of the strip, 1 at the top; "strip off" is a finger
+        # leaving it, which is a different thing from touching the middle.
+        if args and args[0].lower() in ("off", "release", "up"):
+            push.touch_strip(0.5, touched=False)
+        else:
+            push.touch_strip(float(args[0]))
     elif cmd in ("g", "grid", "s", "status"):
         pass  # state is printed after every command anyway
     elif cmd == "wait":

@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-04`~~† ~~`IN-06`~~† ~~`IN-08`~~ ~~`NH-10`~~† `IN-05` `IN-07` `NH-09` |
+| ~~**v2.0 — Instrument**~~ | the ideas nobody else has | **complete** — ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-04`~~† ~~`IN-05`~~† ~~`IN-06`~~† ~~`IN-07`~~† ~~`IN-08`~~ ~~`NH-09`~~† ~~`NH-10`~~† |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -370,6 +370,25 @@ notes) cannot act on a bar-addressed arrangement at all, so swing went where
 sub-beat time actually exists — live triggering — and the nudge is the bar-grid
 equivalent. See the item for the reasoning; it is the one place in this plan
 where the spec was judged wrong rather than incomplete.
+
+† `IN-05` shipped, and three quarters of it was already there: "every 4th pass,
+double the hats" needed **no engine change at all**, because an extra trigger
+that fires only on every 4th pass *is* a trigger with `NH-10`'s `every_n` of 4.
+Its variation is stored as concrete bars you can look at rather than a rule you
+have to trust. See the item.
+
+† `IN-07` shipped its count-in ring, its beat pulse and its strip handling, but
+**the strip itself remains unverified**: that it speaks pitch bend at all comes
+from Ableton's document, `--selftest` has never been completed, and no hand has
+ever touched it. Everything downstream is built to be inert rather than wrong if
+that turns out to be false. It also needed a new `Engine.seek`, because `stop`
+rewinds to bar 1 by design and every scrub landed there. See the item.
+
+† `NH-09` shipped both stretch modes, but its "worker" is a stepped job like the
+bounce -- the plan's worry ("must not be started from the audio callback") is
+met more simply by there being no worker. Its similarity search had to be
+vectorised rather than merely written, and the plan's "dominant frequency
+unchanged" assertion is only valid for a single note. See the item.
 
 † `IN-04` shipped its overlay and its transpose, but not from a key: naming a
 tonic is measurably the unreliable half (a Cmaj7 reads "E minor"), so the
@@ -1713,6 +1732,49 @@ invalidation on tempo change; the audio callback never sees a half-written
 buffer. **Deps:** `F-09`. The stretching worker must not be started from the
 audio callback.
 
+**Status: shipped.** A new `dsp.py` with `resample`, `wsola`, `stretch` and
+`StretchJob`; `Sample.stretch_mode`, format version 12, `Project.playable_audio`
+and `pending_stretches`; `SetStretchMode` on the undo stack and button 6 on a
+sample page. 83 tests in `tests/test_stretch.py`. Five prototype rounds.
+
+**There is no worker, which is how the plan's warning is met.** "The stretching
+worker must not be started from the audio callback" is answered more simply by
+there being no thread at all: `StretchJob` is stepped from the frame loop
+exactly as `BounceJob` already was. The callback cannot see a half-written
+buffer because a stretch is computed into a fresh array and *then* rebound in
+one assignment, and the schedule is rebuilt once, from finished arrays.
+
+**The plan's own test assertion is only valid for one note.** "The dominant
+frequency is unchanged" is right for a tone and meaningless for a chord, whose
+three near-equal partials make `argmax` pick whichever is momentarily loudest.
+The chord is checked partial by partial instead, and each survives at 0.92–1.00
+of full strength at every rate tested.
+
+Four findings, each now a test:
+
+1. **Every stretch ended in a click.** Running out of input left the tail
+   silent: a 2-second tone at 1.5× finished with 615 frames of nothing and a
+   0.488 step into them, against a source whose worst step is 0.063. The read
+   position is clamped to the last whole frame, so running out reuses the final
+   frames instead.
+2. **Normalised cross-correlation — the textbook choice — was measured and
+   rejected.** 4× slower and *worse* on a chord (0.953 against 0.957).
+3. **The search had to be vectorised, not merely tidied.** As a Python loop over
+   candidates a 30-second take took 2.2 s; as one `np.correlate` call it takes
+   0.33 s, bit-for-bit identical.
+4. **The search runs on the channel sum.** Searching per channel picks different
+   offsets left and right and smears the stereo image — a worse artefact than
+   the one being fixed. There is a test that both channels come back identical.
+
+Two decisions the plan did not reach. **A stretching slot is no longer flagged
+off-grid**, because the length is being handled and the yellow pad would be
+telling you to fix something already fixed — a tempo change too large to absorb
+is still flagged, because then it genuinely is not. And **`IN-02` chooses which
+mode to offer first**: percussion gets `resample`, because a break played faster
+*is* pitched up and that is a sound records have been made of, and because
+measurement says percussion is exactly what WSOLA is worst at (0.78–0.83
+spectral similarity against 0.96–1.00 for a chord).
+
 ### NH-10 — Per-trigger probability and follow actions `size: M`
 
 Each trigger gets a `probability` (0–100 %, default 100) and each sample an
@@ -2272,8 +2334,51 @@ is exactly what you heard.
 differ; the live transport and a bounce of the same pass range produce identical
 audio (the key property — it is what makes this trustworthy).
 
-**Deps.** `NF-05`, `NH-10`, `IN-03`. **All three are now shipped, so this is
-unblocked** — and three quarters built. `NH-10` already delivered the pass
+**Status: shipped**, and the re-scope below was right: almost all of it existed
+already. `Sample.variation_bars` / `variation_every`, format version 13,
+`SetVariation` on the undo stack, and a new `modes/living.py` on
+`Shift`+`Clip`. 44 tests in `tests/test_living.py`, including the plan's "key
+property".
+
+**The variation rule needed no engine change whatsoever.** "Every 4th pass,
+double the hats" reads as new machinery and is not: an extra trigger that fires
+only on every 4th pass **is** a trigger with `NH-10`'s `every_n` of 4. So a
+variation is a second set of bars scheduled with that divisor, and it inherited
+reproducibility, correct bouncing and a readable grid from work already done.
+`passes_needed` grew a third clause and that was the whole of `render.py`'s
+involvement.
+
+**A variation is concrete bars, not a rule.** The spec's "per-pass variation
+rules" implies something evaluated at playback; storing the bars instead means
+you can *look* at what the variation will do, edit one of them by hand, and see
+it on a grid. A rule you have to trust is a worse instrument than a pattern you
+can read.
+
+**A variation is arithmetic, and the dice deliberately cannot move it.** "Every
+4th pass" is a divisor; rolling for it would make the fill arrive at
+unpredictable times, which is not what the words say. There is a test asserting
+the seed changes nothing — because it is easy to expect the opposite given how
+much of this item came from `NH-10`.
+
+Three decisions the plan did not reach:
+
+1. **The fill goes in the gaps, not over the span.** The first version spread
+   `IN-03`'s euclidean pattern across the span the sample occupies, which for
+   hats on bars 1, 3, 5, 7 put the new bars on top of the old ones and then
+   subtracted them away to nothing. The free bars inside the part are listed
+   first and the pattern chooses among *those* — which is also what "double it"
+   means. A solid block with no gaps is filled past its end instead.
+2. **The grid flashes only on the pass immediately before.** Flashing whenever
+   the variation merely was not due made "about to change" and "eventually" the
+   same pixel, which is the one thing the plan explicitly asked the display for.
+3. **A freeze chooses its own length.** `Shift`+`Record` here renders the number
+   of passes an encoder says, not `passes_needed`'s: that function answers "how
+   long before the song repeats", and what a person wants from a freeze is "give
+   me four times round". Those need not be the same number, so `BounceJob` grew
+   an explicit `passes`.
+
+**Deps.** `NF-05`, `NH-10`, `IN-03`. **All three were shipped first, which is
+why this was three quarters built when it started.** `NH-10` already delivered the pass
 counter, the deterministic per-position seed, `· pass N` on the display, and the
 bounce-covers-a-whole-pass-cycle property this item lists as "the key property —
 it is what makes this trustworthy" (`tests/test_chance.py` asserts the bars you
@@ -2384,6 +2489,40 @@ count-in ring lights exactly 16 pads per bar; the pulse overlay never overwrites
 a mode's own pad when they collide (mode wins).
 
 **Deps.** `F-08` (strip CC behaviour needs hardware confirmation).
+
+**Status: shipped, with its one dependency still open.** All three parts are
+built and tested: `StripEvent` decoded from pitch bend in `push2.py`, a
+`count_in_sixteenths` on the engine feeding a count-in ring round the border of
+the grid, `App._beat_pulse` as a shared overlay, and `App._strip` scrubbing when
+stopped or picking a loop range with `Shift`. 31 tests in `tests/test_strip.py`.
+
+**The strip has still never been touched.** That it speaks pitch bend at all is
+Ableton's document's claim, not a measurement; `--selftest` has a step for it
+and has never been completed. So the decoding is tested against the *claim*, and
+everything downstream is written to be inert rather than wrong if the claim is
+false — a strip that sends something else simply never reaches `App._strip`, and
+nothing else in the program depends on it. This item is struck because the work
+is done, not because the hardware is confirmed.
+
+**It needed a new engine verb, which a test found.** Scrubbing was written as
+`play(bar)` then `stop()`, and every scrub landed on bar 1 — because `stop`
+rewinds to the top *by design*, being the "back to the start" gesture.
+`Engine.seek` is the missing third thing: a position change on a transport that
+stays stopped. It refuses while running or recording, because moving the
+playhead under a take is never what anybody meant.
+
+Three decisions the plan did not reach:
+
+1. **The pre-roll flashes the ring rather than filling it.** Nothing is being
+   counted during the run-up, and a ring that started filling then would arrive
+   at the top a bar early — worse than not starting.
+2. **The next sixteenth is shown dim before it lands**, so the downbeat is
+   visible arriving rather than only once it has arrived. The point of a ring
+   over a number is that you do not have to read it.
+3. **The pulse only paints pads the mode left off.** The plan asked that the
+   mode win a collision; doing it by checking for `OFF` rather than by keeping a
+   list of claimed pads means every mode, including ones not yet written, gets
+   it right without knowing the overlay exists.
 
 ### IN-08 — Timing coach `size: M`
 
