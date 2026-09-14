@@ -61,7 +61,7 @@ FULL_VELOCITY = 127
 CERTAIN = 100
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 10
+FORMAT_VERSION = 11
 #: How many scene snapshots a project keeps.
 SCENE_COUNT = 8
 #: User colours a slot can be tagged with, as palette indices; see colors.py.
@@ -69,6 +69,16 @@ SLOT_COLORS = 8
 #: Largest pass divisor.  Past eight passes of a 64-bar page you have waited
 #: minutes for a sound, which is a bug report rather than an arrangement.
 MAX_EVERY_N = 8
+#: How an alternate take is chosen when a bar triggers the slot (IN-06).
+#: ``fixed`` always plays the one you selected; ``cycle`` walks them in order,
+#: one per pass; ``random`` picks one from the project's dice.
+TAKE_FIXED = "fixed"
+TAKE_CYCLE = "cycle"
+TAKE_RANDOM = "random"
+TAKE_MODES = (TAKE_FIXED, TAKE_CYCLE, TAKE_RANDOM)
+#: Alternates per slot.  Eight is where the WAV files stop being free and where
+#: "which one was that?" stops being answerable by ear.
+MAX_TAKES = 8
 
 
 
@@ -144,6 +154,25 @@ def _load_every_n(value) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(MAX_EVERY_N, every))
+
+
+def _load_take_mode(value) -> str:
+    """One of TAKE_MODES; anything else is a fixed take (IN-06)."""
+    return value if value in TAKE_MODES else TAKE_FIXED
+
+
+def _load_active_take(value, count: int) -> int:
+    """Which alternate is selected, clamped to the takes that actually loaded.
+
+    Takes are loaded best-effort, so the index in the file can point past the
+    end of what came back -- and an out-of-range index would break the
+    ``audio is takes[active_take]`` invariant everything else relies on.
+    """
+    try:
+        index = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(index, max(0, count - 1)))
 
 
 def _load_probabilities(value) -> dict[int, int]:
@@ -258,6 +287,16 @@ class Sample:
     #: Empty means "the take is just ``audio``"; otherwise ``audio`` is their
     #: sum and that invariant is maintained by :meth:`set_layers`.
     layers: list = field(default_factory=list)
+    #: Alternate takes of the same part, oldest first (IN-06).  Empty means
+    #: "there is only ``audio``"; otherwise it holds *every* take including the
+    #: selected one and ``audio is takes[active_take]`` -- the same kind of
+    #: invariant ``layers`` has with its sum, maintained by :meth:`set_takes`.
+    #: Alternates are not layers: layers sum, alternates replace.
+    takes: list = field(default_factory=list)
+    #: Which alternate ``audio`` currently is, and plays under ``fixed``.
+    active_take: int = 0
+    #: How a trigger chooses among the alternates: see TAKE_MODES.
+    take_mode: str = TAKE_FIXED
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
@@ -266,6 +305,13 @@ class Sample:
             self.name = f"S{self.slot + 1:02d}"
         self._rendered: np.ndarray | None = None
         self._rendered_key: tuple | None = None
+        self._takes_rendered: tuple | None = None
+        self._takes_key: tuple | None = None
+        if self.takes:
+            # Trust the list, not the index: a loader or a copy can hand us an
+            # index past the end, and every other method assumes it is valid.
+            self.active_take = max(0, min(self.active_take, len(self.takes) - 1))
+            self.audio = self.takes[self.active_take]
 
     @property
     def raw_frames(self) -> int:
@@ -316,17 +362,128 @@ class Sample:
         return True
 
     def set_layers(self, layers: list) -> None:
-        """Install layers and re-sum them into ``audio``."""
-        self.layers = layers
+        """Install layers and re-sum them into ``audio``.
+
+        On a slot with alternates the sum goes into the **selected** alternate
+        and the breakdown is dropped: overdubbing means overdubbing the take you
+        are listening to, and a layer list cannot describe several different
+        recordings at once.  So layers and alternates never coexist -- which is
+        also why the page tells you a layer cannot be peeled off such a slot
+        rather than peeling the wrong one.
+        """
         frames = max((int(layer.shape[0]) for layer in layers), default=0)
         channels = max((int(layer.shape[1]) for layer in layers), default=1)
         summed = np.zeros((frames, channels), dtype=np.float32)
         for layer in layers:
             summed[: layer.shape[0], : layer.shape[1]] += layer
+        if self.takes:
+            self.layers = []
+            takes = list(self.takes)
+            takes[self.active_take] = summed
+            self.set_takes(takes, self.active_take)
+            return
+        self.layers = layers
         self.audio = summed
         self.audio_saved = False
         self._rendered_key = None
         self._rendered = None
+
+    # -- alternates (IN-06) ---------------------------------------------
+    @property
+    def take_count(self) -> int:
+        """How many alternates this slot holds; 1 for an ordinary recording."""
+        return len(self.takes) or 1
+
+    def add_take(self, audio: np.ndarray) -> bool:
+        """Keep a new recording *beside* the existing one instead of replacing it.
+
+        The first alternate promotes the existing recording to take 1, the way
+        the first overdub promotes it to layer 1.  False when the slot is full.
+
+        Adding an alternate **flattens the layers**: a layer breakdown describes
+        one take, and there is no meaning to "peel a layer off" once the slot
+        holds several different recordings.  The audio is the layers' sum either
+        way, so nothing you can hear is lost -- only the ability to undo an
+        overdub you made before you went looking for alternates.
+        """
+        takes = list(self.takes) or [self.audio]
+        if len(takes) >= MAX_TAKES:
+            return False
+        takes.append(np.ascontiguousarray(audio, dtype=np.float32))
+        self.flatten()
+        self.set_takes(takes, len(takes) - 1)
+        return True
+
+    def remove_take(self) -> bool:
+        """Drop the selected alternate.  False when there is only one.
+
+        At two takes this collapses back to a plain single-take slot rather than
+        leaving a one-element list: "1 take" and "one alternate" are the same
+        state, and keeping two representations of it is how invariants rot.
+        """
+        if len(self.takes) <= 1:
+            return False
+        takes = list(self.takes)
+        del takes[self.active_take]
+        self.set_takes(takes, min(self.active_take, len(takes) - 1))
+        return True
+
+    def set_takes(self, takes: list, active: int = 0) -> None:
+        """Install the alternates and select one, keeping ``audio`` in step."""
+        takes = list(takes)
+        if len(takes) <= 1:
+            # One alternate is no alternate.
+            if takes:
+                self.audio = takes[0]
+            self.takes = []
+            self.active_take = 0
+        else:
+            self.takes = takes
+            self.active_take = max(0, min(int(active), len(takes) - 1))
+            self.audio = takes[self.active_take]
+        self.audio_saved = False
+        self._rendered_key = None
+        self._rendered = None
+        self._takes_key = None
+        self._takes_rendered = None
+
+    def set_active_take(self, index: int) -> bool:
+        """Select an alternate.  False when the index is the one already set."""
+        if not self.takes:
+            return False
+        wanted = max(0, min(int(index), len(self.takes) - 1))
+        if wanted == self.active_take:
+            return False
+        self.set_takes(self.takes, wanted)
+        return True
+
+    def effective_takes(self, samplerate: int | None = None) -> tuple:
+        """Every alternate, as edited.  A single-take slot gives a 1-tuple.
+
+        The edits apply to *all* of them because they describe the part, not one
+        recording of it: alternates are alternates of the same thing, and a trim
+        that is right for take 1 is right for take 2.
+        """
+        if not self.takes:
+            return (self.effective_audio(samplerate),)
+        rate = samplerate or self.source_samplerate or 48_000
+        key = (self.edits, rate, tuple(id(t) for t in self.takes),
+               tuple(t.shape for t in self.takes))
+        if self._takes_key == key and self._takes_rendered is not None:
+            return self._takes_rendered
+        rendered = tuple(render_edits(t, rate, self.edits) for t in self.takes)
+        self._takes_key = key
+        self._takes_rendered = rendered
+        return rendered
+
+    def take_paths(self) -> list[str]:
+        """Relative WAV path per alternate; empty for a single-take slot."""
+        if not self.takes:
+            return []
+        return [
+            f"{SAMPLES_DIR}/slot_{self.slot:03d}_T{i + 1}.wav"
+            for i in range(len(self.takes))
+        ]
 
     def flatten(self) -> None:
         """Forget the layer breakdown, keeping the audio as it now sounds.
@@ -343,9 +500,24 @@ class Sample:
         self._rendered = None
 
     def apply_edits(self) -> bool:
-        """Fold the edits into the recording for good.  True if anything changed."""
+        """Fold the edits into the recording for good.  True if anything changed.
+
+        Every alternate, not just the selected one: the edits describe the part,
+        so folding them into one take and leaving the others raw would make
+        switching alternates change the trim.
+        """
         if self.edits.is_default:
             return False
+        if self.takes:
+            rendered = [
+                np.ascontiguousarray(take, dtype=np.float32)
+                for take in self.effective_takes()
+            ]
+            active = self.active_take
+            self.set_edits(DEFAULT_EDITS)
+            self.flatten()
+            self.set_takes(rendered, active)
+            return True
         self.audio = np.ascontiguousarray(self.effective_audio(), dtype=np.float32)
         self.set_edits(DEFAULT_EDITS)
         self.flatten()
@@ -410,6 +582,9 @@ class Sample:
     def to_json(self, audio_path: str) -> dict:
         return {
             "layers": self.layer_paths(),
+            "takes": self.take_paths(),
+            "active_take": int(self.active_take),
+            "take_mode": self.take_mode,
             "slot": self.slot,
             "name": self.name,
             "bars": self.bars,
@@ -545,14 +720,9 @@ class Project:
     def mismatched_slots(self) -> list[int]:
         return [s.slot for s in self.filled() if self.mismatched(s)]
 
-    def fitted_audio(self, sample: Sample) -> np.ndarray:
-        """``sample``'s audio padded with silence or trimmed to exactly its bars.
-
-        Works on the edited audio: fitting is destructive anyway, so it folds in
-        whatever the editor is doing rather than fighting it.
-        """
-        target = self.expected_frames(sample.bars)
-        audio = sample.effective_audio(self.samplerate)
+    def _fitted(self, audio: np.ndarray, bars: int) -> np.ndarray:
+        """``audio`` padded or trimmed to exactly ``bars`` at this tempo."""
+        target = self.expected_frames(bars)
         if audio.shape[0] == target:
             return audio
         fitted = np.zeros((target, audio.shape[1]), dtype=np.float32)
@@ -560,14 +730,37 @@ class Project:
         fitted[:keep] = audio[:keep]
         return fitted
 
+    def fitted_audio(self, sample: Sample) -> np.ndarray:
+        """``sample``'s audio padded with silence or trimmed to exactly its bars.
+
+        Works on the edited audio: fitting is destructive anyway, so it folds in
+        whatever the editor is doing rather than fighting it.
+        """
+        return self._fitted(sample.effective_audio(self.samplerate), sample.bars)
+
     def repair(self, slot: int) -> bool:
-        """Make one take exactly its declared length.  True if it changed."""
+        """Make one take exactly its declared length.  True if it changed.
+
+        Every alternate is fitted, not only the selected one: they are
+        alternates of a part that is this many bars long, and leaving the others
+        the wrong length would make switching takes re-break the song.
+        """
         sample = self.slots[slot]
         if sample is None or not self.mismatched(sample):
             return False
-        sample.audio = self.fitted_audio(sample)
-        sample.set_edits(DEFAULT_EDITS)
-        sample.flatten()
+        if sample.takes:
+            fitted = [
+                self._fitted(take, sample.bars)
+                for take in sample.effective_takes(self.samplerate)
+            ]
+            active = sample.active_take
+            sample.set_edits(DEFAULT_EDITS)
+            sample.flatten()
+            sample.set_takes(fitted, active)
+        else:
+            sample.audio = self.fitted_audio(sample)
+            sample.set_edits(DEFAULT_EDITS)
+            sample.flatten()
         sample.source_bpm = self.bpm
         sample.source_samplerate = self.samplerate
         sample.audio_saved = False
@@ -648,6 +841,9 @@ class Project:
             every_n=source.every_n,
             probabilities=dict(source.probabilities),
             layers=list(source.layers),
+            takes=list(source.takes),
+            active_take=source.active_take,
+            take_mode=source.take_mode,
         )
         self.slots[dst] = copy
         self.dirty = True
@@ -838,6 +1034,11 @@ class Project:
             if not self.audible(sample) or sample.frames == 0:
                 continue
             audio = sample.effective_audio(self.samplerate)
+            # Only a slot that really has alternates carries them: the engine
+            # then needs no check of its own beyond "is this tuple short".
+            alternates = (
+                sample.effective_takes(self.samplerate) if sample.takes else ()
+            )
             for bar in sorted(sample.triggers):
                 if 0 <= bar < self.song_bars:
                     schedule[bar].append(
@@ -851,6 +1052,8 @@ class Project:
                             nudge=sample.nudge_ms / 1000.0 * self.samplerate,
                             probability=sample.probabilities.get(bar, CERTAIN),
                             every_n=sample.every_n,
+                            alternates=alternates,
+                            take_mode=sample.take_mode,
                         )
                     )
         return [tuple(entries) for entries in schedule]
@@ -868,6 +1071,11 @@ class Project:
                 wavio.write(directory / rel, sample.audio, self.samplerate)
                 for layer, path in zip(sample.layers, paths):
                     wavio.write(directory / path, layer, self.samplerate)
+                # The selected alternate is written twice -- once as the slot's
+                # audio, once as its own take file.  Cheap, and it means the
+                # slot still opens with a take if the take files go missing.
+                for take, path in zip(sample.takes, sample.take_paths()):
+                    wavio.write(directory / path, take, self.samplerate)
                 sample.audio_saved = True
             slots.append(sample.to_json(rel))
         payload = {
@@ -956,6 +1164,19 @@ class Project:
                 if layer_rate != project.samplerate:
                     layer = wavio.resample(layer, layer_rate, project.samplerate)
                 layers.append(layer)
+            # Alternates are loaded the same best-effort way, and for the same
+            # reason: a slot whose take files have gone keeps playing the audio
+            # it opened with, as a plain single-take slot (IN-06).
+            takes = []
+            for rel in entry.get("takes") or []:
+                path = directory / rel
+                if not path.exists():
+                    takes = []
+                    break
+                take, take_rate = wavio.read(path)
+                if take_rate != project.samplerate:
+                    take = wavio.resample(take, take_rate, project.samplerate)
+                takes.append(take)
             # Format 1 stored no provenance.  Assume such a take was recorded at
             # this project's own tempo -- the best guess available, and the one
             # that does not flag every existing project as mismatched.
@@ -995,6 +1216,9 @@ class Project:
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
                 layers=layers,
+                takes=takes,
+                active_take=_load_active_take(entry.get("active_take"), len(takes)),
+                take_mode=_load_take_mode(entry.get("take_mode")),
                 audio_saved=True,
             )
         notes = []

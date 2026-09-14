@@ -221,10 +221,14 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
 | Track encoder 2 | [Nudge](#groove--laying-a-sample-back-behind-the-beat) this sample behind the beat |
+| Track encoder 3 | Which [alternate take](#alternate-takes) plays |
+| Track encoder 4 | How a trigger [chooses a take](#alternate-takes): fixed / cycle / random |
 | **Shift**+encoder 2 | [Chance](#chance--bars-that-only-sometimes-play) for the selected bar |
 | **Shift**+encoder 3 | Play only on [every Nth pass](#chance--bars-that-only-sometimes-play) |
 | **Shift**+encoder 4 | [Reroll the dice](#chance--bars-that-only-sometimes-play) for the whole project |
+| **Shift**+**Record** | Record [another take](#alternate-takes) beside this one |
 | First button **below** the display | [Fit an off-grid take](#off-grid-takes) to its bars |
+| Button **7** below the display | Cycle the take mode; **Shift** removes the selected take |
 
 #### Overdubbing
 
@@ -443,6 +447,79 @@ always was.
 Muted samples are excluded from the calculation, the same way they are excluded
 from the mix — a muted *every 5th pass* sample cannot stretch your file to five
 times its length.
+
+#### Alternate takes
+
+One pad can hold several recordings of the same part. **Shift**+**Record** on a
+sample page keeps the new take *beside* the old one instead of replacing it, up
+to eight. Then a trigger picks one.
+
+| Control | Does |
+| --- | --- |
+| **Shift**+**Record** | Record another take of this part, beside the existing ones |
+| Encoder 3 | Which take you are listening to — selecting it installs it, so pads and **Play** both give you the one you see |
+| Encoder 4 | How a trigger chooses: `fixed` / `cycle` / `random` |
+| Button **7** below the display | Cycles the same three modes |
+| **Shift**+button **7** | Remove the selected take |
+
+| Mode | Chooses |
+| --- | --- |
+| `fixed` | always the take you selected |
+| `cycle` | the next take on each **pass** of the loop — pass 1 plays take 1 |
+| `random` | a take per **trigger**, from the project's [dice](#chance--bars-that-only-sometimes-play) |
+
+**`cycle` is per pass and `random` is per trigger**, and that is the difference
+worth knowing. A slot triggered on eight bars plays *one* take for the whole
+pass under `cycle` — which is what "this loop breathes across repeats" means —
+and eight possibly-different takes under `random`, which is what stops a
+repeated hit sounding machine-stamped.
+
+`random` uses the same dice as chance, and so is just as reproducible: the same
+seed gives the same takes in the same places, every time and in a bounce.
+
+##### Two takes are not two layers
+
+[Overdubbing](#overdubbing) **sums**; alternates **replace**. So the two never
+coexist: adding an alternate flattens the layer breakdown, and **Shift**+**New**
+on a slot with alternates says so rather than peeling the wrong one. The audio
+is the layers' sum either way, so nothing you can hear is lost — only the
+ability to undo an overdub you made before you went looking for alternates.
+
+Overdubbing a slot that *has* alternates overdubs the **selected** one, which is
+the take you are listening to.
+
+Three things that follow from alternates being alternates *of one part*:
+
+- **The edits apply to all of them.** A trim that is right for take 1 is right
+  for take 2, and folding the edits into one take only would make switching
+  takes change the trim.
+- **So does a [repair](#off-grid-takes).** A part that is two bars long is two
+  bars long in all of its takes; leaving the others the wrong length would make
+  switching takes re-break the song.
+- **An alternate keeps the original's length.** The record page will not let you
+  change it, because a take of a different length is not an alternate — it would
+  change the arrangement.
+
+**Record** still replaces, and only **Shift**+**Record** adds. The plan put this
+behind a setting; a setting that silently changes what **Record** does is worse
+than two gestures you can see, because you would press **Record** expecting a
+fresh take and quietly collect eight.
+
+##### A cycling slot lengthens a bounce
+
+For the same reason [`every Nth pass`](#what-a-bounce-had-to-learn) does: three
+takes on `cycle` mean the song does not repeat until pass three, so a one-pass
+bounce would write take 1 and silently discard the other two. `passes_needed`
+counts cycling take counts alongside the `every_n` divisors, so an 8-bar song
+with a three-take cycling slot bounces 24 bars.
+
+`random` is **not** a divisor — it never repeats, so there is no cycle to cover,
+and one pass of it is as representative as any other.
+
+Saved with the project (format 10 → **11**), one WAV per take, and every older
+format still loads as a plain single-take slot. If a slot's take files have gone
+missing it opens as a single-take slot playing the audio it always had: losing
+the breakdown must not lose the take.
 
 ### Master playback mode
 

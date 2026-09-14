@@ -130,16 +130,20 @@ to another page of 64.
 | **Automate** | generate this sample's bars instead of tapping them |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
+| **Shift**+**Record** | record another take *beside* this one (up to 8) |
 | **Delete** then a pad | clear every bar of this sample |
 | **Shift**+**Delete** | delete the sample itself |
 | **Up** / **Down** | previous / next filled slot |
 | **encoder 1** | this sample's gain (0 – 2.0) |
 | **encoder 2** | lay it back behind the beat, 0 – 120 ms |
+| **encoder 3** | which alternate take plays |
+| **encoder 4** | take mode: fixed / cycle / random |
 | **Shift**+**encoder 2** | chance for the selected bar, 5 – 100% |
 | **Shift**+**encoder 3** | play only on every Nth pass, 2 – 8 |
 | **Shift**+**encoder 4** | reroll the project's dice, 0 – 63 |
 | **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
 | **buttons 2-5 below** | play mode: one shot / loop / gate / retrig |
+| **button 7 below** | take mode; **Shift** removes the selected take |
 | **button 8 below** | choke group: off → 1…8 → off |
 
 | Pad colour | Means |
@@ -217,6 +221,35 @@ is the earliest moment the engine knows about.
 
 Recording is untouched: the nudge is applied on the way to the speakers, so it
 affects playback and bounces but never where a take was captured.
+
+---
+
+## Alternate takes — several recordings on one pad
+
+**Shift**+**Record** keeps the new take beside the old one instead of replacing
+it, up to eight. Then a trigger picks one:
+
+| Control | Does |
+| --- | --- |
+| **encoder 3** | which take you are listening to |
+| **encoder 4** | `fixed` / `cycle` / `random` (**button 7** cycles the same) |
+| **Shift**+**button 7** | remove the selected take |
+
+| Mode | Chooses |
+| --- | --- |
+| `fixed` | always the one you picked |
+| `cycle` | the next take each **pass** — pass 1 plays take 1 |
+| `random` | a take per **trigger**, from the project's dice, reproducibly |
+
+`cycle` is per pass, `random` is per trigger. A slot on eight bars plays one
+take for the whole pass under `cycle`, and eight possibly-different ones under
+`random`.
+
+**Alternates are not layers**: overdubs sum, alternates replace, and the two
+never coexist — adding an alternate flattens the layer breakdown. The edits and
+a length repair apply to *every* take, because they describe the part.
+
+A bounce covers a cycling slot's whole cycle, so all its takes reach the file.
 
 ---
 

@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-08`~~ ~~`NH-10`~~† `IN-04` `IN-05` `IN-06` `IN-07` `NH-09` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-06`~~† ~~`IN-08`~~ ~~`NH-10`~~† `IN-04` `IN-05` `IN-07` `NH-09` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -370,6 +370,11 @@ notes) cannot act on a bar-addressed arrangement at all, so swing went where
 sub-beat time actually exists — live triggering — and the nudge is the bar-grid
 equivalent. See the item for the reasoning; it is the one place in this plan
 where the spec was judged wrong rather than incomplete.
+
+† `IN-06` shipped its alternates, but the spec's `list[Take]` replacement of
+the audio buffer became a `layers`-shaped list with an invariant, and its
+top-row take selector had to move to an encoder — the top row *is* bars 1-8 of
+the arrangement. Its "per a setting" became two visible gestures. See the item.
 
 † `NH-10` shipped its probability and `every_n`, but not with the spec's
 "per-pass seeded RNG" — a stateful generator is only reproducible if you always
@@ -2232,6 +2237,65 @@ deleting a take keeps the others intact.
 
 **Deps.** `F-04`, `NH-04`.
 
+**Status: shipped.** `Sample.takes` / `active_take` / `take_mode`, format
+version 11 with one WAV per take, `Shift`+`Record` to add one, encoder 3 to pick
+and encoder 4 (or button 7) to choose the mode, `AddTake` / `RemoveTake` /
+`SetActiveTake` / `SetTakeMode` on the undo stack. All four of the plan's tests
+pass, in `tests/test_takes.py` (75 tests).
+
+**The `random` mode needed a dice stream of its own, and the reason is a bug
+rather than tidiness.** "Did this bar play?" is `roll(...) < chance`, so on a
+60 % bar every trigger you hear has a roll below 0.6 — reusing that number to
+index three takes puts all of them in the first two thirds and the **third take
+never sounds at all**. Measured 55.8 / 44.2 / 0.0 on the shared stream and
+33.2 / 33.3 / 33.5 once the seed is salted with `_TAKE_SALT`. The measurement is
+a test.
+
+**And a `cycle` slot is a pass divisor, exactly like `NH-10`'s `every_n`.** Three
+takes mean the song does not repeat until pass three, so a one-pass bounce would
+write take 1 and silently discard the other two — the same bug `NH-10` had,
+arriving through a different door. `passes_needed` now counts cycling take
+counts alongside the `every_n` divisors. `random` is deliberately not a divisor:
+it never repeats, so there is no cycle to cover.
+
+Four decisions the plan did not reach, two of them corrections to it:
+
+1. **`takes` is shaped like `layers`, not "instead of a single buffer".** The
+   spec's replacement would have invalidated every other field's relationship
+   to `audio`. The list is empty for an ordinary slot, and when it is not,
+   `audio is takes[active_take]` — one invariant in one method. `set_takes`
+   collapses a one-element list back to empty, because "one alternate" and "no
+   alternates" are the same state and two representations of one state is how
+   invariants rot.
+2. **The top row cannot select the take.** The spec put the selection on "pads
+   on the sample page's top row", which *are* bars 1–8 of the arrangement —
+   using them would silently cost you eight bars. Encoder 3 instead, and it
+   installs the take as it turns, so the one you see is the one a pad press and
+   `Play` both give you.
+3. **Two gestures, not a setting.** "Recording into a filled slot adds a take
+   (not replaces, per a setting)" would make `Record` mean different things on
+   different days: you would press it expecting a fresh take and quietly collect
+   eight. `Record` replaces, `Shift`+`Record` adds, and the record page's title
+   says which.
+4. **`cycle` advances per pass, `random` per trigger.** Both readings of "picks
+   which take plays on each trigger" are useful and they are different features:
+   one take holding a whole pass is a loop that breathes across repeats, a take
+   per hit is a part that never quite repeats. The plan's own test ("three takes
+   cycle in order across three passes") settles which mode is which.
+
+**Alternates and layers never coexist.** Overdubs sum, alternates replace, and
+both cannot describe one pad — so `add_take` flattens the layer breakdown,
+`Shift`+`New` says so rather than peeling the wrong one, and overdubbing a slot
+with alternates overdubs the *selected* one. Nothing audible is lost either way,
+since `audio` is the layers' sum. Because alternates are alternates of one
+*part*, `apply_edits` and `repair` act on every take, and an alternate is locked
+to the original's length; each of those has a test.
+
+Take removal shares button 7 with the mode cycle (`Shift` to remove) because
+`Delete` was already "clear all bars" and `Shift`+`Delete` already "delete the
+sample" — this is the fourth time an item's natural chord was already taken, and
+the second time `Shift` + an existing button was the answer.
+
 ### IN-07 — The grid as a clock, the strip as a scrubber `size: S`
 
 **Idea.** Use the hardware nobody else uses. The touch strip is dead weight
@@ -2756,6 +2820,34 @@ finding 6). Everything in `display.py` is pinned byte-for-byte by unit tests
 against a fake USB device and is still unproven end to end. This item makes the
 display more useful and does nothing to make it more *verified* — do not let it
 be the reason a mode's state is only visible there.
+
+## 9b. This plan is read by a program
+
+`tools/feature_page.py` builds the public feature page **from this file**. It
+reads the roadmap table in section 4 for each item's release and whether it has
+shipped (the `~~`strikethrough`~~`), and each item's own `### CODE — Title
+\`size: X\`` heading for its title and size. So two conventions in this document
+are now load-bearing rather than cosmetic:
+
+1. **An item is shipped when its code is struck through in the roadmap table**,
+   and nowhere else. Writing "Status: shipped" in the item's own section without
+   striking the table entry leaves the page saying it is unbuilt.
+2. **Every item has exactly one `### CODE — Title `size: X`` heading.** Change
+   the shape of that line and the page loses the title.
+
+A `†` after a table entry is a footnote marker and is stripped; `← in progress`
+on a release is likewise a note to a human reader and not part of its name.
+
+The one thing the page needs that this plan does not give it is a **one-line
+description** of each feature, written for somebody who has never opened this
+file — a spec is not a description. Those live in the script's `BLURBS`, and a
+new plan item with no blurb fails a test rather than rendering a blank line.
+
+This existed because the page said it was generated from the plan and was not:
+the numbers had been transcribed by hand, and two releases later it claimed 45
+items shipped when the number was 47, with six shipped items still coloured as
+unbuilt. **A claim a document makes about itself has to be enforced by
+something.**
 
 ## 10. Dependency graph and fan-out waves
 

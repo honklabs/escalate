@@ -29,9 +29,12 @@ from ..history import (
     ClearTriggers,
     DeleteSample,
     RemoveLayer,
+    RemoveTake,
     RepairLength,
+    SetActiveTake,
     SetBars,
     SetChokeGroup,
+    SetTakeMode,
     SetPlayMode,
     SetEnabled,
     SetChanceSeed,
@@ -42,7 +45,14 @@ from ..history import (
     SetVelocitySensitivity,
     ToggleTrigger,
 )
-from ..project import CERTAIN, FULL_VELOCITY, MAX_EVERY_N, PAGE_BARS
+from ..project import (
+    CERTAIN,
+    FULL_VELOCITY,
+    MAX_EVERY_N,
+    PAGE_BARS,
+    TAKE_FIXED,
+    TAKE_MODES,
+)
 
 #: Milliseconds per click of the nudge encoder (NH-02).
 NUDGE_STEP_MS = 5.0
@@ -51,6 +61,12 @@ PROBABILITY_STEP = 5
 #: How many project dice there are.  Small enough to walk through and come
 #: back to the one you liked, which is the whole reason it is a seed.
 CHANCE_SEEDS = 64
+#: What each take mode does, in the words the display has room for (IN-06).
+TAKE_MODE_HELP = {
+    "fixed": "fixed: always the take you picked",
+    "cycle": "cycle: the next take each pass",
+    "random": "random: a take per hit, same every time",
+}
 from .base import Mode
 from .info import InfoMode
 from .pattern import PatternMode
@@ -70,6 +86,12 @@ REPAIR_BUTTON = DISPLAY_ROW_BOTTOM[0]
 PLAY_MODE_BUTTONS: dict[int, str] = dict(zip(DISPLAY_ROW_BOTTOM[1:5], PLAY_MODES))
 #: Button 8 cycles the choke group: off, 1..8, off.
 CHOKE_BUTTON = DISPLAY_ROW_BOTTOM[7]
+#: Button 7 cycles the take mode; `Shift` + it removes the selected take
+#: (IN-06).  Both on one button because `Delete` is already "clear all bars"
+#: and `Shift`+`Delete` is already "delete the sample", so removing one
+#: alternate had nowhere else to go -- and `Shift` reading as "the destructive
+#: one" is the pattern this surface already uses.
+TAKE_BUTTON = DISPLAY_ROW_BOTTOM[6]
 
 #: Bars every this many get a faint tint when empty, so phrases are countable.
 PHRASE_BARS = 4
@@ -223,7 +245,16 @@ class SampleMode(Mode):
         sample = self.sample
         if cc == Btn.RECORD:
             bars = sample.bars if sample else 1
-            self.app.goto_record(self.slot, bars)
+            if self.app.shift and sample is not None:
+                # An alternate, not a replacement (IN-06).  The plan put this
+                # behind a setting, but a setting that silently changes what
+                # `Record` does is worse than two gestures you can see: you
+                # would press Record expecting a fresh take and quietly collect
+                # eight.  The length is fixed to the existing take's, because an
+                # alternate of a different length is not an alternate.
+                self.app.goto_record(self.slot, bars, alternate=True)
+            else:
+                self.app.goto_record(self.slot, bars)
             return True
         if cc == Btn.MUTE and sample is not None:
             self.app.do(SetEnabled(self.slot, not sample.enabled))
@@ -277,6 +308,9 @@ class SampleMode(Mode):
             else:
                 self.app.do(SetPlayMode(self.slot, wanted, sample.play_mode))
             return True
+        if cc == TAKE_BUTTON and sample is not None:
+            self._take_button(sample)
+            return True
         if cc == CHOKE_BUTTON and sample is not None:
             # off -> 1 -> ... -> 8 -> off
             current = sample.choke_group or 0
@@ -307,7 +341,15 @@ class SampleMode(Mode):
         sample that plays nowhere yet is silent, and says so.
         """
         if self.app.shift:
-            if sample.layer_count <= 1:
+            if sample.takes:
+                # Layers and alternates never coexist: adding an alternate
+                # flattens the breakdown, so there is genuinely nothing to peel
+                # and saying which take to remove instead is more use than
+                # "nothing to remove".
+                self.app.notify(
+                    "no layers on a slot with takes - Shift+button 7 removes a take"
+                )
+            elif sample.layer_count <= 1:
                 self.app.notify("only one layer; nothing to remove")
             else:
                 self.app.do(RemoveLayer(self.slot))
@@ -350,13 +392,77 @@ class SampleMode(Mode):
             else:
                 self._nudge(sample, delta)
             return True
-        if cc == ENCODER_TRACK[2] and self.app.shift:
-            self._set_every_n(sample, delta)
+        if cc == ENCODER_TRACK[2]:
+            if self.app.shift:
+                self._set_every_n(sample, delta)
+            else:
+                self._select_take(sample, delta)
             return True
-        if cc == ENCODER_TRACK[3] and self.app.shift:
-            self._reroll(delta)
+        if cc == ENCODER_TRACK[3]:
+            if self.app.shift:
+                self._reroll(delta)
+            else:
+                self._set_take_mode(sample, delta)
             return True
         return False
+
+    def _select_take(self, sample, delta: int) -> None:
+        """Encoder 3: which alternate this slot plays (IN-06).
+
+        Auditionable by ear as you turn: selecting a take installs it as the
+        slot's audio, so `Play` and a pad press both give you the one you are
+        looking at.
+        """
+        if not sample.takes:
+            self.app.notify("only one take - Shift+Record adds another")
+            return
+        wanted = max(0, min(sample.take_count - 1, sample.active_take + delta))
+        if wanted == sample.active_take:
+            return
+        self.app.do(SetActiveTake(self.slot, wanted, sample.active_take))
+        self.app.notify(f"take {wanted + 1} of {sample.take_count}")
+
+    def _take_help(self, sample) -> str:
+        """The alternates line, or how to make some (IN-06)."""
+        if not sample.takes:
+            return "Shift+Record: another take of this part, beside this one"
+        return (f"take {sample.active_take + 1} of {sample.take_count}   "
+                f"{TAKE_MODE_HELP[sample.take_mode]}   "
+                "enc 3: pick   4: mode")
+
+    def _take_button(self, sample) -> None:
+        """Button 7: cycle the take mode, or `Shift` to remove a take (IN-06)."""
+        if self.app.shift:
+            if not sample.takes:
+                self.app.notify("only one take - Shift+Record adds another")
+                return
+            self.app.do(RemoveTake(self.slot))
+            left = sample.take_count
+            self.app.notify(
+                f"take removed - {left} take(s) left" if sample.takes
+                else "take removed - one take left"
+            )
+            return
+        if not sample.takes:
+            self.app.notify("only one take - Shift+Record adds another")
+            return
+        self._set_take_mode(sample, 1 if sample.take_mode != TAKE_MODES[-1]
+                            else -(len(TAKE_MODES) - 1))
+
+    def _set_take_mode(self, sample, delta: int) -> None:
+        """Encoder 4: fixed / cycle / random (IN-06)."""
+        if not sample.takes:
+            self.app.notify("only one take - Shift+Record adds another")
+            return
+        current = TAKE_MODES.index(
+            sample.take_mode if sample.take_mode in TAKE_MODES else TAKE_FIXED
+        )
+        wanted = max(0, min(len(TAKE_MODES) - 1, current + delta))
+        if wanted == current:
+            return
+        mode = TAKE_MODES[wanted]
+        self.app.do(SetTakeMode(self.slot, mode, sample.take_mode))
+        self.app.notify(TAKE_MODE_HELP[mode])
 
     def _set_probability(self, sample, delta: int) -> None:
         """Shift + encoder 2: how likely the selected bar is to play (NH-10).
@@ -544,6 +650,9 @@ class SampleMode(Mode):
             for cc, mode in PLAY_MODE_BUTTONS.items():
                 buttons[cc] = BTN_BRIGHT if sample.play_mode == mode else BTN_DIM
             buttons[CHOKE_BUTTON] = BTN_ON if sample.choke_group else BTN_DIM
+            # Lit only when there is a choice to make: a single-take slot's
+            # button would be a light with nothing behind it.
+            buttons[TAKE_BUTTON] = BTN_ON if sample.takes else 0
         if sample is not None and self.project.mismatched(sample):
             buttons[REPAIR_BUTTON] = BTN_BRIGHT if self.app.blink else BTN_DIM
 
@@ -577,6 +686,9 @@ class SampleMode(Mode):
         layers = ""
         if sample.layer_count > 1:
             layers = f"  {sample.layer_count} layers"
+        elif sample.takes:
+            # Never both: adding an alternate flattens the layers.
+            layers = f"  take {sample.active_take + 1}/{sample.take_count}"
         lines = [
             f"SLOT {self.slot + 1} {sample.name}  {sample.bars} bar(s)  "
             f"{state}{layers}   page {self.app.page_letter}",
@@ -585,10 +697,12 @@ class SampleMode(Mode):
             + self._chance_summary(sample),
             f"{PLAY_MODE_LABELS[sample.play_mode]}"
             + (f"  choke {sample.choke_group}" if sample.choke_group else "")
-            + "   buttons 2-5: mode   8: choke group",
+            + (f"  takes {sample.take_mode}" if sample.takes else "")
+            + "   buttons 2-5: mode   7: takes   8: choke group",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "encoder 1: gain   encoder 2: lay it back behind the beat",
             self._chance_help(sample),
+            self._take_help(sample),
             "Record: re-record   New: layer   Mute: hear   Device: edit"
             "   Convert: slice   Layout: about   Automate: pattern"
             + ("   (edited)" if not sample.edits.is_default else ""),

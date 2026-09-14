@@ -428,6 +428,138 @@ class SetChanceSeed(Command):
 
 
 @dataclass
+class AddTake(Command):
+    """Keep a new recording beside the slot's existing one (IN-06).
+
+    Stores the alternates as they were rather than "the last one added", so
+    undo is exact even after the slot has been re-selected or overdubbed.
+    """
+
+    slot: int
+    audio: np.ndarray
+    _previous: object = None
+    _previous_active: int = 0
+    _previous_layers: object = None
+    _previous_audio: object = None
+    _added: bool = False
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: take added"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous = list(sample.takes)
+        self._previous_active = sample.active_take
+        self._previous_layers = list(sample.layers)
+        self._previous_audio = sample.audio
+        self._added = sample.add_take(self.audio)
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or not self._added:
+            return
+        sample.set_takes(list(self._previous or []), self._previous_active)
+        if not self._previous:
+            # The slot had no alternates at all, so put back the audio and the
+            # layer breakdown `add_take` flattened.
+            sample.audio = self._previous_audio
+            sample.layers = list(self._previous_layers or [])
+            sample.audio_saved = False
+            sample.set_edits(sample.edits)  # drops the render cache
+
+
+@dataclass
+class RemoveTake(Command):
+    """Drop the selected alternate, keeping it for undo (IN-06)."""
+
+    slot: int
+    _previous: object = None
+    _previous_active: int = 0
+    _removed: bool = False
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: take removed"
+
+    def apply(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        self._previous = list(sample.takes)
+        self._previous_active = sample.active_take
+        self._removed = sample.remove_take()
+
+    def revert(self, project) -> None:
+        sample = project[self.slot]
+        if sample is None or not self._removed:
+            return
+        sample.set_takes(list(self._previous or []), self._previous_active)
+
+
+@dataclass
+class SetActiveTake(Command):
+    """Select which alternate a `fixed` slot plays (IN-06)."""
+
+    slot: int
+    index: int
+    previous: int
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: take {self.index + 1}"
+
+    def merge(self, other: "Command") -> bool:
+        # An encoder sweep through the alternates is one decision, like gain.
+        if not isinstance(other, SetActiveTake) or other.slot != self.slot:
+            return False
+        if other.at - self.at > MERGE_WINDOW_S:
+            return False
+        self.index, self.at = other.index, other.at
+        return True
+
+    def _write(self, project, value: int) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.set_active_take(value)
+            project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.index)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous)
+
+
+@dataclass
+class SetTakeMode(Command):
+    """How a trigger chooses among the alternates (IN-06)."""
+
+    slot: int
+    mode: str
+    previous: str
+
+    @property
+    def label(self) -> str:
+        return f"slot {self.slot + 1}: takes {self.mode}"
+
+    def _write(self, project, value: str) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.take_mode = value
+            project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.mode)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous)
+
+
+@dataclass
 class SliceTake(Command):
     """Write several slices into several slots at once (IN-01).
 

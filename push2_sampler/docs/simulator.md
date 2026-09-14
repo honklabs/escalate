@@ -351,6 +351,29 @@ p 0              # highlight the first entry
 p 0              # and open it, or import it
 session
 
+# three recordings of one part on one pad, and let a trigger pick
+p 0              # a sample page
+shift on
+record           # an alternate take, at the original's length
+shift off
+record
+wait 7           # "slot 1: take added"
+shift on
+record
+shift off
+record
+wait 7
+k 3 -1           # listen to take 2 instead
+k 4 +1           # cycle: the next take each pass
+b7               # button 7 steps the same three modes: now random
+play
+wait 6
+stop
+shift on
+b7               # throw the selected take away
+shift off
+undo
+
 # make a bar a maybe, and give the song its dice
 p 0              # back onto a sample page
 p 4              # bar 5 on -- and the bar you last touched is the selected one

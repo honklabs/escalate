@@ -665,7 +665,54 @@ Three things worth knowing:
 
 One **Undo** takes back any of the three.
 
-### Step 27: find out how tight you played
+### Step 27: keep three versions of the same part
+
+Step 26 made a bar a maybe. This makes the *sound* a maybe — several recordings
+of one part, on one pad.
+
+Go to a sample page with something short on it: a snare, a clap, a single note.
+**Hold Shift and press Record.**
+
+The display says `another take, 2 bar(s) - press Record`. The length is already
+fixed to what is there, and you cannot change it — an alternate of a different
+length is not an alternate. Press **Record**, count in, play the part again.
+When it finishes you are back on the sample page and the display says `take
+2/2`.
+
+Do it once more, a little differently, and you have three.
+
+Now **turn encoder 4** to `cycle` and press **Play**. Each time round the loop
+you get the next take. Turn it to `random` and each *hit* is a different take —
+which, when the three takes are three real performances of the same snare, is
+the difference between a sampler and a drummer.
+
+| Control | Does |
+| --- | --- |
+| **encoder 3** | which take you are listening to — turn it to compare them |
+| **encoder 4** | `fixed`, `cycle`, `random` (**button 7** cycles the same three) |
+| **Shift**+**button 7** | throw the selected take away (one **Undo**) |
+
+The two modes differ in a way that matters once a sample plays on more than one
+bar. **`cycle` changes once per pass**, so a whole time round the loop uses one
+take — that is a loop that breathes across repeats. **`random` changes on every
+trigger**, so eight bars means eight rolls — that is a part that never quite
+repeats. And `random` uses the same dice as step 26, so `dice 12` gives you the
+same performance every time, bounces included.
+
+Two things not to be surprised by:
+
+- **Takes are not layers.** Step 8's overdub *sums*; an alternate *replaces*.
+  They cannot both be true of one pad, so adding a take flattens the layer
+  breakdown and **Shift**+**New** will tell you there is nothing left to peel.
+  Nothing you can hear changes.
+- **Editing edits all of them.** A trim or a pitch shift is a statement about
+  the part, so it applies to every take. Otherwise switching takes would change
+  the trim, which is not what "alternate" means.
+
+A bounce covers a cycling slot's whole cycle, so all three takes end up in the
+file — an 8-bar song with a three-take cycling snare bounces 24 bars.
+
+### Step 28: find out how tight you played
 
 Still on the **About** page (**Layout** from a sample page), **press button 2.**
 
@@ -704,7 +751,7 @@ for it and discouraging when you did not.
 
 <a id="settings"></a>
 
-### Step 28: the settings worth knowing
+### Step 29: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -739,7 +786,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 29: tempo, click, loop
+### Step 30: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -775,7 +822,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 30: shape a take
+### Step 31: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -805,7 +852,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 31: name it, colour it
+### Step 32: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -821,7 +868,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 32: keep two versions of the arrangement
+### Step 33: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -835,7 +882,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 33: start another song, without a terminal
+### Step 34: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -851,7 +898,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 34: undo
+### Step 35: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -873,7 +920,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 35: bounce it
+### Step 36: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It
@@ -889,9 +936,9 @@ python -m push2sampler --stems stems/ my-first-song       # one file per slot
 ```
 
 Stems sum back to the mix exactly, and both keep the tails of samples that
-overrun the last bar. If anything in the song uses `every Nth pass`, the bounce
-covers a whole cycle of passes rather than one, so nothing set to a pass cycle
-is missing from the file.
+overrun the last bar. If anything in the song uses `every Nth pass` or a
+`cycle` of takes, the bounce covers a whole cycle of passes rather than one, so
+nothing that varies across passes is missing from the file.
 
 ---
 
