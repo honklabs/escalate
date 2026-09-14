@@ -2159,8 +2159,11 @@ So you do not go looking:
   but nothing here is stochastic at playback time.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: a mode banner, transport, levels and
-  messages. No waveform drawing, no graphics — and it has never rendered on
-  real hardware.
+  messages. No waveform drawing, no graphics. It does now render on real
+  hardware — the first photograph of it found a transposed byte in the XOR mask
+  (a gold striped background with blue text) and status lines running off the
+  right-hand edge, both fixed. The one thing still unconfirmed is the BGR565
+  channel order, which a black background cannot reveal.
 
 `plans.md` in the project root tracks all of it: 55 of the 61 planned items are
 shipped — every release train up to `v1.5`, and four of the ten `v2.0` ideas.

@@ -705,6 +705,36 @@ arrives:
 | 8 | Output on the User port reaches the device (the probe's one "yes") | **No.** With input fixed, a normal run still showed nothing: the surface is on the **Live** port in *both* directions. The probe's single "did anything light" question had been asked after blasting both ports, so its yes was unattributable — the fix for that landed too late to help | **Fixed.** Output now *follows the input port*: input is the only signal for which port the device is on, so when a message arrives on a port we are not sending to, output moves there and the surface repaints. `--midi-port` disables the following, since an explicit choice should not be second-guessed. Startup also prints the ports it opened |
 | 7 | — | `--midi-probe` left the pads and buttons lit after it finished | **Fixed.** Mine, not the device's: the probe lit everything to ask about it and never turned it off, and the port was closed before the question so nothing could. It now blanks each port after that port's question is answered. Exposed a real gap behind it — `clear()` only turns off LEDs the *current process* lit, so a crash or an early Ctrl-C left the surface lit with nothing able to reach it. `PushBase.all_off` sends an explicit off to every pad and every known button CC, `open()` uses it, and `--lights-off` does it on its own |
 | 6 | — | `pyusb` is installed but has no `libusb` underneath (`No backend available`), so the bus check reports nothing either way | **Noted, not fatal.** It is also why the colour display cannot work on this machine: `brew install libusb`. `--midi-probe` now names this separately rather than letting it read as "the Push is not on the bus" |
+| 9 | The colour display's framing, packing and XOR shaping, pinned byte-for-byte by unit tests | **The display renders** — first time it has ever been seen to. But the background was **gold with vertical striping** and the text **blue**, from a photograph | **Fixed.** `XOR_PATTERN[0]` was `0xE7F3` — the two bytes of `0xFFE7F3E7`'s low word `0xF3E7` transposed. Both colours are predicted exactly by that: alternate columns cancelled the panel's mask and the rest did not. Now derived from `XOR_MASK32 = 0xFFE7F3E7` rather than typed. The test that should have caught it asserted `pixel ^ XOR_PATTERN[0]` — comparing the constant under test to itself — so it passed on any value at all; the assertions are literal now, plus one that pins the mask against the documented number and one that a black frame shapes back to black |
+| 10 | Status lines fit the display | **No.** `0 muted`, `song page  0` and `hold: audit` all ran off the right-hand edge mid-word, in the same photograph | **Fixed.** Nothing measured anything: `draw()` drew each string at x=12 and let PIL clip. `display.fit(text, measure, limit)` binary-searches the longest prefix that fits with an ellipsis on it, and the banner, the text lines and the big readout all go through it. `measure` is a callable so the function is testable without Pillow, which is optional and absent here |
+
+Findings 9 and 10 are the most uncomfortable pair in the list, because both were
+in code that had tests, and the tests were the reason nobody looked.
+
+Finding 9's test read `assert words[0] == expected_pixel ^ XOR_PATTERN[0]`. That
+is not an assertion about the mask; it is an assertion that XOR is XOR, and it
+would have passed for every one of the 65,536 values the constant could have
+held. **A test that names the constant under test on both sides of the equals
+sign tests nothing.** Write the expected value as a literal, even — especially —
+when the literal is ugly, and state it in bytes as well when the failure mode is
+a byte order. Finding 10's code had no test at all, for a subtler reason: the
+drawing path needs Pillow, Pillow is optional and not installed here, so the
+whole of `draw()` was unreachable from the suite and its one test asserted only
+that it raises `ImportError`. **An optional dependency at the bottom of a
+function makes everything above it untestable.** The fix was to lift the part
+with the logic — measure, search, truncate — out into a pure function that takes
+the measuring as an argument, and now the suite covers it.
+
+The diagnosis is worth recording too, because the photograph could have led to a
+week of guessing at channel order. The background was gold and the text blue,
+which reads as "the colours are wrong" — but the *background was drawn black*,
+and black is `0x0000`: every channel zero. No permutation of three zero channels
+produces gold. So a channel-order error was ruled out by arithmetic before
+anything was changed, leaving the mask as the only candidate; from there the
+predicted colours for a transposed low word, (165,130,16) on odd columns and
+black on even, match the striping in the photograph exactly. **Compute what the
+suspected bug predicts and compare it to the evidence** — it is much cheaper
+than changing a constant and asking for another photograph.
 
 Finding 1 is one shape to expect: a **documentation** assumption built on a spec
 value, where the code was indifferent all along. Check that distinction before
@@ -954,8 +984,9 @@ Deviations: gain sits on the encoder row although it is a `Sample` field rather
 than an `Edits` one, because from the player's side it is the same kind of
 knob. The waveform is drawn on the **pads** and as a one-line text envelope
 rather than as a picture on the colour display -- it works with or without a
-screen that has never been verified, and `F-08` can tell us later whether a real
-drawing is worth it.
+screen, which at the time this shipped had never been verified. The screen has
+since rendered (`F-08` findings 9 and 10), so a real drawing is now a question
+worth asking rather than a bet on unproven hardware.
 
 Two things fell out of building it. A trimmed take is genuinely shorter than its
 bars, so `F-09` flags it as off-grid -- correct, and worth knowing before someone
@@ -2962,11 +2993,16 @@ alongside them, which 160 pixels makes unavoidable; and there is no
 prose that changes with state and a banner has to be the same words in the same
 place to be glanceable at all.
 
-**Still unverified, and the item said so before it was built:** the colour
-display has never rendered on real hardware, and cannot on the one machine that
-has run against a real Push, because `pyusb` has no `libusb` there (`F-08`
-finding 6). Every region is pinned by tests against a fake USB device. Nothing
-in this program is visible *only* on the display.
+**Verified, at last, and it found two bugs the tests had not.** The colour
+display renders on real hardware: the banner, the text lines and the big
+readout all appear where this item put them. The first photograph of it also
+showed a gold striped background with blue text and status lines cut off at the
+right-hand edge — `F-08` findings 9 and 10, a transposed byte in the XOR mask
+and no measurement of text width, both now fixed. What is *still* unconfirmed is
+narrow and specific: with the mask right the background should be black, and
+because black cannot reveal a channel-order mistake, the text hue is the only
+remaining evidence about whether the BGR565 packing is also correct. Nothing in
+this program is visible *only* on the display.
 
 
 **Problem.** The display's five text lines are dense, and the mode you are in is
@@ -3019,13 +3055,14 @@ not print it twice.
 **Deps.** `CC-08` (the display's second font and region), `F-07` (the display
 itself).
 
-**Worth stating plainly:** the colour display has **never** rendered on real
-hardware in this project, and on the one machine that has run against a real
-Push it cannot, because `pyusb` has no `libusb` underneath there (`F-08`
-finding 6). Everything in `display.py` is pinned byte-for-byte by unit tests
-against a fake USB device and is still unproven end to end. This item makes the
-display more useful and does nothing to make it more *verified* — do not let it
-be the reason a mode's state is only visible there.
+**Worth stating plainly** (written before the display had ever rendered, kept
+because the caution was right and the reason it was right is now on record):
+everything in `display.py` was pinned byte-for-byte by unit tests against a fake
+USB device and was still unproven end to end. It has since rendered on real
+hardware, and the very first photograph showed two defects the tests had
+passed over — `F-08` findings 9 and 10. The banner was not among them, so this
+item's own design survived contact; but the rule it states holds regardless. Do
+not let the display be the reason a mode's state is only visible there.
 
 ## 9b. This plan is read by a program
 

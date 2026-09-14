@@ -10,6 +10,60 @@ plan.
 
 ---
 
+## v2.0.1 — The display, seen
+
+**The colour display rendered on real hardware for the first time.** A
+photograph of it fixed two bugs and, between them, they are a better argument
+for looking at the real thing than anything in this file.
+
+### The XOR mask had two bytes the wrong way round (`F-08` finding 9)
+
+The panel XORs every 32-bit word of an incoming frame with `0xFFE7F3E7`, so we
+XOR with the same pattern and the two cancel. Ours was stored as two 16-bit
+words, and the first was typed `0xE7F3` instead of `0xF3E7` — the low word's
+bytes transposed. The result: alternate columns cancelled and the rest did not,
+giving a **gold background with vertical striping and blue text**, which is
+precisely what the photograph shows.
+
+It is now derived rather than typed:
+
+```python
+XOR_MASK32 = 0xFFE7F3E7
+XOR_PATTERN = np.array([XOR_MASK32 & 0xFFFF, XOR_MASK32 >> 16], dtype=np.uint16)
+```
+
+**The test that was supposed to catch this passed on any value at all.** It
+asserted `words[0] == expected_pixel ^ XOR_PATTERN[0]` — the constant under test
+on both sides of the equals sign, which says only that XOR is XOR. The
+assertions are literal now (`^ 0xF3E7`), plus one pinning the mask against the
+documented number *stated in bytes*, and one checking that a black frame shapes
+back to black. Black is the useful case: `0x0000` is every channel zero, so a
+channel-order mistake cannot show up there and only the mask can — which is also
+how the diagnosis was made without a second photograph.
+
+### Text ran off the right-hand edge (`F-08` finding 10)
+
+`0 muted`, `song page  0` and `hold: audit` were all cut mid-word. Nothing
+measured anything: `draw()` placed each string at x=12 and let PIL clip
+whatever did not fit. Now `display.fit(text, measure, limit)` binary-searches
+the longest prefix that fits with an ellipsis on it, and the banner, the text
+lines and the big readout all pass through it.
+
+`measure` is a callable rather than a font because **Pillow is optional**, and
+that is the second lesson here: the whole of `draw()` sat below a
+`from PIL import …`, so on a machine without Pillow — including this one — none
+of it was reachable from the suite and its only test asserted that it raises
+`ImportError`. Lifting the logic out into a pure function that takes its
+measuring as an argument made it testable; eight new tests cover it.
+
+### Still unconfirmed
+
+With the mask right the background should be black, and because black cannot
+reveal a channel-order mistake, **the text hue is the only remaining evidence
+about whether the BGR565 packing is correct**. One more photograph settles it.
+
+---
+
 ## v2.0.0 — Instrument
 
 The last three items of the **`v2.0` Instrument** train, which finishes the
@@ -26,6 +80,9 @@ document's claims rather than measurements.** `--selftest` has never been
 completed on a device, the colour display has never been seen to render, and
 the touch strip this release gives a job to has never been touched. Those are
 the open items now, and no amount of software finishes them.
+
+*(The display one is closed as of v2.0.1 — it renders, and looking at it cost
+two bug fixes. The other two are still open.)*
 
 ### A variation across passes (`IN-05`)
 
@@ -1483,10 +1540,16 @@ Ableton Live, no DAW, no mouse.
 
 ## Not yet verified, in any release
 
-**No Push 2 has ever been attached to this program.** Every hardware constant —
-MIDI port names, the control change behind each button, the palette SysEx, the
-display protocol — comes from Ableton's *Push 2 MIDI and Display Interface*
-document rather than from observation.
+*Written when it was true of everything. A Push 2 has since been attached —
+see `F-08`'s findings in [`plans.md`](plans.md) for the ten corrections that
+came out of it, and the v2.0.1 entry above for the two the display gave up.
+Kept here because the general warning still applies to everything the findings
+do not cover.*
+
+Every hardware constant — MIDI port names, the control change behind each
+button, the palette SysEx, the display protocol — comes from Ableton's *Push 2
+MIDI and Display Interface* document rather than from observation, except where
+a finding says otherwise.
 
 ```
 python -m push2sampler --selftest
@@ -1494,4 +1557,5 @@ python -m push2sampler --selftest
 
 walks a real device and writes `hardware-report.json`. The "Needs correcting"
 table at the top of the markdown it produces is the whole fix list, and it is
-the one thing this project cannot produce for itself.
+the one thing this project cannot produce for itself. **It has still never been
+completed on a device.**

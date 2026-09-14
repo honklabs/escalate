@@ -22,10 +22,28 @@ LINE_PIXELS = 1024
 FRAME_HEADER = bytes(
     (0xFF, 0xCC, 0xAA, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
 )
-XOR_PATTERN = np.array([0xE7F3, 0xFFE7], dtype=np.uint16)
+#: The signal-shaping mask, as the two little-endian 16-bit words of the
+#: documented 32-bit ``0xFFE7F3E7``.  Derived rather than typed, because typing
+#: it is how it was wrong: the first word shipped as ``0xE7F3``, its two bytes
+#: transposed, so our XOR did not cancel the panel's.
+#:
+#: `F-08` finding 9, from a photograph of a real Push 2: the background came out
+#: gold with vertical striping and the text came out blue.  Both are predicted
+#: exactly by that transposition -- alternate columns cancelled and the rest
+#: did not -- and black drawn on 0x0000 is the one value a channel-order error
+#: could not have explained.
+XOR_MASK32 = 0xFFE7F3E7
+XOR_PATTERN = np.array(
+    [XOR_MASK32 & 0xFFFF, XOR_MASK32 >> 16], dtype=np.uint16
+)
 ENDPOINT = 0x01
 #: Space reserved at the bottom for the big transport readout.
 BIG_LINE_HEIGHT = 44
+#: Left inset every region is drawn at, and so the width text has to fit in.
+TEXT_X = 12
+#: What a clipped line ends with, so a truncation reads as one.
+ELLIPSIS = "\u2026"
+
 #: Space reserved at the top for the mode banner (CC-20).
 BANNER_HEIGHT = 34
 #: Banner colours: recording, armed for something destructive, otherwise.
@@ -34,6 +52,31 @@ BANNER_COLORS = {
     "armed": (255, 190, 90),
     "normal": (255, 255, 255),
 }
+
+
+def fit(text: str, measure, limit: int = WIDTH - TEXT_X * 2) -> str:
+    """``text``, shortened with an ellipsis until it measures under ``limit``.
+
+    ``measure`` takes a string and returns its pixel width, so this is testable
+    without a font -- which matters, because `Pillow` is optional and the
+    machines that have it are not the ones running the tests.
+
+    The display is 960 px wide and nothing wrapped, so a long status line simply
+    ran off the right-hand edge: a real Push 2 showed `0 muted`, `song page  0`
+    and `hold: audit` all cut mid-word (`F-08` finding 10).  Clipped text is
+    worse than shortened text, because shortened text says it was shortened.
+    """
+    if not text or measure(text) <= limit:
+        return text
+    # Binary search the longest prefix that fits with the ellipsis on it.
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if measure(text[:middle] + ELLIPSIS) <= limit:
+            low = middle
+        else:
+            high = middle - 1
+    return (text[:low] + ELLIPSIS) if low else ELLIPSIS
 
 
 class Push2Display:
@@ -61,10 +104,15 @@ class Push2Display:
 
         image = Image.new("RGB", (WIDTH, HEIGHT), (0, 0, 0))
         draw = ImageDraw.Draw(image)
+
+        def width_of(text, font):
+            return draw.textlength(text, font=font)
+
         y = 6
         room = 5
         if banner:
-            draw.text((12, y), banner,
+            banner = fit(banner, lambda s: width_of(s, self._banner_font))
+            draw.text((TEXT_X, y), banner,
                       fill=BANNER_COLORS.get(banner_state, BANNER_COLORS["normal"]),
                       font=self._banner_font)
             y += BANNER_HEIGHT
@@ -73,10 +121,12 @@ class Push2Display:
             room -= 1
         for i, text in enumerate(lines[:max(1, room)]):
             fill = (230, 230, 230) if i == 0 and not banner else (170, 170, 170)
-            draw.text((12, y), text, fill=fill, font=self._font)
+            text = fit(text, lambda s: width_of(s, self._font))
+            draw.text((TEXT_X, y), text, fill=fill, font=self._font)
             y += 30 if (i == 0 and not banner) else 26
         if readout:
-            draw.text((12, HEIGHT - BIG_LINE_HEIGHT), readout,
+            readout = fit(readout, lambda s: width_of(s, self._big_font))
+            draw.text((TEXT_X, HEIGHT - BIG_LINE_HEIGHT), readout,
                       fill=(255, 210, 120), font=self._big_font)
         self.draw_image(image)
 

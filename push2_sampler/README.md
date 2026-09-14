@@ -860,7 +860,9 @@ unless a stream is open or the JSON was fetched in the last five seconds.
   over SysEx at startup.
 * The colour display is optional: with `pyusb` and `Pillow` installed it shows
   the current mode, tempo and bar; without them (or with `--no-display`)
-  everything else works unchanged.
+  everything else works unchanged. It has now been seen rendering on a real
+  Push 2. Every line it draws is measured and shortened with an ellipsis rather
+  than clipped at the 960th pixel, which is what it used to do.
 
 If the pads stay dark, `--led-test` finds out which layer is at fault -- does
 the Push answer us at all, do the pads light from a factory palette index, do
@@ -883,7 +885,9 @@ both ports in both directions. Writes `midi-report.json`.
 | palette SysEx (set entry + reapply) | spec | not yet |
 | encoder relative values | spec | not yet |
 | touch strip as pitchwheel | spec | not yet |
-| display frame header and BGR565 packing | spec, unit-tested byte for byte | not yet |
+| display frame header and 16-byte framing | spec, unit-tested byte for byte | **yes** -- the display renders; text lands where we put it |
+| display XOR shaping mask | spec (`0xFFE7F3E7`) | **yes, after a correction** -- our low word was byte-transposed (`0xE7F3`), which showed as a gold striped background with blue text |
+| display BGR565 channel order | spec, unit-tested byte for byte | not yet -- with the mask corrected the background is black, and black cannot reveal a channel-order mistake. The text hue will |
 | User/Live port naming | spec | **yes** -- `Ableton Push 2 Live Port` and `Ableton Push 2 User Port`, both directions |
 | Which port carries the surface | assumed User | **no** -- on a device in Live mode, input arrives only on the *Live* port |
 
