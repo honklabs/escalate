@@ -487,6 +487,54 @@ this -- is already "apply the edits permanently", and putting an informational
 readout on the same chord as a destructive action would be a poor trade, so it
 lives on the page that already answers "tell me about this take".
 
+### 4f. Harmony: which of these loops fit together
+
+`Scale` on a sample page brings the library grid back, coloured by how each slot
+sits against **that** one: green fits, amber is a note or two apart, red clashes,
+dim white has no harmony to compare. The reference flashes. `Shift` + a pad
+re-references without leaving, which is the second question anybody asks.
+
+Press a red pad and the page offers a transpose; **button 1** applies it. That is
+the editor's own `pitch_semitones` (`NF-03`), not a new field: "move this up two
+semitones" is a thing the editor already does, so this is non-destructive,
+visible there, and one undo step. Accepting twice does nothing the second time,
+because the suggestion comes from rotating the pitch-class content until it
+clashes least -- after the shift the best rotation *is* the one you are on. Ties
+go to the smaller move: a C# triad against C major was first told to go up four
+semitones, which does land on F and does fit, when down one is as good and is
+what a hand expects.
+
+**The plan asked for "key detection via chroma", and the key turned out to be
+the unreliable half.** Naming a *tonic* from pitch-class weights is a guess
+about emphasis: a held Cmaj7 comes back `E minor`, correctly observing that
+those four notes also sit in E minor, and a C triad with twelve harmonics does
+the same. The chroma underneath was right on all ten signals tested. So the
+colours are computed from **pitch-class content** -- the fraction of one take's
+energy landing on notes the other does not use -- and the key is shown labelled
+as a guess, because it is still the thing a musician wants to read. Measured
+against material built in known keys: itself 0.028, A minor 0.026, a Cmaj7 0.009,
+G major 0.041, D major 0.135, E flat major 0.505, F sharp major 0.524. The two
+thresholds sit in the gaps in that list rather than having been chosen.
+
+The measure is **asymmetric on purpose**: a three-note pad inside a seven-note
+progression fits, while the progression laid over the pad introduces four notes
+the pad never plays, and "does adding this to what I have selected work" is a
+directed question.
+
+Drums are not coloured, and deciding that needs **two** gates because each
+catches a case the other misses: the role gate (`IN-02`) rejects a kick, whose
+pitch-class content is peaked enough to look tonal (0.077), and a flatness gate
+rejects a chromatic run (0.001) and white noise that happened to read as a tone
+(0.008). A kick under a chord progression is the most ordinary thing in music,
+so "no harmony here" is the answer rather than a warning.
+
+One limitation, stated because it moved a constant: the analysis band starts at
+**90 Hz, not 60**. At 60 a C-G-C bass figure in octave 1 read as *clashing with
+its own key* -- the one mistake this page must not make -- because the window is
+more than a semitone wide down there and the note smears into classes it never
+played. At 90 nothing in-key reads red; the residue is that the bottom octave
+hedges towards "close", which is a hedge and not a warning.
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -776,7 +824,7 @@ lacks one.
 python -m pytest tests -q
 ```
 
-1433 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1484 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -801,9 +849,12 @@ Toussaint's table plus maximal evenness for every length up to 64, the slice pag
 refusals, the chance dice (uniformity, purity, and that what you hear is
 bar-for-bar what gets bounced), alternate takes (cycling in order across passes,
 a reproducible random, the starved-third-take correlation the salt exists for,
-and every take of a cycling slot reaching the bounced file), the feature page
-generator against the plan it reads, every internal doc link, and every older
-project format still loading.
+and every take of a cycling slot reaching the bounced file), harmonic
+compatibility against material built in known keys (including the seventh chord
+whose key name is measurably wrong, pinned rather than hidden, and the bass
+figure that a 60 Hz analysis floor called clashing with its own key), the feature
+page generator against the plan it reads, every internal doc link, and every
+older project format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap

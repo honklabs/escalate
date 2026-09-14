@@ -949,3 +949,279 @@ def timing_report(onset_frames, samplerate: int, bpm: float,
         spread_ms=spread_ms, worst_ms=worst_ms, grid=grid_name,
         grid_beats=grid_beats, evenness=evenness,
     )
+
+
+# ======================================================================
+# IN-04: harmonic awareness -- which of these loops fit together
+# ======================================================================
+#
+# The plan asked for "key detection via chroma", and a prototype found that the
+# **key** is the unreliable half.  A held Cmaj7 reads as E minor and a C triad
+# with twelve harmonics reads as E minor, because identifying a *tonic* from
+# pitch-class weights is a guess about emphasis.  The chroma underneath was
+# fine in every case.
+#
+# So the colour on the grid comes from the chroma directly -- how much of one
+# take's energy lands on notes the other one does not use -- and no tonic is
+# needed to answer the question the feature actually asks.  A key *name* is
+# still offered on the display, labelled as a guess, because it is the thing a
+# musician wants to read; it is never what a colour is computed from.
+#
+# Measured, against material built in known keys (`tests/test_harmony.py`):
+#
+#     C major vs itself       0.028     vs G major (dominant)   0.041
+#     C major vs A minor      0.026     vs D major              0.135
+#     C major vs a C triad    0.010     vs Eb major             0.505
+#     C major vs a Cmaj7      0.009     vs F# major             0.524
+#
+# Compatible material sits at or below 0.06, a neighbouring key at 0.14, and a
+# clashing one at 0.50 and up.  The two thresholds below are placed in those
+# gaps rather than chosen.
+
+#: Window for the chroma.  Same size as `PITCH_FFT`: at 22 kHz it resolves
+#: about 5 Hz, which separates semitones everywhere above the bass.
+CHROMA_FFT = 4096
+#: Band the chroma is taken over.  Below 60 Hz a semitone is narrower than the
+#: window resolves; above 2 kHz almost all the energy is harmonics rather than
+#: notes, and folding those in muddies every take towards flat.
+#:
+#: The low edge is 90 Hz, not the 60 of `PITCH_FLOOR_HZ`, and that is a
+#: measurement rather than a preference.  At 22 kHz a 4096-point window
+#: resolves about 5 Hz, which near 60 Hz is more than a semitone wide -- so a
+#: bass note there smears across neighbouring pitch classes and picks up notes
+#: it does not play.  Measured against a C-G-C bass figure under a C major
+#: progression: at a 60 Hz cut the octave-1 version came back **clashing**
+#: (0.264) with its own key, which is the one mistake this page must not make.
+#: At 90 it reads 0.227 -- "close", a hedge rather than a false alarm.  A 130 Hz
+#: cut fixes nothing further and costs an octave-3 bass its "fits" (0.057 ->
+#: 0.097), so 90 it is.  The bottom octave is judged on its harmonics, and
+#: cannot do better than "close"; `docs/reference.md` says so.
+CHROMA_LOW_HZ, CHROMA_HIGH_HZ = 90.0, 2000.0
+#: A pitch class counts as *used* at this fraction of the loudest one.
+#:
+#: Measured at 0.08, 0.12 and 0.20.  At 0.20 a C major progression clashed with
+#: *itself* (0.051) because its own quieter scale degrees fell below the line;
+#: at 0.08 an F# major progression picked up nine of the twelve classes.  0.12
+#: is the only one of the three that got every case right.
+PITCH_CLASS_FLOOR = 0.12
+#: Clash below this is the same harmonic world; below the second it is a
+#: neighbour; above it the two take clash.
+CLASH_SAME = 0.08
+CLASH_NEAR = 0.25
+#: How concentrated a chroma must be before it is treated as having notes in it.
+#:
+#: Deliberately low, because the role gate does most of this work: a kick reads
+#: `low drum` and is excluded on that alone.  This catches what the role misses
+#: -- a chromatic run (0.002) and white noise that happened to read as `tone`
+#: (0.007) -- while letting a seven-note melody through at 0.095.  A melody
+#: spreading its energy over seven classes is inherently flatter than a triad,
+#: and the floor has to sit below it: measured, a 0.10 floor rejected a plain
+#: major scale as unpitched.
+CHROMA_PEAK_MIN = 0.03
+#: Roles whose takes are asked about at all.  A drum has pitch-class content
+#: and no harmony; colouring it would be a confident answer to a question that
+#: was not asked.
+TONAL_ROLES = (ROLE_BASS, ROLE_TONE)
+
+#: How two takes stand relative to each other.
+FIT_SAME = "same"
+FIT_NEAR = "near"
+FIT_CLASH = "clash"
+FIT_UNPITCHED = "unpitched"
+
+#: Krumhansl and Kessler's probe-tone profiles, for naming a key only.
+_MAJOR_PROFILE = np.array(
+    [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+)
+_MINOR_PROFILE = np.array(
+    [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+)
+
+
+def chroma(buf, samplerate: int) -> np.ndarray:
+    """Energy per pitch class, summing to 1.  All zeros for silence.
+
+    Octaves are folded together on purpose: "is there a C in this" is the
+    question, and which C it is belongs to `harmonicity`.
+    """
+    mono = _mono(np.asarray(buf)) if buf is not None else np.zeros(0)
+    total = np.zeros(12)
+    if mono.size < CHROMA_FFT:
+        return total
+    window = np.hanning(CHROMA_FFT)
+    freqs = np.fft.rfftfreq(CHROMA_FFT, 1.0 / samplerate)
+    keep = (freqs >= CHROMA_LOW_HZ) & (freqs <= CHROMA_HIGH_HZ)
+    if not keep.any():
+        return total
+    # A4 = 440 is pitch class 9, so this lands C on index 0.
+    classes = np.round(12.0 * np.log2(freqs[keep] / 440.0) + 57).astype(int) % 12
+    for start in range(0, mono.size - CHROMA_FFT + 1, CHROMA_FFT // 2):
+        frame = np.abs(np.fft.rfft(mono[start:start + CHROMA_FFT] * window))
+        np.add.at(total, classes, frame[keep])
+    summed = total.sum()
+    return total / summed if summed > 0 else total
+
+
+def chroma_peak(values) -> float:
+    """How concentrated a chroma is: 0 for flat, towards 1 for a single note.
+
+    One minus the normalised entropy, so it does not care how loud the take is
+    or how many windows went into it.
+    """
+    values = np.asarray(values, dtype=float)
+    if values.size != 12 or values.sum() <= 0:
+        return 0.0
+    share = values / values.sum()
+    share = share[share > 0]
+    return float(1.0 - (-(share * np.log(share)).sum()) / np.log(12))
+
+
+def pitch_classes(values, floor: float = PITCH_CLASS_FLOOR) -> frozenset:
+    """The pitch classes a take actually uses, as indices with C = 0."""
+    values = np.asarray(values, dtype=float)
+    if values.size != 12:
+        return frozenset()
+    loudest = float(values.max())
+    if loudest <= 0:
+        return frozenset()
+    return frozenset(
+        index for index in range(12) if values[index] >= loudest * floor
+    )
+
+
+def clash(values, against, floor: float = PITCH_CLASS_FLOOR) -> float:
+    """How much of `values`' energy sits on notes `against` does not use.
+
+    0 means it fits inside the other take's notes entirely.  **Asymmetric on
+    purpose**: the question a player asks is "does adding this to what I have
+    selected work", and a three-note pad laid over a seven-note progression is
+    not the same question as the other way round.
+    """
+    values = np.asarray(values, dtype=float)
+    theirs = pitch_classes(against, floor)
+    total = float(values.sum())
+    if values.size != 12 or total <= 0 or not theirs:
+        return 0.0
+    outside = sum(float(values[i]) for i in range(12) if i not in theirs)
+    return outside / total
+
+
+def key_name(values) -> tuple:
+    """``(name, confidence)`` -- a key to *show*, never one to colour from.
+
+    Reported because it is what a musician wants to read, and separated from
+    everything else in this section because a prototype measured it wrong on
+    two of ten cases: a Cmaj7 comes back "E minor", correctly observing that
+    those four notes sit in E minor too.  Naming a tonic from pitch-class
+    weights is a guess about emphasis, and the display says so.
+    """
+    values = np.asarray(values, dtype=float)
+    if values.size != 12 or values.sum() <= 0:
+        return "", 0.0
+    best_score, best_name = -2.0, ""
+    for tonic in range(12):
+        for mode, profile in (("major", _MAJOR_PROFILE), ("minor", _MINOR_PROFILE)):
+            rolled = np.roll(profile, tonic)
+            deviation = values.std() * rolled.std()
+            if deviation <= 0:
+                continue
+            score = float(np.mean((values - values.mean()) * (rolled - rolled.mean()))
+                          / deviation)
+            if score > best_score:
+                best_score, best_name = score, f"{NOTE_NAMES[tonic]} {mode}"
+    return best_name, max(0.0, min(1.0, best_score))
+
+
+class Harmony:
+    """One take's harmonic content: the chroma, and whether to trust it."""
+
+    __slots__ = ("chroma", "classes", "tonal", "peak", "key", "key_confidence",
+                 "role")
+
+    def __init__(self, **fields) -> None:
+        for name in self.__slots__:
+            setattr(self, name, fields.get(name))
+
+    @property
+    def note_names(self) -> str:
+        """The notes it uses, in pitch order, or "" when it is not tonal."""
+        if not self.tonal:
+            return ""
+        return " ".join(NOTE_NAMES[index] for index in sorted(self.classes))
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging convenience
+        return f"<Harmony {self.key!r} tonal={self.tonal} {self.note_names!r}>"
+
+
+def harmony(buf, samplerate: int, role: str | None = None) -> Harmony:
+    """What a take contributes harmonically, and whether that is worth asking.
+
+    `role` comes from `describe`; pass it in rather than re-deriving it, since
+    a caller that already has a `Description` has already paid for it.  Two
+    gates, and **each one catches a case the other misses**:
+
+    * the role gate rejects a kick, which reads `low drum` but whose chroma is
+      peaked enough (0.077) to look tonal;
+    * the peak gate rejects a chromatic run and white noise that happened to
+      read as `tone`, whose chroma is flat (0.002, 0.007).
+
+    Neither alone was sufficient on the ten signals this was measured against.
+    """
+    if role is None:
+        role = describe(buf, samplerate).role
+    values = chroma(buf, samplerate)
+    peak = chroma_peak(values)
+    tonal = role in TONAL_ROLES and peak >= CHROMA_PEAK_MIN
+    name, confidence = key_name(values) if tonal else ("", 0.0)
+    return Harmony(
+        chroma=values, classes=pitch_classes(values), tonal=tonal, peak=peak,
+        key=name, key_confidence=confidence, role=role,
+    )
+
+
+def fit(subject: Harmony, reference: Harmony) -> str:
+    """How `subject` sits against `reference`: one of the FIT_* values.
+
+    `FIT_UNPITCHED` when either take has no harmony to compare -- which is not
+    a failure and not a warning.  A kick under a chord progression is the most
+    ordinary thing in music; the page says "no harmony here" rather than
+    pretending to an opinion.
+    """
+    if subject is None or reference is None:
+        return FIT_UNPITCHED
+    if not subject.tonal or not reference.tonal:
+        return FIT_UNPITCHED
+    distance = clash(subject.chroma, reference.chroma)
+    if distance < CLASH_SAME:
+        return FIT_SAME
+    if distance < CLASH_NEAR:
+        return FIT_NEAR
+    return FIT_CLASH
+
+
+def suggest_transpose(subject: Harmony, reference: Harmony,
+                      gain: float = 0.02) -> int:
+    """Semitones to shift `subject` so it clashes least, or 0 for none worth it.
+
+    Searched by rotating the chroma, which needs no key names -- and is why
+    applying the suggestion and asking again returns 0: after the shift the
+    best rotation *is* the one you are on.
+
+    Ties go to the **smaller** move.  Without that, a C# triad against C major
+    was told to go up four semitones (landing on F, which does fit) when down
+    one was just as good and is what a hand expects.
+    """
+    if subject is None or reference is None:
+        return 0
+    if not subject.tonal or not reference.tonal:
+        return 0
+    here = clash(subject.chroma, reference.chroma)
+    best, best_shift = here, 0
+    # Nearest first, so an equally good smaller move is the one kept.
+    for shift in sorted(range(-6, 6), key=lambda value: (abs(value), value)):
+        if shift == 0:
+            continue
+        moved = clash(np.roll(subject.chroma, shift % 12), reference.chroma)
+        if moved < best - gain:
+            best, best_shift = moved, shift
+    return best_shift

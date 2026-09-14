@@ -110,6 +110,7 @@ Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `convert`/`slice` `layout`/`about`/`info` `automate`/`pattern`
 `clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
+`scale`/`harmony`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
 
 ### Shift
@@ -351,6 +352,12 @@ p 0              # highlight the first entry
 p 0              # and open it, or import it
 session
 
+# which loops fit together (the verdicts need real audio: see the note below)
+p 0
+scale            # the library, coloured against this slot
+p 0              # the flashing pad is the reference
+scale            # leave
+
 # three recordings of one part on one pad, and let a trigger pick
 p 0              # a sample page
 shift on
@@ -491,6 +498,14 @@ See [Getting started, step 2](getting-started.md#step-2-run-the-probe).
   unverified. The simulator faithfully reproduces our *assumptions*.
 - **Whether a cable is plugged in.** `SimPush` never goes offline, so the
   reconnect handling is exercised by the tests rather than here.
+- **Anything that listens to a take.** There is no input, so every take a script
+  records is silence — which makes the [About](reference.md#about-page),
+  [Slice](reference.md#slice-page) and
+  [Harmony](reference.md#harmony-page) pages open and respond, and say nothing
+  worth reading. Their measurements are tested against synthesised material in
+  known keys and at known onset frames, in `tests/test_listen.py`,
+  `tests/test_slice.py` and `tests/test_harmony.py`. Use
+  `--import` if you want a script to work on real audio.
 - **Syncing to anything.** `--clock` needs a real MIDI port, so the simulator
   always runs on the internal clock. The control loop is tested against a
   synthetic sender instead, in `tests/test_clock.py`, where simulated minutes

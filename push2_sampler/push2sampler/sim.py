@@ -70,6 +70,8 @@ BUTTONS = {
     "slice": Btn.CONVERT,
     "automate": Btn.AUTOMATE,
     "pattern": Btn.AUTOMATE,
+    "scale": Btn.SCALE,
+    "harmony": Btn.SCALE,
     "layout": Btn.LAYOUT,
     "about": Btn.LAYOUT,
     "info": Btn.LAYOUT,

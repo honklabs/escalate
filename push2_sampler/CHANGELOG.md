@@ -10,6 +10,99 @@ plan.
 
 ---
 
+## v1.7.0
+
+One item, and the eight prototype rounds it took. **58 of the 61 items in
+[`plans.md`](plans.md) are shipped**; `IN-05`, `IN-07` and `NH-09` remain, and
+`IN-07` waits on hardware this project cannot verify for itself.
+
+Tags for this directory are scoped (`push2sampler-v1.7`) and, as with every
+release before it, **no tag has actually been pushed** — the credentials can
+push branches but not tag refs, so the version in `push2sampler/__init__.py`
+and this file are the record.
+
+### Which of your loops fit together (`IN-04`)
+
+**Scale** on a sample page brings the library grid back, coloured by how each
+slot sits against *that* one: green fits, amber is a note or two apart, red
+clashes, dim white has no harmony to compare. The reference flashes, and
+**Shift** + a pad re-references without leaving.
+
+Press a red pad and the page offers a transpose; **button 1** applies it. That
+is the editor's own `pitch_semitones`, not a new field — "move this up two
+semitones" is what the editor already does — so it is non-destructive, visible
+there, and one **Undo**. Accepting twice does nothing the second time: the
+suggestion comes from rotating the pitch-class content until it clashes least,
+so after the shift the best rotation *is* the one you are on.
+
+#### The plan asked for key detection, and the key is the unreliable half
+
+Naming a *tonic* from pitch-class weights is a guess about emphasis. Measured, a
+held Cmaj7 comes back **E minor** — correctly observing that those four notes
+also sit in E minor — and a C triad with twelve harmonics does the same. The
+chroma underneath was right on all ten signals tested.
+
+So the colours are computed from pitch-class content directly: the fraction of
+one take's energy landing on notes the other one does not use.
+
+| Against a C major progression | Clash | Verdict |
+| --- | --- | --- |
+| itself | 0.028 | fits |
+| A minor | 0.026 | fits |
+| a Cmaj7 | 0.009 | fits |
+| G major | 0.041 | fits |
+| D major | 0.135 | close |
+| E♭ major | 0.505 | clashes |
+| F♯ major | 0.524 | clashes |
+
+The two thresholds sit in the gaps in that table rather than having been
+chosen, and a test asserts the table. A key name is still shown, because it is
+what a musician wants to read — labelled `about C major (a guess, 0.90)`, and
+never what a colour comes from. `test_the_key_name_is_wrong_on_a_seventh_chord`
+pins the known failure instead of hiding it.
+
+**Shared notes, not the circle of fifths.** C major and A minor are the same
+seven notes yet sit three fifths apart, while C major and C minor sit zero apart
+and share four. The measure had to be content overlap.
+
+**And it is asymmetric.** A three-note pad inside a seven-note progression fits;
+the progression laid over the pad introduces four notes the pad never plays.
+"Does adding this to what I have selected work" is a directed question.
+
+#### Two gates to say "that's a drum", because one was not enough
+
+A kick reads `low drum` but its pitch-class content is peaked enough (0.077) to
+pass a flatness test. White noise sometimes reads as `tone` but its content is
+flat (0.008). Each gate catches a case the other misses, and a seven-note melody
+at 0.106 sits close enough to the kick that separating them on flatness alone was
+never going to hold.
+
+A kick under a chord progression is the most ordinary thing in music, so drums
+read `no harmony to compare` rather than a warning.
+
+#### A 60 Hz analysis floor called a bass part wrong about its own key
+
+At the rates this program uses, the window is more than a semitone wide down at
+60 Hz, so a very low note smears into pitch classes it never played. A C–G–C
+bass figure in octave 1 came back **clashing with C major** — an in-key part
+called wrong, which is the one mistake this page must not make. The band starts
+at **90 Hz** instead, where nothing in-key tested reads red. 130 Hz fixed
+nothing further and cost an octave-3 bass its "fits", so 90 it is. The residue,
+stated in the docs and held by a test: the bottom octave hedges towards `close`.
+
+#### And a cache that lied after an undo
+
+The first version measured each slot once and kept it. Accepting a transpose and
+pressing **Undo** then left the page still holding the *transposed* reading, so
+it went on saying "fits" about audio that had been put back to clashing. A page
+cannot see an undo — it does not go through a mode — so the reading is keyed on
+the audio rather than on the slot, which fixes the same staleness arriving from a
+re-record, an overdub, or an edit applied on the editor page.
+
+51 new tests (`tests/test_harmony.py`), 1484 in total.
+
+---
+
 ## v1.6.0
 
 Three items of the **`v2.0` Instrument** train, and a page that can no longer

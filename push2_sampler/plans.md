@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-06`~~† ~~`IN-08`~~ ~~`NH-10`~~† `IN-04` `IN-05` `IN-07` `NH-09` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-04`~~† ~~`IN-06`~~† ~~`IN-08`~~ ~~`NH-10`~~† `IN-05` `IN-07` `NH-09` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -370,6 +370,12 @@ notes) cannot act on a bar-addressed arrangement at all, so swing went where
 sub-beat time actually exists — live triggering — and the nudge is the bar-grid
 equivalent. See the item for the reasoning; it is the one place in this plan
 where the spec was judged wrong rather than incomplete.
+
+† `IN-04` shipped its overlay and its transpose, but not from a key: naming a
+tonic is measurably the unreliable half (a Cmaj7 reads "E minor"), so the
+colours come from pitch-class content and the key is shown labelled a guess.
+Its green/yellow/red mapping also had to stop using the circle of fifths, on
+which C major and its own relative minor sit three steps apart. See the item.
 
 † `IN-06` shipped its alternates, but the spec's `list[Take]` replacement of
 the audio buffer became a `layers`-shaped list with an invariant, and its
@@ -2185,6 +2191,67 @@ as clashing; percussive noise reads as unpitched; a suggested transpose applied
 twice is idempotent.
 
 **Deps.** `IN-02`, `NF-03`.
+
+**Status: shipped.** `analysis.chroma` / `pitch_classes` / `clash` / `harmony` /
+`fit` / `suggest_transpose`, a new `modes/harmony.py` on `Scale` (CC 58, which
+the plan named and which was free), and the transpose accepted onto `NF-03`'s
+`pitch_semitones` so it is non-destructive and one undo step. All four of the
+plan's tests pass, in `tests/test_harmony.py` (51 tests). Eight prototype rounds;
+the findings are why the shape differs from the spec.
+
+**The plan's "key detection via chroma" put the unreliable half in charge.**
+Naming a *tonic* from pitch-class weights is a guess about emphasis: measured, a
+held Cmaj7 comes back `E minor` (correctly — those four notes sit in E minor
+too) and a C triad with twelve harmonics does the same, while the chroma
+underneath was right on all ten signals. So the colours are computed from
+pitch-class content and the key is shown *labelled a guess*.
+`test_the_key_name_is_wrong_on_a_seventh_chord` pins the failure rather than
+hiding it.
+
+**And the spec's green/yellow/red mapping was built on the wrong distance.**
+"Green = same key, yellow = relative/dominant" implies the circle of fifths, but
+C major and A minor are the **same seven notes** while sitting three fifths
+apart, and C major and C minor sit zero apart sharing four. Shared content is
+the measure; measured clash values are 0.028 (itself), 0.026 (A minor), 0.041
+(the dominant), 0.135 (D major), 0.505 (E flat), 0.524 (the tritone), and the
+two thresholds sit in the gaps rather than having been picked. A test asserts
+the table, so moving a constant without re-measuring fails.
+
+Four things the plan did not reach:
+
+1. **The measure is asymmetric.** A three-note pad inside a seven-note
+   progression fits; the progression laid over the pad introduces four notes the
+   pad never plays. "Does adding this to what I have selected work" is a
+   directed question, and a symmetric metric would answer a different one.
+2. **Saying "that's a drum" needs two gates.** A kick reads `low drum` but its
+   chroma is peaked enough (0.077) to pass a flatness test; white noise
+   sometimes reads `tone` but is flat (0.008). Each catches what the other
+   misses — and a seven-note melody at 0.106 sits close enough to the kick that
+   flatness alone was never going to separate them.
+3. **The analysis band starts at 90 Hz, not 60.** At 60 a C-G-C bass figure in
+   octave 1 read as *clashing with its own key*, which is the one mistake this
+   page must not make: the window is over a semitone wide down there and the
+   note smears into classes it never played. 130 fixed nothing further and cost
+   an octave-3 bass its "fits". The residue — the bottom octave can only reach
+   "close" — is in `docs/reference.md` and held by a test.
+4. **Ties in the transpose go to the smaller move.** A C# triad against C major
+   was first told to go up four semitones, which lands on F and genuinely fits;
+   down one is as good and is what a hand expects.
+
+**A bug worth recording: the page lied after an undo.** The first version
+measured each slot once and cached it per slot, so accepting a transpose and
+pressing Undo left the page holding the *transposed* reading and still saying
+"fits" about audio restored to clashing. A page cannot see an undo — it does not
+go through a mode — so the reading is keyed on the audio itself, which also fixes
+the same staleness arriving from a re-record, an overdub, or an edit applied on
+the editor page. The lesson is the one `CC-13` and `NH-10` both taught: a cache
+keyed on identity rather than on content is a cache that will eventually
+disagree with the thing it describes.
+
+`Scale` is also bound in the library, opening against the first filled slot,
+because the library has no notion of a selected one — and `Shift` + a pad inside
+the page re-references it, which is cheaper than arming a pick outside and
+spending a press on it.
 
 ### IN-05 — Living song mode `size: L`
 

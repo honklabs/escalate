@@ -203,7 +203,9 @@ BLURBS = {
     "IN-03":
         "Trigger patterns generated to fit what is already there, as a starting "
         "point rather than an answer.",
-    "IN-04": "Knows what key the song is in, and offers pitches that belong in it.",
+    "IN-04":
+        "Colours the library by which of your loops fit with the one you are on, "
+        "and offers a transpose for one that does not.",
     "IN-05":
         "A song that never plays the same way twice, and one button that freezes a "
         "performance as audio.",
