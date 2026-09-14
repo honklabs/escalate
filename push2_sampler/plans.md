@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **54 of the 61 items below are shipped** — every train up to and
-including `v1.5`, and three of the ten `v2.0` ideas. Three of those shipped
+Status: **55 of the 61 items below are shipped** — every train up to and
+including `v1.5`, and four of the ten `v2.0` ideas. Three of those shipped
 in part or in a different shape, and each says so in its own note: `CC-13`
 shipped only the half that needs no unverified hardware, `NF-09` shipped MIDI
 clock and left Link a seam, and `NH-02` shipped as two features because the one
@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-08`~~ `IN-04` `IN-05` `IN-06` `IN-07` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -2201,6 +2201,54 @@ perfectly aligned take reports ~0; a take with no onsets reports "no onsets
 detected" rather than dividing by zero.
 
 **Deps.** `IN-01` (onset detection), `F-08` (display).
+
+**Status: shipped.** `analysis.timing_report` and a `Timing` record;
+`modes/info.py` gained a second view on button 2; `modes/record.py` reports
+after a take when the new `coach` setting asks, and `--coach` turns it on for a
+run. Purely informational throughout, as the spec insists: nothing here
+quantizes anything.
+
+**The chord the spec asked for was taken.** `Shift`+`Device` is already "apply
+the edits to the recording for good" — a *destructive* action — and putting an
+informational readout on the same chord would be a poor trade even if it were
+free. The timing view lives instead on the page that already answers "tell me
+about this take", as a second view rather than a second page: button 2 switches
+between the spectrogram and the scatter.
+
+**Two facts, not one verdict.** The first version conflated consistency and
+placement and produced `very tight: 20ms late`, which is two statements wearing
+one label. Playing *consistently* 20 ms behind the beat is a **groove** —
+plenty of great drummers do exactly that — while being 5 ms out at random is
+the thing to practise. So the report says `very even (±3ms), 20ms behind the
+beat`: `evenness` from the spread, `placement` from the mean, separately.
+
+**The grid is inferred, not assumed**, and this is the part the spec left
+implicit. Measuring a sixteenth-note pattern against quarter notes reports
+every other hit as 125 ms late at 120 BPM — which is not a timing error, it is
+the wrong question. So beats, eighths and sixteenths are all tried and the one
+the playing fits is kept and named, because "you played sixteenths" is itself
+worth knowing. Nothing finer: below a sixteenth the lines sit closer together
+than human timing error, so every take would "fit" and the report would mean
+nothing.
+
+**A finer grid has to earn it twice, and the second rule came from a test.**
+Requiring only a better spread was not enough: seven hits on the beat and one
+90 ms late chose a sixteenth grid — 90 ms is near a sixteenth at 120 BPM — and
+the report then described that 90 ms error as 35 ms. **A coach understating
+your error is the one direction it must not fail in.** So `GRID_OCCUPANCY` also
+requires a quarter of the hits to land on lines the coarser grid does not have:
+a finer grid is warranted when the *playing* is on it, not when a stray hit
+happens to fit. Genuine syncopation — every hit on an off-beat eighth — still
+reads as eighths, and there is a test for each direction.
+
+The scatter draws its centre line even with nothing to plot, because a scatter
+with no axis cannot be read, and clamps a wild hit to the edge rather than
+rescaling the plot around it — one bad hit must not squash the other seven into
+the middle row.
+
+`coach` is **off by default**, like the other post-take options: being told how
+tight you are is useful when you asked for it and discouraging when you did
+not.
 
 ---
 

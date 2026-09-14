@@ -689,6 +689,55 @@ cannot defend would be worse than a coarser one it can.
   struck thing, not that it is your 808. A pitched take gets its note, because
   the note is the one specific thing actually measured.
 
+#### Timing — how tight you played it
+
+**Button 2** switches the grid between the spectrogram and the **timing
+scatter**: each hit as a dot, time across, distance from the beat up and down.
+Above the centre line is **early**, below is **late**, and the centre line is
+always drawn, because a scatter with no axis cannot be read.
+
+| Dot | How far off |
+| --- | --- |
+| Green | Within 10 ms |
+| Amber | Within 25 ms |
+| Red | Further |
+
+The display reports **two separate facts**, and keeping them apart is the
+point:
+
+```
+very even (±3ms)   20ms behind the beat
+8 hit(s) against beats   worst 24ms   green within 10ms, amber 25ms
+```
+
+**Evenness** is how consistent you are. **Placement** is where you sit relative
+to the beat. An earlier version conflated them into one verdict and produced
+"very tight: 20ms late", which is two statements wearing one label — and the
+more interesting one is that playing *consistently* 20 ms behind the beat is a
+groove, not a mistake, while being 5 ms out at random is the thing to work on.
+
+**The grid is inferred, not assumed.** Measuring a sixteenth-note pattern
+against quarter notes would report every other hit as 125 ms late at 120 BPM,
+which is not a timing error but the wrong question — so the report tries beats,
+eighths and sixteenths and keeps the one your playing actually fits, and says
+which. A finer grid has to earn it twice: it must reduce the spread
+appreciably **and** a quarter of the hits must land on lines the coarser grid
+does not have. Without that second rule, seven hits on the beat and one 90 ms
+late chose a sixteenth grid and reported the 90 ms error as 35 — and a coach
+understating your error is the one direction it must not fail in.
+
+Nothing finer than a sixteenth is offered: below that the lines sit closer
+together than human timing error and every take would "fit".
+
+**It never quantizes.** A coach that silently corrected you would be teaching
+you nothing and taking your playing away at the same time. To actually move a
+take, use [auto-trim](#post-take-processing) or the
+[editor](#sample-editor).
+
+Turn the **`coach`** setting on (the settings page, or `--coach`) and this
+summary appears after every take. Off by default: being told how tight you are
+is useful when you asked and discouraging when you did not.
+
 #### Not built: arrangement hints
 
 The plan also asked for a hint proposing *bars* for a new sample from what
@@ -1553,6 +1602,7 @@ A take should be what you played until you ask for something else.
 | `auto_trim` | Finds where the take audibly begins and slides it onto the grid |
 | `auto_normalize` | Scales the take so its loudest sample sits at −1 dBFS |
 | `auto_fade` | 2 ms fade at both ends, so a looped take does not click |
+| `coach` | After every take, say how tight it was — see [Timing](#timing--how-tight-you-played-it). Purely informational |
 
 Whatever they do, the display says so afterwards (`trimmed 30ms, normalised
 x1.4`) — silently processing a recording would leave you wondering why it does
@@ -1699,6 +1749,7 @@ because "everything is missing" is a diagnosis rather than a crash.
 | `doctor` / `--doctor` | Print what is installed and what is missing, then exit |
 | `--version` | Print the version and exit |
 | `--report PATH` | Where `--selftest` writes (default `./hardware-report.json`) |
+| `--coach` | Report how tight each take was — see [Timing](#timing--how-tight-you-played-it) |
 | `--monitor-port [N]` | Serve [the monitor page](#the-monitor-page); default 8765, `0` off |
 | `--monitor-host HOST` | What it binds to; loopback by default |
 | `--list-ports` | List MIDI ports and exit |
@@ -1743,6 +1794,6 @@ So you do not go looking:
   messages. No waveform drawing, no graphics — and it has never rendered on
   real hardware.
 
-`plans.md` in the project root tracks all of it: 54 of the 61 planned items are
-shipped — every release train up to `v1.5`, and three of the ten `v2.0` ideas.
+`plans.md` in the project root tracks all of it: 55 of the 61 planned items are
+shipped — every release train up to `v1.5`, and four of the ten `v2.0` ideas.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

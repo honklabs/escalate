@@ -133,6 +133,10 @@ SPECS: dict[str, Spec] = {
     "auto_trim": Spec(False, bool, label="auto trim"),
     "auto_normalize": Spec(False, bool, label="auto norm"),
     "auto_fade": Spec(False, bool, label="auto fade"),
+    # The timing coach (IN-08).  Off by default like the other post-take
+    # options: being told how tight you are is useful when you asked for it and
+    # discouraging when you did not.
+    "coach": Spec(False, bool, label="coach"),
     "input_device": Spec(None, int, label="in dev", restarts_audio=True),
     "output_device": Spec(None, int, label="out dev", restarts_audio=True),
     "blocksize": Spec(
@@ -186,6 +190,7 @@ EDITABLE_PAGES: tuple[tuple[str, ...], ...] = (
         "auto_trim",
         "auto_normalize",
         "auto_fade",
+        "coach",
         "dim_library",
     ),
     (

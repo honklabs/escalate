@@ -12,6 +12,55 @@ plan.
 
 ## Unreleased
 
+### How tight you played it (`IN-08`)
+
+Button 2 on the About page switches the grid to a **timing scatter**: each hit
+as a dot, time across, distance from the beat up and down — early above the
+centre line, late below, green within 10 ms, amber within 25, red beyond. The
+new `coach` setting (or `--coach`) prints the same summary after every take.
+
+**It never quantizes.** A coach that silently corrected you would be teaching
+you nothing and taking your playing away at the same time.
+
+#### Two facts, not one verdict
+
+The first version conflated consistency and placement into `very tight: 20ms
+late` — two statements wearing one label. Playing *consistently* 20 ms behind
+the beat is a **groove**; being 5 ms out at random is the thing to practise. So
+the report says both, separately:
+
+```
+very even (±3ms)   20ms behind the beat
+8 hit(s) against beats   worst 24ms
+```
+
+#### The grid is inferred, not assumed
+
+Measuring a sixteenth-note pattern against quarter notes reports every other
+hit as 125 ms late at 120 BPM, which is not a timing error but the wrong
+question. So beats, eighths and sixteenths are all tried, the one the playing
+fits is kept, and it is **named** — "you played sixteenths" is itself worth
+knowing. Nothing finer is offered: below a sixteenth the lines sit closer
+together than human timing error and every take would fit.
+
+**A finer grid has to earn it twice, and the second rule came from a test.**
+A better spread alone was not enough: seven hits on the beat and one 90 ms late
+chose a sixteenth grid — 90 ms is near a sixteenth at 120 BPM — and the report
+described that 90 ms error as 35. **A coach understating your error is the one
+direction it must not fail in.** So a quarter of the hits must also land on
+lines the coarser grid does not have. Genuine syncopation still reads as
+eighths, and there is a test for each direction.
+
+#### And the chord the plan asked for was taken
+
+`Shift`+`Device` is already "apply the edits to the recording for good" — a
+destructive action — so an informational readout does not go there even though
+the plan suggested it. The timing view lives on the page that already answers
+"tell me about this take", as a second view rather than a second page.
+
+`coach` is off by default, like the other post-take options: being told how
+tight you are is useful when you asked and discouraging when you did not.
+
 ### Generate the bars instead of tapping them (`IN-03`)
 
 `Automate` on a sample page. Five encoders — density, rotation, algorithm, a

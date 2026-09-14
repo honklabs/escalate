@@ -409,6 +409,40 @@ against it. Beyond the published examples the tests assert the property those
 examples are *of*, exhaustively to length 64: the gaps between consecutive hits
 never differ by more than one step.
 
+### 4e. The timing coach
+
+Button 2 on the About page switches the grid to a **timing scatter**: each hit
+as a dot, time across, distance from the beat up and down -- early above the
+centre line, late below, green within 10 ms and red past 25. The `coach`
+setting (or `--coach`) prints the same summary after every take.
+
+It reports **two separate facts**, and keeping them apart is the whole value:
+
+```
+very even (±3ms)   20ms behind the beat
+```
+
+*Evenness* is consistency; *placement* is where you sit. The first version
+conflated them into one verdict and produced "very tight: 20ms late", which is
+two statements wearing one label -- and the more interesting one is that
+playing consistently 20 ms behind the beat is a groove, while being 5 ms out at
+random is the thing to work on.
+
+**The grid is inferred, not assumed.** Measuring a sixteenth pattern against
+quarter notes would call every other hit 125 ms late at 120 BPM, which is the
+wrong question rather than a timing error -- so beats, eighths and sixteenths
+are all tried and the one your playing fits is used, and named. A finer grid
+has to earn it twice: reduce the spread appreciably **and** have a quarter of
+the hits land on lines the coarser grid lacks. That second rule came from a
+test: seven hits on the beat and one 90 ms late chose a sixteenth grid and
+reported the 90 ms error as 35, and a coach understating your error is the one
+direction it must not fail in.
+
+It never quantizes. `Shift`+`Device` -- which the plan suggested for recalling
+this -- is already "apply the edits permanently", and putting an informational
+readout on the same chord as a destructive action would be a poor trade, so it
+lives on the page that already answers "tell me about this take".
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -678,7 +712,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-1245 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1287 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -708,14 +742,14 @@ No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **54 are shipped: every train up to v1.5,
-and three of the v2.0 ideas**; each carries a status note saying what was built and
+several people work on it at once. **55 are shipped: every train up to v1.5,
+and four of the v2.0 ideas**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v2.0 — Instrument` is under way: slicing, the listening assistant and
-generated patterns have shipped; the other ideas in `plans.md` §8 and the two
-remaining nice-to-haves have not. The one thing this
+`v2.0 — Instrument` is under way: slicing, the listening assistant, generated
+patterns and the timing coach have shipped; the other ideas in `plans.md` §8
+and the two remaining nice-to-haves have not. The one thing this
 project cannot do for itself is the human hardware pass — the display protocol
 and most of the button map are still taken from Ableton's document rather than
 from a device.

@@ -256,6 +256,7 @@ top, a held note is one horizontal line.
 | --- | --- |
 | any pad | hear the take |
 | **button 1 below** | accept the suggested name — the only thing this page changes |
+| **button 2 below** | switch between the spectrogram and the **timing scatter** |
 | **Layout** / **Session** | close |
 
 | Reading | |
@@ -269,6 +270,22 @@ top, a held note is one horizontal line.
 **Every reading shows its confidence**, and a weak one says `not sure` rather
 than being rounded into a fact. Five roles, not six: nothing here can tell a
 snare from a hat, so a snare reads as `bright drum`.
+
+### Timing view (button 2)
+
+Each hit as a dot: time across, **early above** the line and **late below**.
+Green within 10 ms, amber within 25 ms, red beyond.
+
+```
+very even (±3ms)   20ms behind the beat
+8 hit(s) against beats   worst 24ms
+```
+
+Two separate facts: **evenness** is how consistent you are, **placement** is
+where you sit. Consistently 20 ms behind is a groove; 5 ms out at random is
+not. The grid (beats / 8ths / 16ths) is **inferred** from your playing and
+named. **It never quantizes.** Turn on `coach` (or `--coach`) to get this after
+every take.
 
 ---
 
@@ -503,6 +520,7 @@ the display says why.
 | `--bounce OUT.wav SONG` | render the mix, no hardware needed |
 | `--stems DIR SONG` | one WAV per filled slot |
 | `--bpm N` | tempo for this run |
+| `--coach` | report how tight each take was, after every take |
 | `--monitor-port [N]` | serve the read-only monitor page (default 8765, `0` off) |
 | `--monitor-host HOST` | what it binds to; loopback by default |
 | `--monitor off\|auto\|on` | hear the input — *audio* monitoring, nothing to do with the page |

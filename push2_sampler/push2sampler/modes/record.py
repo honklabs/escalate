@@ -77,12 +77,35 @@ class RecordMode(Mode):
         if event[0] == "record_done":
             bars, audio = event[1], event[2]
             audio, notes = self._post_process(audio)
+            coaching = self._coach(audio, bars)
             self.app.do(PutSample(self.slot, audio, bars))
             self.app.goto_sample(self.slot)
             # After the page change, not before: goto_sample announces the slot,
             # which would otherwise bury the news that the take was processed.
+            if coaching:
+                # Last, so it is the line left on the display: how you played
+                # is more interesting than what was normalised.
+                notes = notes + [coaching]
             if notes:
-                self.app.notify(", ".join(notes))
+                self.app.notify("   ".join(notes))
+
+    def _coach(self, audio, bars: int) -> str:
+        """How tight the take was, when the `coach` setting asks (IN-08).
+
+        Measured on the audio as stored, so auto-trim's shift is included --
+        a take that was slid onto the grid really is on the grid now, and
+        reporting the pre-trim timing would be reporting something you no
+        longer have.
+        """
+        if not self.app.settings.get("coach"):
+            return ""
+        samplerate = self.engine.transport.samplerate
+        found = analysis.onsets(audio, samplerate)
+        report = analysis.timing_report(
+            found, samplerate, self.engine.bpm,
+            self.engine.transport.beats_per_bar,
+        )
+        return report.summary()
 
     def _post_process(self, audio):
         """Apply the optional auto-trim / normalise / fade, all off by default.

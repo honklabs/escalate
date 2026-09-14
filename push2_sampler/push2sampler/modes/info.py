@@ -17,12 +17,26 @@ it is. That is the whole design: a guess stated confidently is worse than no
 guess, so `tone A4 (0.89)` and `tone A4 (0.21)` look different, and the page
 says `not sure` rather than rounding a weak measurement up into a fact.
 
+Two views
+---------
+Button 2 switches the grid between the **spectrogram** and the **timing
+scatter** (IN-08): how far each hit sits from the beat grid, early above the
+centre line and late below it. Both answer "tell me about this take", so they
+live on one page rather than each claiming a button chord of its own --
+`Shift`+`Device`, which the plan suggested for the timing view, is already
+"apply the edits permanently", and putting an informational recall on the same
+chord as a destructive action would be a poor trade.
+
 The one thing it can change
 ---------------------------
 Button 1 accepts the suggested name. Nothing else here writes to the project,
 because a page whose job is to tell you what it thinks should not be quietly
 acting on it -- the spec called hints "proposals", and this is the shape of a
 proposal: shown, and one press away from being taken.
+
+The timing view never quantizes, for the same reason: a coach that silently
+corrected you would be teaching you nothing and taking your playing away at
+the same time.
 """
 
 from __future__ import annotations
@@ -30,7 +44,7 @@ from __future__ import annotations
 import numpy as np
 
 from .. import colors, names
-from ..analysis import N_FFT, describe
+from ..analysis import N_FFT, describe, timing_report
 from ..constants import (
     BTN_BRIGHT,
     BTN_ON,
@@ -54,6 +68,13 @@ UNSURE = 0.35
 TOP_HZ = 12_000.0
 BOTTOM_HZ = 40.0
 
+#: The two things this page can draw.
+VIEW_SPECTRUM, VIEW_TIMING = "spectrum", "timing"
+#: Milliseconds the timing scatter's top and bottom rows stand for.  A hit
+#: 60 ms out is unmistakably off the beat, and anything further is pinned to
+#: the edge rather than rescaling the whole plot around one bad hit.
+SCATTER_MS = 60.0
+
 
 class InfoMode(Mode):
     """A reading of one take, and a name you can accept."""
@@ -68,8 +89,10 @@ class InfoMode(Mode):
     def __init__(self, app, slot: int) -> None:
         super().__init__(app)
         self.slot = slot
+        self.view = VIEW_SPECTRUM
         self._described = None
         self._grid: list[float] | None = None
+        self._timing = None
 
     @property
     def sample(self):
@@ -104,6 +127,23 @@ class InfoMode(Mode):
             )
         return self._described
 
+    @property
+    def timing(self):
+        """How this take sits against the grid, measured once.
+
+        Uses the onsets `describe` already found, so switching views costs
+        nothing beyond the arithmetic.
+        """
+        if self._timing is None:
+            reading = self.described
+            if reading is None:
+                return None
+            self._timing = timing_report(
+                reading.onsets, self.project.samplerate, self.project.bpm,
+                self.project.beats_per_bar,
+            )
+        return self._timing
+
     # -- input -------------------------------------------------------------
     def on_pad(self, index: int, pressed: bool, velocity: int) -> bool:
         """Pads are a picture here.  A press auditions, and nothing else."""
@@ -125,7 +165,19 @@ class InfoMode(Mode):
         if cc == DISPLAY_ROW_BOTTOM[0]:
             self._accept_name()
             return True
+        if cc == DISPLAY_ROW_BOTTOM[1]:
+            self._switch_view()
+            return True
         return False
+
+    def _switch_view(self) -> None:
+        self.view = (VIEW_TIMING if self.view == VIEW_SPECTRUM
+                     else VIEW_SPECTRUM)
+        if self.view == VIEW_TIMING:
+            report = self.timing
+            self.app.notify(report.summary() if report else "nothing to measure")
+        else:
+            self.app.notify("spectrum: time across, pitch up")
 
     def _accept_name(self) -> None:
         """Take the suggested name.  The one thing this page can change."""
@@ -195,7 +247,43 @@ class InfoMode(Mode):
         self._grid = [c / top for c in cells] if top > 0 else cells
         return self._grid
 
+    def _scatter(self, pads: list[int]) -> None:
+        """Each hit as a dot: time across, distance from the beat up and down.
+
+        The centre line is on the beat and is always drawn, even with nothing
+        to plot, because a scatter with no axis is a scatter you cannot read.
+        Early is above it and late below -- the way a hit that is "ahead" is
+        drawn everywhere else.
+        """
+        for index in range(PAD_COUNT):
+            pads[index] = colors.OFF.index
+        middle = GRID_H // 2
+        for column in range(GRID_W):
+            pads[middle * GRID_W + column] = colors.WHITE_DIM.index
+
+        report = self.timing
+        if report is None or not report.count:
+            return
+        offsets = report.offsets_ms
+        for index, offset in enumerate(offsets):
+            column = int(index / max(1, len(offsets)) * GRID_W)
+            column = min(GRID_W - 1, column)
+            # Rows either side of the centre, clamped rather than rescaled.
+            steps = int(round(offset / SCATTER_MS * middle))
+            steps = max(-middle, min(middle, steps))
+            row = middle + steps
+            row = max(0, min(GRID_H - 1, row))
+            near = abs(offset) <= 10.0
+            pads[row * GRID_W + column] = (
+                colors.GREEN.index if near
+                else colors.AMBER.index if abs(offset) <= 25.0
+                else colors.RED.index
+            )
+
     def render_pads(self, pads: list[int]) -> None:
+        if self.view == VIEW_TIMING:
+            self._scatter(pads)
+            return
         cells = self._spectrogram()
         for index, value in enumerate(cells):
             if value >= BRIGHT:
@@ -213,7 +301,10 @@ class InfoMode(Mode):
         reading = self.described
         can_name = bool(reading is not None and reading.suggested_name)
         buttons[DISPLAY_ROW_BOTTOM[0]] = BTN_ON if can_name else 0
-        for cc in DISPLAY_ROW_BOTTOM[1:]:
+        buttons[DISPLAY_ROW_BOTTOM[1]] = (
+            BTN_BRIGHT if self.view == VIEW_TIMING else BTN_ON
+        )
+        for cc in DISPLAY_ROW_BOTTOM[2:]:
             buttons[cc] = 0
 
     def status_lines(self) -> list[str]:
@@ -229,9 +320,12 @@ class InfoMode(Mode):
                 "Layout: close",
             ]
 
+        head = (f"ABOUT slot {self.slot + 1} {sample.name}   "
+                f"{reading.seconds:.2f}s  {sample.bars} bar(s)")
+        if self.view == VIEW_TIMING:
+            return self._timing_lines(head)
         lines = [
-            f"ABOUT slot {self.slot + 1} {sample.name}   "
-            f"{reading.seconds:.2f}s  {sample.bars} bar(s)",
+            head,
             self._sound_line(reading),
             self._time_line(reading),
             self._level_line(reading),
@@ -239,7 +333,32 @@ class InfoMode(Mode):
         suggestion = reading.suggested_name
         if suggestion:
             lines.append(f"button 1: name it {suggestion!r}   pad: hear it")
-        lines.append("every reading is a measurement, not a fact - Layout: close")
+        lines.append(
+            "button 2: timing   every reading is a measurement, not a fact"
+        )
+        return lines
+
+    def _timing_lines(self, head: str) -> list[str]:
+        """The timing view's four lines (IN-08)."""
+        report = self.timing
+        lines = [f"{head}   TIMING"]
+        if report is None or not report.count:
+            lines.append("no onsets detected - nothing to measure")
+            lines.append("a held note or a quiet take has no attacks to place")
+            lines.append("button 2: back to the spectrum   Layout: close")
+            return lines
+        lines.append(
+            f"{report.evenness} (+/-{report.spread_ms:.0f}ms)   "
+            f"{report.placement}"
+        )
+        lines.append(
+            f"{report.count} hit(s) against {report.grid}   "
+            f"worst {report.worst_ms:.0f}ms   green within 10ms, amber 25ms"
+        )
+        lines.append("above the line is early, below is late")
+        lines.append(
+            "nothing here is quantized - button 2: spectrum   Layout: close"
+        )
         return lines
 
     @staticmethod

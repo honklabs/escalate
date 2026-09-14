@@ -619,9 +619,46 @@ Try `mirror` on a second sample once you have a kick you like. Two slots
 playing the same bars is a pair; then rotate one by a bar or two and it becomes
 a conversation.
 
+### Step 26: find out how tight you played
+
+Still on the **About** page (**Layout** from a sample page), **press button 2.**
+
+The grid becomes a **timing scatter**: one dot per hit, time running across,
+and the distance from the beat up and down. The dim line across the middle is
+the beat. **Above it is early, below it is late.** Green dots are within 10 ms,
+amber within 25, red beyond.
+
+The display says two things, and they are deliberately separate:
+
+```
+very even (±3ms)   20ms behind the beat
+8 hit(s) against beats   worst 24ms
+```
+
+**Evenness** is how consistent you were. **Placement** is where you sat.
+Those are different facts, and conflating them hides the interesting one:
+playing *consistently* 20 ms behind the beat is a **groove** — plenty of great
+drummers do exactly that — while being 5 ms out at random is the thing to
+practise.
+
+It works out what grid you meant rather than assuming quarter notes, and tells
+you: `against beats`, `against 8ths`, `against 16ths`. Without that, a tight
+sixteenth pattern would read as though every other hit were 125 ms late, which
+would be nonsense.
+
+**It will never fix your timing for you.** Nothing on this page quantizes
+anything — a coach that silently corrected you would be teaching you nothing.
+If you *do* want a take moved onto the grid, that is `auto_trim` on the
+settings page or the editor.
+
+Want this after every take? Turn **`coach`** on (the settings page, or start
+with `--coach`) and the summary appears as soon as a recording finishes. It is
+off by default, because being told how tight you are is useful when you asked
+for it and discouraging when you did not.
+
 <a id="settings"></a>
 
-### Step 26: the settings worth knowing
+### Step 27: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -656,7 +693,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 27: tempo, click, loop
+### Step 28: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -692,7 +729,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 28: shape a take
+### Step 29: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -722,7 +759,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 29: name it, colour it
+### Step 30: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -738,7 +775,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 30: keep two versions of the arrangement
+### Step 31: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -752,7 +789,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 31: start another song, without a terminal
+### Step 32: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -768,7 +805,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 32: undo
+### Step 33: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -790,7 +827,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 33: bounce it
+### Step 34: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

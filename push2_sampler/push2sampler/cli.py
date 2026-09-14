@@ -161,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="where Shift+Browse starts looking for audio to import",
     )
     parser.add_argument(
+        "--coach", action="store_true",
+        help="after every take, report how tight it was against the beat grid "
+             "(IN-08). Purely informational: it never quantizes",
+    )
+    parser.add_argument(
         "--monitor-port", type=int, default=None, metavar="PORT", nargs="?",
         const=MONITOR_DEFAULT_PORT,
         help=f"serve a read-only page mirroring the surface (default port "
@@ -217,6 +222,11 @@ def resolve_settings(args) -> Settings:
     given = {name: value for name, value in overrides.items() if value is not None}
     if args.no_play_while_recording:
         given["play_while_recording"] = False
+    if args.coach:
+        # A store_true flag can only ever turn it on, so it is applied here
+        # rather than as an override -- `--coach` absent must not mean "off",
+        # which would quietly undo the setting file.
+        given["coach"] = True
     # Say so when a value cannot be used, rather than quietly substituting the
     # default and leaving someone to wonder why their flag did nothing.
     refused = [

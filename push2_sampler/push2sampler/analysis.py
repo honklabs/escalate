@@ -772,3 +772,180 @@ def describe(buf, samplerate: int, onset_frames=None,
         density=len(found) / seconds if seconds > 0 else 0.0,
         bpm=bpm, bpm_confidence=bpm_confidence, seconds=seconds,
     )
+
+
+# ==========================================================================
+# How tight you played it (IN-08)
+# ==========================================================================
+# The recorder already knows where the grid is and `onsets` knows what you
+# played, so the difference between them is free -- and it is something no
+# hardware looper tells you.
+#
+# Purely informational.  It never quantizes, never moves a take and never
+# changes a project: a coach that silently corrected you would be teaching you
+# nothing and taking your playing away at the same time.
+#
+# ONE DECISION WORTH SPELLING OUT: the grid is *inferred*, not assumed.
+# Comparing a sixteenth-note pattern against quarter notes would report every
+# other hit as 125 ms late at 120 BPM, which is not a timing error, it is the
+# wrong question.  So the report tries each subdivision and keeps the one the
+# playing actually fits -- and says which, because "you played sixteenths" is
+# itself worth knowing.
+
+#: Subdivisions of a beat the coach will measure against, coarsest first, with
+#: the name to report.  Nothing finer than a sixteenth: below that the
+#: subdivisions are closer together than human timing error, so every take
+#: would "fit" perfectly and the report would be meaningless.
+GRID_DIVISIONS = (
+    (1.0, "beats"),
+    (0.5, "8ths"),
+    (0.25, "16ths"),
+)
+#: A finer grid must beat the coarser one's spread by this much to be believed.
+#: Without it, a finer grid always wins -- there is always a sixteenth nearer
+#: your hit than a quarter was.
+GRID_MARGIN = 0.75
+#: ...and this fraction of the hits must actually *land* on lines the coarser
+#: grid does not have.
+#:
+#: The margin alone is not enough, which a test found: seven hits on the beat
+#: and one 90 ms late chose a sixteenth-note grid, because 90 ms is near a
+#: sixteenth at 120 BPM, and the report then described that 90 ms error as
+#: 35 ms.  A coach understating your error is the one direction it must not
+#: fail in.  A finer grid is warranted when the *playing* is on it, not when a
+#: stray hit happens to fit.
+GRID_OCCUPANCY = 0.25
+#: How *even* the playing is, from the spread of the offsets.  Judgement calls,
+#: not measurements: 10 ms is about where a listener stops hearing a hit as
+#: separate from the beat, and 50 ms is a swung eighth at 150 BPM.
+EVENNESS = (
+    (10.0, "very even"),
+    (25.0, "even"),
+    (50.0, "uneven"),
+    (float("inf"), "all over the place"),
+)
+#: Within this much of the beat on average, the playing is simply on it.
+ON_THE_BEAT_MS = 8.0
+
+
+class Timing:
+    """How one take sits against the grid.  A reading, not a judgement.
+
+    `count` is 0 when nothing could be measured, which is the honest answer for
+    a take of silence or a held note -- and the reason every consumer checks it
+    before reading the numbers.
+    """
+
+    __slots__ = ("count", "offsets_ms", "mean_ms", "spread_ms", "worst_ms",
+                 "grid", "grid_beats", "evenness")
+
+    def __init__(self, **fields) -> None:
+        for name in self.__slots__:
+            setattr(self, name, fields.get(name))
+
+    @property
+    def early(self) -> bool:
+        return bool(self.count) and self.mean_ms < 0
+
+    @property
+    def placement(self) -> str:
+        """Where the playing sits relative to the beat, in words.
+
+        Separate from `evenness` on purpose.  Conflating them produced "very
+        tight: 20ms late", which is two different facts wearing one label --
+        and the more interesting one is that playing *consistently* 20 ms
+        behind the beat is a groove rather than a mistake.
+        """
+        if not self.count:
+            return ""
+        if abs(self.mean_ms) < ON_THE_BEAT_MS:
+            return "on the beat"
+        side = "ahead of" if self.mean_ms < 0 else "behind"
+        return f"{abs(self.mean_ms):.0f}ms {side} the beat"
+
+    def summary(self) -> str:
+        """One line, the way it goes on the display or into a notification."""
+        if not self.count:
+            return "no onsets detected - nothing to measure"
+        return (
+            f"{self.evenness} ({chr(177)}{self.spread_ms:.0f}ms), "
+            f"{self.placement}, against {self.grid}"
+        )
+
+
+def _offsets(positions, grid_frames: float) -> list[float]:
+    """Signed distance from each position to its nearest grid line, in frames."""
+    out = []
+    for position in positions:
+        nearest = round(position / grid_frames) * grid_frames
+        out.append(float(position - nearest))
+    return out
+
+
+def _occupancy(positions, grid_frames: float, ratio: float) -> float:
+    """Fraction of hits landing on lines the coarser grid does not have.
+
+    `ratio` is how many of this grid's lines fit in one of the coarser grid's:
+    2 for eighths against beats, 4 for sixteenths.  A hit whose nearest line is
+    a whole multiple of that is on the coarse grid too, so it says nothing
+    about whether the finer one is real.
+    """
+    ratio = max(1, int(round(ratio)))
+    if ratio <= 1 or not positions:
+        return 1.0
+    off_coarse = sum(
+        1 for position in positions
+        if round(position / grid_frames) % ratio
+    )
+    return off_coarse / len(positions)
+
+
+def timing_report(onset_frames, samplerate: int, bpm: float,
+                  beats_per_bar: int = 4) -> Timing:
+    """How far off the grid the onsets in a take are.
+
+    Returns a :class:`Timing` whose `count` is 0 when there was nothing to
+    measure -- rather than raising, or dividing by zero, which is what the
+    plan's third test is about.
+    """
+    frames = [float(f) for f in (onset_frames or [])]
+    empty = Timing(count=0, offsets_ms=[], mean_ms=0.0, spread_ms=0.0,
+                   worst_ms=0.0, grid="", grid_beats=0.0,
+                   evenness="nothing to measure")
+    if not frames or samplerate <= 0 or bpm <= 0:
+        return empty
+    frames_per_beat = 60.0 / bpm * samplerate
+    if frames_per_beat <= 0:
+        return empty
+
+    # Try each subdivision and keep the one the playing fits.  A finer grid has
+    # to earn it twice over -- see GRID_MARGIN and GRID_OCCUPANCY.
+    best = None
+    for beats, name in GRID_DIVISIONS:
+        grid_frames = frames_per_beat * beats
+        offsets = _offsets(frames, grid_frames)
+        spread = float(np.std(offsets)) if len(offsets) > 1 else abs(offsets[0])
+        if best is None:
+            best = (spread, beats, name, offsets)
+            continue
+        if spread >= best[0] * GRID_MARGIN:
+            continue
+        if _occupancy(frames, grid_frames, best[1] / beats) < GRID_OCCUPANCY:
+            continue
+        best = (spread, beats, name, offsets)
+    spread_frames, grid_beats, grid_name, offsets = best
+
+    to_ms = 1000.0 / samplerate
+    offsets_ms = [offset * to_ms for offset in offsets]
+    mean_ms = float(np.mean(offsets_ms))
+    spread_ms = float(np.std(offsets_ms)) if len(offsets_ms) > 1 else 0.0
+    worst_ms = max(abs(value) for value in offsets_ms)
+    # Evenness is the spread alone.  A player 30 ms behind every single time is
+    # even -- that is a groove -- and is a different observation from one who
+    # is 5 ms out at random, which `placement` reports separately.
+    evenness = next(name for limit, name in EVENNESS if spread_ms < limit)
+    return Timing(
+        count=len(frames), offsets_ms=offsets_ms, mean_ms=mean_ms,
+        spread_ms=spread_ms, worst_ms=worst_ms, grid=grid_name,
+        grid_beats=grid_beats, evenness=evenness,
+    )
