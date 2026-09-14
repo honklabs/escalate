@@ -718,7 +718,13 @@ TEMPLATE = """<title>push2sampler Feature Grid</title>
       program&#8217;s own diagnostics turned out to be wrong about what they were measuring. MIDI
       clock sync tracks to 0.3&#8239;ms &#8212; against a synthetic sender, never yet against real
       gear. Ableton Link is a seam with nothing behind it, and says so rather than pretending.
-      The colour display has still never been seen to render.
+    </p>
+    <p>
+      The colour display has since rendered too, and that cost two more corrections: one byte of
+      the XOR shaping mask was transposed, which showed as a gold striped background with blue
+      text, and nothing measured text width, so status lines ran off the right-hand edge. Both are
+      fixed. Ten hardware facts have been corrected this way in total &#8212; and every one of them
+      was a thing the test suite was perfectly happy with.
     </p>
   </section>
 

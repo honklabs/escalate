@@ -266,7 +266,12 @@ def test_the_footer_claim_names_the_generator(page):
 def test_the_hardware_caveat_is_still_there(page):
     """The most load-bearing paragraph on the page; it must not get trimmed."""
     assert "Push 2 MIDI and Display Interface" in page
-    assert "never been seen to render" in page
+    assert "has now run on a real Push 2" in page
+    # It used to say the display had never rendered. It has, so that sentence
+    # became a lie and this test is what found it -- the second time this
+    # assertion has caught the page outliving its own copy.
+    assert "never been seen to render" not in page
+    assert "The colour display has since rendered" in page
 
 
 def test_building_with_a_missing_blurb_refuses(monkeypatch, parsed):
