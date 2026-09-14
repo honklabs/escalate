@@ -329,6 +329,105 @@ class ImportSample(Command):
 
 
 @dataclass
+class SetProbability(Command):
+    """How likely one bar of one sample is to play (NH-10).
+
+    Encoder steps coalesce, like gain and the nudge.  100 is stored as *absent*
+    so an ordinary project carries no probability data at all -- which is why
+    the revert writes through `set_trigger` rather than the dict.
+    """
+
+    slot: int
+    bar: int
+    chance: int
+    previous: int
+    at: float = field(default_factory=time.monotonic)
+
+    @property
+    def label(self) -> str:
+        if self.chance >= 100:
+            return f"bar {self.bar + 1} always plays"
+        return f"bar {self.bar + 1} {self.chance}% chance"
+
+    def _write(self, project, chance: int) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        if chance >= 100:
+            sample.probabilities.pop(self.bar, None)
+        else:
+            sample.probabilities[self.bar] = max(1, min(99, int(chance)))
+        project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.chance)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous)
+
+    def merge(self, newer: Command) -> bool:
+        if (not isinstance(newer, SetProbability) or newer.slot != self.slot
+                or newer.bar != self.bar
+                or newer.at - self.at > MERGE_WINDOW_S):
+            return False
+        self.chance = newer.chance
+        self.at = newer.at
+        return True
+
+
+@dataclass
+class SetEveryN(Command):
+    """Play a sample only on every Nth pass of the loop (NH-10)."""
+
+    slot: int
+    every_n: int
+    previous: int
+
+    @property
+    def label(self) -> str:
+        if self.every_n <= 1:
+            return f"slot {self.slot + 1} every pass"
+        return f"slot {self.slot + 1} every {self.every_n} passes"
+
+    def _write(self, project, value: int) -> None:
+        sample = project[self.slot]
+        if sample is not None:
+            sample.every_n = int(value)
+            project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.every_n)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous)
+
+
+@dataclass
+class SetChanceSeed(Command):
+    """Reroll the project's dice (NH-10).
+
+    Without this the seed is 0 for ever and a probabilistic arrangement has
+    exactly one variation -- which is half a feature: "makes a short
+    arrangement feel long" needs "not that one, another one" as well.
+    """
+
+    seed: int
+    previous: int
+
+    @property
+    def label(self) -> str:
+        return f"dice {self.seed}"
+
+    def apply(self, project) -> None:
+        project.chance_seed = int(self.seed)
+        project.dirty = True
+
+    def revert(self, project) -> None:
+        project.chance_seed = int(self.previous)
+        project.dirty = True
+
+
+@dataclass
 class SliceTake(Command):
     """Write several slices into several slots at once (IN-01).
 

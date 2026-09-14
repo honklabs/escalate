@@ -88,6 +88,39 @@ IDLE = "idle"
 COUNT_IN = "count_in"
 RECORDING = "recording"
 
+#: Odd 64-bit constants for `roll` below.  SplitMix64's, which is a well-tested
+#: mixer -- the point is only that the bits get thoroughly stirred.
+_MIX_A = 0x9E3779B97F4A7C15
+_MIX_B = 0xBF58476D1CE4E5B9
+_MIX_C = 0x94D049BB133111EB
+_MASK = (1 << 64) - 1
+
+
+def roll(seed: int, pass_number: int, bar: int, slot: int) -> float:
+    """A number in ``[0, 1)`` from where you are, not from how you got there.
+
+    This is the whole of NH-10's reproducibility, and it is a *pure function*
+    on purpose.  A stateful generator -- roll once per trigger as the song goes
+    by -- is reproducible only if you always play from the same place: start at
+    bar 17 instead of bar 1 and every subsequent roll differs, so what you
+    bounced would not be what you heard.
+
+    Hashing ``(seed, pass, bar, slot)`` instead means the same bar of the same
+    pass always rolls the same, however you arrived at it, whatever else in the
+    project changed, and whether the audio came from the callback or from an
+    offline render.  It also costs no state in the engine and nothing to reset.
+    """
+    value = (int(seed) & _MASK)
+    for part in (int(pass_number), int(bar), int(slot)):
+        value = (value + _MIX_A + (part & _MASK) * _MIX_A) & _MASK
+        value ^= value >> 30
+        value = (value * _MIX_B) & _MASK
+        value ^= value >> 27
+        value = (value * _MIX_C) & _MASK
+        value ^= value >> 31
+    # 53 bits is exactly what a float can hold without rounding twice.
+    return (value >> 11) / float(1 << 53)
+
 
 @dataclass
 class Voice:
@@ -124,6 +157,10 @@ class ScheduledSample:
     #: Frames to start *after* the bar line, for a sample that should lay back
     #: behind the beat (NH-02).  Always >= 0: see `Sample.nudge_ms`.
     nudge: float = 0.0
+    #: Chance of playing at all, 1-100 (NH-10).
+    probability: int = 100
+    #: Play only on every Nth pass; 0 and 1 both mean every pass.
+    every_n: int = 0
 
 
 @dataclass(frozen=True)
@@ -303,6 +340,20 @@ class Engine:
         #: Fraction of the quantize grid that offbeats are pushed late, for
         #: live triggering only (NH-02).  0 is straight.
         self.swing = 0.0
+        #: Which pass of the loop we are on, counting from 1 (NH-10).  Reset by
+        #: `play`, incremented by a wrap, and read by `every_n` -- so pressing
+        #: Play always starts a song's variation from the top, which is what
+        #: makes what you bounce match what you heard.
+        self.pass_number = 1
+        #: Bars in one pass, for working the pass out when the transport is
+        #: *not* looping.  A linear render through four pages is four passes of
+        #: a page, and without this a bounce would be pass 1 for ever -- which
+        #: meant a sample set to every 2nd pass vanished from the file
+        #: completely.  0 means "use the whole song".
+        self.pass_bars = 0
+        #: Seed for the probability rolls.  Per project rather than per run, so
+        #: a song sounds the same tomorrow; see `roll`.
+        self.chance_seed = 0
         #: A stop asked for at the next bar line rather than right now.  Written
         #: by the callback, read by the UI purely to say so on screen.
         self._stop_at_bar = False
@@ -789,6 +840,10 @@ class Engine:
             self._release_all(samples_only=True)
             self._arm_boundaries()
             self._running = True
+            # Pass 1 from the top.  Pressing Play is how you go back to the
+            # start of a song's variation, and it is what makes a bounce match
+            # what you heard rather than continuing someone else's dice.
+            self.pass_number = 1
         elif kind in ("stop", "cancel"):
             self._stop_now()
         elif kind == "stop_at_bar":
@@ -978,6 +1033,11 @@ class Engine:
         if bar == self._last_bar:
             return
         self._last_bar = bar
+        if not self.loop:
+            # Derived rather than counted: with no wrap to count, the pass has
+            # to come from where the playhead is.  See `pass_bars`.
+            per_pass = self.pass_bars or self.transport.song_bars
+            self.pass_number = 1 + int(bar // max(1, per_pass))
         if self._stop_at_bar and self._rec_state == IDLE:
             # Asked to stop at the end of the bar: this is that line, so stop
             # before anything new is scheduled onto it.
@@ -993,9 +1053,35 @@ class Engine:
         # Ends before starts: a gate that finishes on this line, and a loop the
         # new bar does not renew, are released before anything new sounds --
         # otherwise a retrigger or a choke would cut the voice it just started.
+        #
+        # `_end_voices` is given the *scheduled* entries rather than the ones
+        # that survive their dice, so a looping sample whose bar came up unlucky
+        # is renewed rather than released: a loop that stutters out because a
+        # probability rolled low would sound like a dropout, and probability is
+        # about whether a sound *starts*.
         self._end_voices(bar, entries)
         for entry in entries:
+            if not self._chance_allows(entry, bar):
+                continue
             self._start_scheduled(entry, bar)
+
+    def _chance_allows(self, entry, bar: int) -> bool:
+        """Whether this trigger plays on this pass (NH-10).
+
+        Two independent gates.  `every_n` is arithmetic on the pass number --
+        no randomness at all -- and the probability is a `roll`, which is a
+        pure function of where we are, so the answer is the same every time
+        this bar of this pass comes round.
+        """
+        every = getattr(entry, "every_n", 0) or 0
+        if every > 1 and self.pass_number % every:
+            return False
+        chance = getattr(entry, "probability", 100)
+        if chance >= 100:
+            return True
+        if chance <= 0:
+            return False
+        return roll(self.chance_seed, self.pass_number, bar, entry.slot) < chance / 100.0
 
     def _end_voices(self, bar: int, entries) -> None:
         """Release the voices this bar line ends.
@@ -1078,6 +1164,8 @@ class Engine:
             # playhead to a block boundary once per pass.
             self._pos = start + (self._pos - end)
             self._last_beat = self._last_bar = None
+            # A new pass: `every_n` and the probability rolls both move on.
+            self.pass_number += 1
         else:
             self._running = False
             self._pos = 0.0

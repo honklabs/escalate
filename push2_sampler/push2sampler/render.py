@@ -12,6 +12,7 @@ two-minute song takes a second or two spread over a handful of frames.
 
 from __future__ import annotations
 
+import math
 import time
 from pathlib import Path
 
@@ -24,9 +25,38 @@ from .audio import Engine
 CHUNK_SECONDS = 2.0
 #: How long to keep rendering past the last bar for tails to finish.
 MAX_TAIL_SECONDS = 20.0
+#: Most passes a bounce will cover for `every_n` (NH-10).  Eight passes of a
+#: 64-bar song is over half an hour; past that the render is the surprise.
+MAX_PASSES = 8
 
 
-def _engine_for(project) -> Engine:
+def passes_needed(project) -> int:
+    """How many passes a bounce must cover for `every_n` to be heard (NH-10).
+
+    A linear render never loops, so without this a bounce is pass 1 for ever
+    and a sample set to "every 2nd pass" is **absent from the file** -- which
+    is what happened before this existed, and is the worst kind of bug: you
+    hear the arrangement, you bounce it, and part of it is gone.
+
+    The answer is the least common multiple of the pass divisors in use, so a
+    song that genuinely varies over four passes bounces as four passes.  One
+    when nothing uses the feature, which is every project that has not asked
+    for it.
+    """
+    divisors = {
+        max(1, int(sample.every_n or 1))
+        for sample in project.filled()
+        if project.audible(sample) and sample.triggers
+    }
+    total = 1
+    for divisor in sorted(divisors):
+        total = total * divisor // math.gcd(total, divisor)
+        if total >= MAX_PASSES:
+            return MAX_PASSES
+    return max(1, total)
+
+
+def _engine_for(project, song_bars: int | None = None) -> Engine:
     return Engine(
         samplerate=project.samplerate,
         blocksize=1024,
@@ -35,7 +65,7 @@ def _engine_for(project) -> Engine:
         backend="offline",
         bpm=project.bpm,
         beats_per_bar=project.beats_per_bar,
-        song_bars=project.song_bars,
+        song_bars=song_bars or project.song_bars,
         monitor="off",
     )
 
@@ -48,13 +78,20 @@ class BounceJob:
         self.project = project
         # Render to the last bar in use, not to the nominal song length: four
         # pages are available and most songs use one.
-        self.bars = max(1, project.used_bars) if bars is None else max(1, bars)
+        self.pass_bars = max(1, project.used_bars) if bars is None else max(1, bars)
+        #: Passes covered, so `every_n` is actually heard -- see `passes_needed`.
+        self.passes = passes_needed(project)
+        self.bars = self.pass_bars * self.passes
         self.tail = tail
         self.only_slot = only_slot
         self.done = False
 
-        self._engine = _engine_for(project)
+        self._engine = _engine_for(project, song_bars=self.bars)
         self._engine.loop = False
+        # The pass a bar belongs to is worked out from this, since a linear
+        # render never wraps for a counter to notice.
+        self._engine.pass_bars = self.pass_bars
+        self._engine.chance_seed = project.chance_seed
         self._engine.set_schedule(self._schedule())
         self._engine.play(0)
         self._chunk = max(1, int(CHUNK_SECONDS * project.samplerate))
@@ -79,14 +116,28 @@ class BounceJob:
         """
         schedule = self.project.build_schedule()
         if self.only_slot is not None:
-            return [
+            return self._repeat([
                 tuple(entry for entry in bar if entry.slot == self.only_slot)
                 for bar in schedule
-            ]
-        return [
+            ])
+        filtered = [
             tuple(entry for entry in bar if entry.channel is None)
             for bar in schedule
         ]
+        return self._repeat(filtered)
+
+    def _repeat(self, schedule):
+        """Lay the pass out `self.passes` times, to the engine's full length.
+
+        The project's schedule is one song long; a multi-pass render needs a
+        bar for every bar it will play, or the later passes would be silent for
+        want of entries rather than for want of dice.
+        """
+        out = []
+        for index in range(self.bars):
+            source = index % self.pass_bars
+            out.append(schedule[source] if source < len(schedule) else ())
+        return out
 
     @property
     def progress(self) -> float:

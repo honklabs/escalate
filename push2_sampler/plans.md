@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-08`~~ `IN-04` `IN-05` `IN-06` `IN-07` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-08`~~ ~~`NH-10`~~† `IN-04` `IN-05` `IN-06` `IN-07` `NH-09` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -370,6 +370,13 @@ notes) cannot act on a bar-addressed arrangement at all, so swing went where
 sub-beat time actually exists — live triggering — and the nudge is the bar-grid
 equivalent. See the item for the reasoning; it is the one place in this plan
 where the spec was judged wrong rather than incomplete.
+
+† `NH-10` shipped its probability and `every_n`, but not with the spec's
+"per-pass seeded RNG" — a stateful generator is only reproducible if you always
+play from the same place, which defeats the one thing the spec asked of it. It
+is a **pure function** of position instead. And the spec's brightness-shows-
+probability display had to become a flash, because brightness already means
+velocity. See the item.
 
 ---
 
@@ -1707,6 +1714,61 @@ from a seeded RNG held on the engine), `modes/sample.py`. **Tests:** p=0 never
 fires, p=100 always; with a fixed seed a 64-bar pass is reproducible;
 `every_n=2` fires on passes 2, 4, 6. **Deps:** `NF-10` (shared trigger record).
 
+**Status: shipped.** `Sample.probabilities` (a bar→percent dict, absent means
+certain) and `Sample.every_n`, format version 10, `Project.chance_seed`,
+`SetProbability` / `SetEveryN` / `SetChanceSeed` on the undo stack, and
+`Shift`+encoders 2/3/4 on a sample page. All four of the plan's tests pass with
+its numbers, in `tests/test_chance.py` (45 tests).
+
+**The plan's "per-pass seeded RNG" would not have been reproducible.** A
+generator advanced once per trigger gives bar 40 a different answer depending on
+how many triggers preceded it — so dropping in at bar 17 instead of playing from
+the top changes everything after it, and what you bounce is not what you heard.
+Shipped instead as `roll(seed, pass, bar, slot)`, a SplitMix64-style **pure
+function** with no state to diverge. Verified uniform (24.3 % / 49.2 % / 74.7 %
+measured for p=25/50/75 over 8192 rolls) and verified to give identical output
+whether playback starts at bar 1, starts at bar 17, or is rendered offline.
+
+**And a test found that `every_n` was silently absent from bounces.** A bounce
+renders **linearly**, start to end, once — so it never loops, so a pass counter
+incremented on the loop wrap stayed at 1 for ever. A sample set to *every 2nd
+pass* was therefore in the arrangement you heard and **not in the file at all**.
+Two fixes: the pass is now *derived from the position* when there is no loop to
+wrap, and `render.passes_needed` returns the lowest common multiple of every
+audible triggered sample's `every_n` (capped at `MAX_PASSES = 8`) so a bounce
+covers a whole cycle, with the schedule tiled across it. Muted samples are
+excluded from that LCM — a muted *every 5th pass* sample must not quintuple your
+file length. A test now asserts the bars you hear are bar-for-bar the bars that
+land in the file.
+
+Three decisions the plan did not reach:
+
+1. **An uncertain bar flashes; it does not dim.** The plan said "pad brightness
+   shows probability", but brightness on a sample page already means *recorded
+   velocity* (`NF-10`), so a quiet hit at 100 % and a loud hit at 40 % would be
+   the same pixel. Flashing is the only channel left, and it reads as
+   "sometimes" rather than "quiet".
+2. **The dice are per project, not per sample.** The point of a seed is that the
+   whole arrangement varies *together* and repeatably — a kick that drops and a
+   snare that answers it must agree about which pass this is. It is editable at
+   all (`Shift`+encoder 4, 0–63) because otherwise the seed is 0 for ever and a
+   probabilistic song has exactly one variation in it.
+3. **`Shift`+encoder 2 asks for a bar rather than picking one.** "The selected
+   bar" had no referent on a page of 64 pads, so it means the bar you last
+   pressed, and with none pressed the page says
+   `press a bar first, then Shift + encoder 2`. Silently editing whichever bar
+   happened to be first is worse than asking.
+
+The minimum probability is **5 %**, not 0: a 0 % bar is a bar that does not
+play, which the pad already expresses by being off, and leaving it reachable by
+encoder would give two different-looking ways to say the same thing. The floor
+also means turning the encoder all the way down never makes a bar disappear from
+the grid.
+
+Only the pass counter, not probability, drives the `· pass N` suffix on the
+transport readout — a pass number on a song that has no pass cycle is a number
+with nothing to say.
+
 ### NH-11 — Multiple output pairs and a cue bus `size: M`
 
 Route a slot to output pair 1/2 or 3/4, and send the metronome to the cue pair
@@ -2138,7 +2200,17 @@ is exactly what you heard.
 differ; the live transport and a bounce of the same pass range produce identical
 audio (the key property — it is what makes this trustworthy).
 
-**Deps.** `NF-05`, `NH-10`, `IN-03`.
+**Deps.** `NF-05`, `NH-10`, `IN-03`. **All three are now shipped, so this is
+unblocked** — and three quarters built. `NH-10` already delivered the pass
+counter, the deterministic per-position seed, `· pass N` on the display, and the
+bounce-covers-a-whole-pass-cycle property this item lists as "the key property —
+it is what makes this trustworthy" (`tests/test_chance.py` asserts the bars you
+hear are the bars in the file). What is genuinely left is the **variation
+rules** — "every 4th pass, double the hats" is a statement about a *pattern*,
+not a probability, and `IN-03`'s generator is what would have to evaluate it —
+plus the `Living` toggle, a display of what is *about* to change, and choosing
+how many passes `Shift`+`Record` bounces rather than deriving it from the LCM.
+Re-scope before starting: this is now `size: M`.
 
 ### IN-06 — Take comping and round-robin alternates `size: M`
 

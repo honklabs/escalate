@@ -184,6 +184,25 @@ step however many bars it wrote.
   bar line would cut a retriggered voice up to 120 ms before its replacement
   began. Saved with the project (format 9), one undo step, and applied on the
   way to the speakers so a take is never re-cut.
+* **Chance** makes a bar a *maybe* instead of a certainty, so a song moves
+  without you drawing every variation by hand. Hold `Shift`: encoder 2 sets the
+  selected bar's chance (5-100 % in 5 % steps), encoder 3 makes the whole sample
+  play only on **every Nth pass** of the loop (2-8), and encoder 4 rerolls the
+  project's **dice** (0-63). An uncertain bar *flashes* rather than dimming,
+  because brightness on a sample page already means recorded velocity. The roll
+  is a **pure function** of `(seed, pass, bar, slot)` with no state to diverge,
+  which is the whole of the reproducibility claim: bar 40 of pass 3 sounds the
+  same whether you played from the top, dropped in at bar 17, or rendered the
+  file offline. A stateful generator could not promise that. The dice are per
+  project, not per sample, so the arrangement varies *together*. Saved with the
+  project (format 10), one undo step each.
+
+  A test found the half of that claim that was not obvious: a bounce renders
+  **linearly** and therefore never wraps, so with passes counted only on a wrap
+  a bounce sat on pass 1 for ever and a sample set to *every 2nd pass* was
+  absent from the output file **entirely**. The render now covers a full cycle —
+  the lowest common multiple of every audible sample's `every_n`, capped at 8
+  passes — and the schedule is tiled across it.
 * **Accent** decides whether this sample responds to how hard you hit a pad.
   With it off (the default) every bar plays at the sample's own level, which is
   what a take toggled in by hand should do. With it on, the green of each bar
@@ -712,7 +731,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-1287 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1332 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -734,7 +753,9 @@ routing, swing and per-sample nudges measured in frames, onset detection against
 signals with chosen onset frames, pitch to within a semitone and tempo to
 within 2 BPM on material built at a known one, every Euclidean rhythm in
 Toussaint's table plus maximal evenness for every length up to 64, the slice page's refusals, the monitor page's
-refusals, every internal doc link, and every older project format still loading.
+refusals, the chance dice (uniformity, purity, and that what you hear is
+bar-for-bar what gets bounced), every internal doc link, and every older project
+format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap

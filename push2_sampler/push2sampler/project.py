@@ -55,13 +55,20 @@ SONG_BARS = SONG_PAGES * PAGE_BARS
 LENGTH_TOLERANCE = 0.01
 #: Velocity of a bar that was not played in by hand: as hard as it goes.
 FULL_VELOCITY = 127
+#: A trigger with no stored probability is certain (NH-10).  Stored the way
+#: velocities are -- absent means the default -- so a project full of ordinary
+#: triggers carries no probability data at all.
+CERTAIN = 100
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 9
+FORMAT_VERSION = 10
 #: How many scene snapshots a project keeps.
 SCENE_COUNT = 8
 #: User colours a slot can be tagged with, as palette indices; see colors.py.
 SLOT_COLORS = 8
+#: Largest pass divisor.  Past eight passes of a 64-bar page you have waited
+#: minutes for a sound, which is a bug report rather than an arrangement.
+MAX_EVERY_N = 8
 
 
 
@@ -120,6 +127,44 @@ def _load_swing(value) -> float:
     if swing != swing:  # NaN
         return 0.0
     return max(0.0, min(SWING_MAX, swing))
+
+
+def _load_seed(value) -> int:
+    """A probability seed from a project file; junk becomes 0."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _load_every_n(value) -> int:
+    """Pass divisor from a project file.  0 and 1 both mean every pass."""
+    try:
+        every = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(MAX_EVERY_N, every))
+
+
+def _load_probabilities(value) -> dict[int, int]:
+    """bar -> chance, dropping anything that is not a usable pair.
+
+    A hand-edited file must not put a string or a negative number where the
+    engine expects a percentage, and 0 and 100 are both normalised away: a
+    certain trigger stores nothing, and a never-playing one is a trigger you
+    should have turned off.
+    """
+    out: dict[int, int] = {}
+    if not isinstance(value, dict):
+        return out
+    for key, chance in value.items():
+        try:
+            bar, percent = int(key), int(chance)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= bar < SONG_BARS and 0 < percent < CERTAIN:
+            out[bar] = percent
+    return out
 
 
 def _load_scenes(value) -> list[dict | None]:
@@ -198,6 +243,11 @@ class Sample:
     choke_group: int | None = None
     #: Output pair: 0 is the main mix, 1 and up are cue pairs (NH-11).
     output: int = 0
+    #: bar -> chance of playing, 1-99.  Absent means certain (NH-10); the
+    #: keys are always a subset of ``triggers``, like ``velocities``.
+    probabilities: dict[int, int] = field(default_factory=dict)
+    #: Play only on every Nth pass of the loop.  0 and 1 both mean every pass.
+    every_n: int = 0
     #: Milliseconds this sample starts *after* the bar line, 0-120 (NH-02).
     #: Late only: a bar line is the earliest moment the engine knows about, so
     #: starting before one would need lookahead across loop wraps for a feature
@@ -309,6 +359,7 @@ class Sample:
         if not on:
             self.triggers.discard(bar)
             self.velocities.pop(bar, None)
+            self.probabilities.pop(bar, None)
             return
         self.triggers.add(bar)
         if velocity is None or velocity >= FULL_VELOCITY:
@@ -370,6 +421,11 @@ class Sample:
             "choke_group": self.choke_group,
             "output": self.output,
             "nudge_ms": round(float(self.nudge_ms), 2),
+            "every_n": int(self.every_n),
+            "probabilities": {
+                str(bar): int(chance)
+                for bar, chance in sorted(self.probabilities.items())
+            },
             "velocities": {str(bar): v for bar, v in sorted(self.velocities.items())},
             "edits": self.edits.as_dict(),
             "velocity_sensitivity": round(float(self.velocity_sensitivity), 3),
@@ -438,6 +494,10 @@ class Project:
         self.warning: str | None = None
         #: Gain on the whole mix.
         self.master_gain = 1.0
+        #: Seed for the probability rolls (NH-10).  On the project so a song
+        #: sounds the same tomorrow, and so that two projects with the same
+        #: arrangement still vary differently.
+        self.chance_seed = 0
         #: Swing, as a fraction of the live-trigger quantize grid (NH-02).
         #: Kept on the project because it is a property of the song's feel, and
         #: it reaches the audio through ``Engine.swing``.
@@ -585,6 +645,8 @@ class Project:
             choke_group=source.choke_group,
             output=source.output,
             nudge_ms=source.nudge_ms,
+            every_n=source.every_n,
+            probabilities=dict(source.probabilities),
             layers=list(source.layers),
         )
         self.slots[dst] = copy
@@ -787,6 +849,8 @@ class Project:
                             choke_group=sample.choke_group,
                             channel=pair_first_channel(sample.output),
                             nudge=sample.nudge_ms / 1000.0 * self.samplerate,
+                            probability=sample.probabilities.get(bar, CERTAIN),
+                            every_n=sample.every_n,
                         )
                     )
         return [tuple(entries) for entries in schedule]
@@ -812,6 +876,7 @@ class Project:
             "bpm": round(self.bpm, 3),
             "master_gain": round(float(self.master_gain), 4),
             "swing": round(float(self.swing), 4),
+            "chance_seed": int(self.chance_seed),
             "beats_per_bar": self.beats_per_bar,
             "pages": self.pages,
             # Kept for readers older than format 6, which derive the length from
@@ -866,6 +931,7 @@ class Project:
             project.pages = max(1, min(SONG_PAGES, -(-declared // PAGE_BARS)))
         project.master_gain = float(payload.get("master_gain", 1.0) or 1.0)
         project.swing = _load_swing(payload.get("swing"))
+        project.chance_seed = _load_seed(payload.get("chance_seed"))
         project.scenes = _load_scenes(payload.get("scenes"))
         dropped_bars = 0
         dropped_slots: list[int] = []
@@ -924,6 +990,8 @@ class Project:
                 choke_group=_load_choke_group(entry.get("choke_group")),
                 output=_load_output(entry.get("output")),
                 nudge_ms=_load_nudge(entry.get("nudge_ms")),
+                every_n=_load_every_n(entry.get("every_n")),
+                probabilities=_load_probabilities(entry.get("probabilities")),
                 source_bpm=source_bpm,
                 source_samplerate=source_rate,
                 layers=layers,

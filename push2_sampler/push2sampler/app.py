@@ -212,6 +212,7 @@ class App:
         self.engine.set_bpm(project.bpm)
         self.engine.master_gain = project.master_gain
         self.engine.swing = project.swing
+        self.engine.chance_seed = project.chance_seed
         self.apply_loop_scope()
         self.rebuild_schedule()
         self.mode.on_enter()
@@ -427,8 +428,12 @@ class App:
         if scope == LOOP_PAGE:
             start = self.page * PAGE_BARS
             self.engine.loop_range = (start, start + PAGE_BARS)
+            # With the loop off, a pass has to be worked out from the position
+            # rather than counted, and a page is the unit that repeats (NH-10).
+            self.engine.pass_bars = PAGE_BARS
         else:
             self.engine.loop_range = (0, self.project.song_bars)
+            self.engine.pass_bars = self.project.song_bars
 
     def cycle_loop_scope(self) -> None:
         index = LOOP_SCOPES.index(self.loop_scope)
@@ -590,6 +595,7 @@ class App:
         self.engine.set_bpm(project.bpm)
         self.engine.master_gain = project.master_gain
         self.engine.swing = project.swing
+        self.engine.chance_seed = project.chance_seed
         self.apply_loop_scope()
         self.rebuild_schedule()
         if project.warning:
@@ -765,6 +771,7 @@ class App:
         self.engine.set_bpm(self.project.bpm)
         self.engine.master_gain = self.project.master_gain
         self.engine.swing = self.project.swing
+        self.engine.chance_seed = self.project.chance_seed
         self.rebuild_schedule()
         self.save_soon()
         self.notify(message)
@@ -1105,11 +1112,23 @@ class App:
         if page:
             where += f"{page}"
         line = f"{where} · {beat + 1} · {format_bpm(self.engine.bpm)} BPM"
+        if self._varies_by_pass():
+            # Only when a sample actually cares which pass it is: a pass
+            # counter on every song would be a number with nothing to say.
+            line += f" · pass {self.engine.pass_number}"
         if self.clock.role != "internal":
             # Who is in charge of the tempo is exactly what you need to know
             # when the tempo is doing something you did not ask for.
             line += f" · {'SYNC' if getattr(self.clock, 'locked', True) else 'sync?'}"
         return line
+
+    def _varies_by_pass(self) -> bool:
+        """Whether any audible sample plays only on some passes (NH-10)."""
+        return any(
+            (sample.every_n or 1) > 1
+            for sample in self.project.filled()
+            if self.project.audible(sample)
+        )
 
     def mode_banner(self) -> tuple[str, str]:
         """``(banner, state)`` for the display's top line (CC-20).

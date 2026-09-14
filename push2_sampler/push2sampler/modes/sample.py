@@ -34,15 +34,23 @@ from ..history import (
     SetChokeGroup,
     SetPlayMode,
     SetEnabled,
+    SetChanceSeed,
+    SetEveryN,
     SetGain,
     SetNudge,
+    SetProbability,
     SetVelocitySensitivity,
     ToggleTrigger,
 )
-from ..project import FULL_VELOCITY, PAGE_BARS
+from ..project import CERTAIN, FULL_VELOCITY, MAX_EVERY_N, PAGE_BARS
 
 #: Milliseconds per click of the nudge encoder (NH-02).
 NUDGE_STEP_MS = 5.0
+#: Percentage points per click of the probability encoder (NH-10).
+PROBABILITY_STEP = 5
+#: How many project dice there are.  Small enough to walk through and come
+#: back to the one you liked, which is the whole reason it is a seed.
+CHANCE_SEEDS = 64
 from .base import Mode
 from .info import InfoMode
 from .pattern import PatternMode
@@ -89,6 +97,8 @@ class SampleMode(Mode):
         self._paint_on = False
         #: Last single tap, for spotting a double tap on the same bar.
         self._tapped_bar: int | None = None
+        #: Bar that Shift + encoder 2 adjusts, or None.
+        self._selected_bar: int | None = None
         self._tapped_at = 0.0
         #: First bar of a block being duplicated, once it has been picked.
         self._copy_from: int | None = None
@@ -134,6 +144,10 @@ class SampleMode(Mode):
             self._phrase(sample, bar)
             return True
         self.app.do(ToggleTrigger(self.slot, bar, bar not in sample.triggers))
+        # The bar Shift + encoder 2 adjusts (NH-10).  "The selected bar" in the
+        # plan had no referent on this page, and the last one you touched is
+        # the only candidate a hand would agree with.
+        self._selected_bar = bar if bar in sample.triggers else None
         self._held_bar = bar
         self._paint_on = bar in sample.triggers
         self._tapped_bar, self._tapped_at = bar, now
@@ -331,9 +345,101 @@ class SampleMode(Mode):
                 self.app.do(SetGain(self.slot, gain, sample.gain))
             return True
         if cc == ENCODER_TRACK[1]:
-            self._nudge(sample, delta)
+            if self.app.shift:
+                self._set_probability(sample, delta)
+            else:
+                self._nudge(sample, delta)
+            return True
+        if cc == ENCODER_TRACK[2] and self.app.shift:
+            self._set_every_n(sample, delta)
+            return True
+        if cc == ENCODER_TRACK[3] and self.app.shift:
+            self._reroll(delta)
             return True
         return False
+
+    def _set_probability(self, sample, delta: int) -> None:
+        """Shift + encoder 2: how likely the selected bar is to play (NH-10).
+
+        Needs a bar chosen, and says so rather than picking one: silently
+        editing whichever bar happened to be first would be worse than asking.
+        """
+        bar = self._selected_bar
+        if bar is None or bar not in sample.triggers:
+            self.app.notify("press a bar first, then Shift + encoder 2")
+            return
+        current = sample.probabilities.get(bar, CERTAIN)
+        wanted = max(PROBABILITY_STEP,
+                     min(CERTAIN, current + delta * PROBABILITY_STEP))
+        if wanted == current:
+            return
+        self.app.do(SetProbability(self.slot, bar, wanted, current))
+        self.app.notify(
+            f"bar {bar + 1}: {'always plays' if wanted >= CERTAIN else f'{wanted}% chance'}"
+        )
+
+    def _set_every_n(self, sample, delta: int) -> None:
+        """Shift + encoder 3: play only on every Nth pass of the loop."""
+        current = sample.every_n or 1
+        wanted = max(1, min(MAX_EVERY_N, current + delta))
+        if wanted == current:
+            return
+        self.app.do(SetEveryN(self.slot, 0 if wanted == 1 else wanted,
+                              sample.every_n))
+        self.app.notify(
+            "every pass" if wanted == 1 else f"only every {wanted} passes"
+        )
+
+    def _chance_summary(self, sample) -> str:
+        """What is uncertain about this sample, or nothing at all (NH-10).
+
+        Only shown when something is set: "100% chance" on every bar of every
+        ordinary sample would be four lines of noise on a four-line display.
+        """
+        parts = []
+        maybe = len(sample.probabilities)
+        if maybe:
+            parts.append(f"{maybe} maybe-bar(s)")
+        if (sample.every_n or 1) > 1:
+            parts.append(f"every {sample.every_n} passes")
+        if parts:
+            parts.append(f"dice {self.project.chance_seed}")
+        return ("   " + "   ".join(parts)) if parts else ""
+
+    def _chance_help(self, sample) -> str:
+        bar = self._selected_bar
+        if bar is not None and bar in sample.triggers:
+            chance = sample.probabilities.get(bar, CERTAIN)
+            state = "always" if chance >= CERTAIN else f"{chance}%"
+            return (f"bar {bar + 1} selected ({state})   "
+                    "Shift+enc 2: chance   3: passes   4: dice")
+        return ("press a bar, then Shift+enc 2: chance   "
+                "3: every Nth pass   4: reroll the dice")
+
+    def _reroll(self, delta: int) -> None:
+        """Shift + encoder 4: the project's dice (NH-10).
+
+        Per project rather than per sample, because the point of a seed is that
+        the *whole* arrangement varies together and reproducibly -- and it is
+        editable at all because otherwise the seed is 0 for ever and a
+        probabilistic song has exactly one variation.
+        """
+        if not self._uses_chance():
+            self.app.notify("nothing has a chance set yet - Shift+enc 2 first")
+            return
+        previous = self.project.chance_seed
+        wanted = (previous + delta) % CHANCE_SEEDS
+        if wanted == previous:
+            return
+        self.app.do(SetChanceSeed(wanted, previous))
+        self.engine.chance_seed = wanted
+        self.app.notify(f"dice {wanted}: a different variation, same every time")
+
+    def _uses_chance(self) -> bool:
+        return any(
+            other.probabilities or (other.every_n or 1) > 1
+            for other in self.project.filled()
+        )
 
     def _nudge(self, sample, delta: int) -> None:
         """Lay this sample back behind the beat, in milliseconds (NH-02).
@@ -380,9 +486,22 @@ class SampleMode(Mode):
                 bar = self.app.bar_at(pad)
                 pads[pad] = colors.AMBER.index if bar in mine else colors.WHITE.index
 
+    def _trigger_color(self, sample, bar: int) -> int:
+        """Green, in three steps, so you can see how hard a bar was played.
+
+        A bar with a **probability** below 100 flashes between its colour and
+        dark instead (NH-10).  Brightness is already spoken for by velocity --
+        the plan wanted probability there too, and the two would have been
+        indistinguishable -- and a pad that blinks is a much better way to say
+        "this might not play" than a shade nobody can calibrate by eye.
+        """
+        base = self._velocity_color(sample, bar)
+        if sample.probabilities.get(bar, CERTAIN) < CERTAIN and not self.app.blink:
+            return colors.OFF.index
+        return base
+
     @staticmethod
-    def _trigger_color(sample, bar: int) -> int:
-        """Green, in three steps, so you can see how hard a bar was played."""
+    def _velocity_color(sample, bar: int) -> int:
         if not sample.enabled:
             return colors.GREEN_DIM.index
         if sample.velocity_sensitivity <= 0:
@@ -462,12 +581,14 @@ class SampleMode(Mode):
             f"SLOT {self.slot + 1} {sample.name}  {sample.bars} bar(s)  "
             f"{state}{layers}   page {self.app.page_letter}",
             f"plays on {len(sample.triggers)} bar(s)  gain {sample.gain:.2f}  {velocity}"
-            + (f"  +{sample.nudge_ms:.0f}ms" if sample.nudge_ms else ""),
+            + (f"  +{sample.nudge_ms:.0f}ms" if sample.nudge_ms else "")
+            + self._chance_summary(sample),
             f"{PLAY_MODE_LABELS[sample.play_mode]}"
             + (f"  choke {sample.choke_group}" if sample.choke_group else "")
             + "   buttons 2-5: mode   8: choke group",
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "encoder 1: gain   encoder 2: lay it back behind the beat",
+            self._chance_help(sample),
             "Record: re-record   New: layer   Mute: hear   Device: edit"
             "   Convert: slice   Layout: about   Automate: pattern"
             + ("   (edited)" if not sample.edits.is_default else ""),

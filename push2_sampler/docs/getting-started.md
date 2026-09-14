@@ -619,7 +619,53 @@ Try `mirror` on a second sample once you have a kick you like. Two slots
 playing the same bars is a pair; then rotate one by a bar or two and it becomes
 a conversation.
 
-### Step 26: find out how tight you played
+### Step 26: let some bars be a maybe
+
+Everything so far either plays or it does not, and after two passes round the
+loop you have heard everything your song will ever do. Here is how to make it
+move on its own.
+
+Go to a sample page — try the one with your hat or clap on it, not the kick —
+and **press one of its green bars** to select it. Then **hold Shift and turn
+encoder 2** down to about 70.
+
+That bar is now **flashing**. A steady green bar always plays; a flashing one is
+a maybe. Press **Play** and let it go round four or five times: the part is
+still recognisably yours, but it is not the same four bars over and over.
+
+Two more controls under the same **Shift**:
+
+- **Shift**+**encoder 3** — *only every Nth pass*. Set a fill to `every 2
+  passes` and it arrives every other time round instead of every time. This is
+  per sample, not per bar: "this whole fill comes round every other time" is a
+  statement about the take.
+- **Shift**+**encoder 4** — the **dice**. Turn it and you get a *different*
+  variation — but always the same different variation. Land on `dice 12`, play
+  it ten times, and the song is identical all ten.
+
+The status line tells you what is uncertain: `2 maybe-bar(s)   every 2 passes
+dice 12`. On an ordinary sample it says nothing at all. The transport readout
+grows `· pass 3` once something actually uses passes, so you can see where you
+are in the cycle.
+
+Three things worth knowing:
+
+- **Press a bar first.** Shift+encoder 2 edits the bar you last pressed. If you
+  have not pressed one it says `press a bar first, then Shift + encoder 2`
+  rather than quietly picking one for you.
+- **The dice are for the whole project**, not one sample. The point of a seed is
+  that the whole arrangement varies *together* — a kick that drops and a snare
+  that answers it should agree about which pass this is.
+- **A bounce gives you exactly what you heard.** Set `dice 12`, listen, bounce,
+  and the file is that. The roll depends only on *where* you are in the song,
+  never on how you got there, so dropping in at bar 17 or rendering offline both
+  give the same answer as playing from the top. And if anything uses `every 2
+  passes`, the bounce is **two passes long** so that part is actually in the
+  file.
+
+One **Undo** takes back any of the three.
+
+### Step 27: find out how tight you played
 
 Still on the **About** page (**Layout** from a sample page), **press button 2.**
 
@@ -658,7 +704,7 @@ for it and discouraging when you did not.
 
 <a id="settings"></a>
 
-### Step 27: the settings worth knowing
+### Step 28: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -693,7 +739,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 28: tempo, click, loop
+### Step 29: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -729,7 +775,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 29: shape a take
+### Step 30: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -759,7 +805,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 30: name it, colour it
+### Step 31: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -775,7 +821,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 31: keep two versions of the arrangement
+### Step 32: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -789,7 +835,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 32: start another song, without a terminal
+### Step 33: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -805,7 +851,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 33: undo
+### Step 34: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -827,7 +873,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 34: bounce it
+### Step 35: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It
@@ -843,7 +889,9 @@ python -m push2sampler --stems stems/ my-first-song       # one file per slot
 ```
 
 Stems sum back to the mix exactly, and both keep the tails of samples that
-overrun the last bar.
+overrun the last bar. If anything in the song uses `every Nth pass`, the bounce
+covers a whole cycle of passes rather than one, so nothing set to a pass cycle
+is missing from the file.
 
 ---
 
