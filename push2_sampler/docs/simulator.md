@@ -351,6 +351,22 @@ p 0              # highlight the first entry
 p 0              # and open it, or import it
 session
 
+# make a bar a maybe, and give the song its dice
+p 0              # back onto a sample page
+p 4              # bar 5 on -- and the bar you last touched is the selected one
+shift on
+k 2 -6           # 100% -> 70%: that pad now flashes
+k 3 +1           # and the whole sample only plays every 2nd pass
+k 4 +7           # dice 7 -- a different variation, the same every time
+shift off
+s                # "1 maybe-bar(s)   every 2 passes   dice 7"
+play
+wait 6           # two passes -- the second sounds different from the first
+stop
+undo             # dice 7
+undo             # slot 1 every 2 passes
+undo             # bar 5 70% chance
+
 # watch it play from the samples' side, then swap two slots
 shift on
 session          # master playback

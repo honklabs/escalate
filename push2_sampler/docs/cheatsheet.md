@@ -135,6 +135,9 @@ to another page of 64.
 | **Up** / **Down** | previous / next filled slot |
 | **encoder 1** | this sample's gain (0 – 2.0) |
 | **encoder 2** | lay it back behind the beat, 0 – 120 ms |
+| **Shift**+**encoder 2** | chance for the selected bar, 5 – 100% |
+| **Shift**+**encoder 3** | play only on every Nth pass, 2 – 8 |
+| **Shift**+**encoder 4** | reroll the project's dice, 0 – 63 |
 | **button 1 below the display** | fit an off-grid take to its bars (when yellow) |
 | **buttons 2-5 below** | play mode: one shot / loop / gate / retrig |
 | **button 8 below** | choke group: off → 1…8 → off |
@@ -147,6 +150,7 @@ to another page of 64.
 | dim blue | another sample plays here |
 | amber | the playhead, on a bar where this sample plays |
 | white | the playhead, anywhere else |
+| flashing green | plays here *sometimes* — a [chance](#chance--bars-that-only-sometimes-play) bar |
 | flashing blue | the first bar of a block you are duplicating |
 | faint white | 4-bar phrase mark; brighter every 16 bars |
 
@@ -213,6 +217,31 @@ is the earliest moment the engine knows about.
 
 Recording is untouched: the nudge is applied on the way to the speakers, so it
 affects playback and bounces but never where a take was captured.
+
+---
+
+## Chance — bars that only sometimes play
+
+Press a bar on a sample page, then hold **Shift**:
+
+| Control | Does |
+| --- | --- |
+| **encoder 2** | how likely *that bar* is — 5 – 100% in 5% steps |
+| **encoder 3** | play only on every Nth pass of the loop — 2 to 8 |
+| **encoder 4** | the project's dice, 0 – 63: a different variation, same every time |
+
+An uncertain bar **flashes** green; a certain one is steady. (It cannot be a
+dimmer green — brightness on a sample page already means recorded velocity.)
+
+The status line reads `2 maybe-bar(s)   every 2 passes   dice 7`, and shows
+nothing at all when nothing is uncertain. The transport grows `· pass 3` only
+once something uses passes.
+
+**Same dice, same song.** The roll is a pure function of `(seed, pass, bar,
+slot)` with no state, so bar 40 of pass 3 sounds the same whether you played
+from the top, dropped in halfway, or bounced the file. A bounce covers a whole
+pass cycle — the lowest common multiple of every audible `every_n`, up to 8
+passes — so what you hear is what lands in the file.
 
 ---
 

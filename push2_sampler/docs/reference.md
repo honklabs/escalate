@@ -220,6 +220,10 @@ One sample, and where it plays. **The 64 pads are the 64 bars of the song** — 
 | **Shift**+**Delete** | Delete this sample and return to the library |
 | **▲** / **▼** | Jump to the previous / next filled slot |
 | Track encoder 1 | This sample's gain (0–2) |
+| Track encoder 2 | [Nudge](#groove--laying-a-sample-back-behind-the-beat) this sample behind the beat |
+| **Shift**+encoder 2 | [Chance](#chance--bars-that-only-sometimes-play) for the selected bar |
+| **Shift**+encoder 3 | Play only on [every Nth pass](#chance--bars-that-only-sometimes-play) |
+| **Shift**+encoder 4 | [Reroll the dice](#chance--bars-that-only-sometimes-play) for the whole project |
 | First button **below** the display | [Fit an off-grid take](#off-grid-takes) to its bars |
 
 #### Overdubbing
@@ -360,6 +364,85 @@ which is an audible hole where a retrigger should be seamless.
 
 Recording is untouched: a nudge is applied on the way to the speakers, like
 [the edits](#sample-editor), so it never changes where a take was captured.
+
+#### Chance — bars that only sometimes play
+
+A 64-bar arrangement built from bars that either play or do not is exact, and
+after four passes you have heard everything it will ever do. Chance makes a bar
+*likely* instead of certain, so the song moves without you drawing every
+variation by hand.
+
+Three controls, all on a sample page, all needing **Shift** so the unshifted
+encoders keep doing what they did:
+
+| Control | Sets | Range |
+| --- | --- | --- |
+| **Shift**+encoder 2 | how likely the **selected bar** is to play | 5–100% in 5% steps |
+| **Shift**+encoder 3 | play only on **every Nth pass** of the loop | every pass, or every 2–8 |
+| **Shift**+encoder 4 | the project's **dice** — which variation you get | 0–63 |
+
+**Chance is per bar; passes are per sample.** "This clap lands 70% of the time"
+is a question about one bar. "This whole fill arrives every other time round" is
+a question about the take. Putting each on the control that matches its scope
+means neither needs a second control to undo it.
+
+**Press a bar first.** Shift+encoder 2 edits the bar you last pressed and says
+`press a bar first, then Shift + encoder 2` if you have not pressed one. It
+does not pick a bar for you: silently editing whichever bar happened to be
+first is worse than asking.
+
+**A maybe-bar flashes.** On the grid a certain bar is a steady green and an
+uncertain one **blinks**. It cannot be a dimmer green instead, because
+brightness on a sample page already means recorded velocity — a quiet hit at
+100% and a loud hit at 40% would look identical.
+
+##### Same dice, same song
+
+The dice are a **pure function of where you are**, not a running generator:
+
+```
+roll(seed, pass, bar, slot) -> a number in [0, 1)
+```
+
+Nothing is remembered between rolls. That is the whole of the reproducibility
+claim, and a stateful generator could not make it. A generator advanced once
+per trigger gives bar 40 a different answer depending on how many triggers came
+before it, so starting playback at bar 17 instead of bar 1 would change
+everything after — and **what you bounced would not be what you heard**. With a
+pure function, bar 40 of pass 3 rolls the same number whether you arrived there
+from the top, dropped in halfway, or rendered the file offline.
+
+So the dice are per **project**, not per sample: the point of a seed is that the
+whole arrangement varies *together* and repeatably. It is editable at all
+because otherwise the seed would be 0 for ever and a probabilistic song would
+have exactly one variation in it.
+
+| | |
+| --- | --- |
+| The pass counter | starts at 1 on **Play**, advances on each loop wrap, and is derived from the position when there is no loop to wrap |
+| The status line | shows `2 maybe-bar(s)   every 2 passes   dice 7`, and nothing at all when nothing is uncertain |
+| The transport readout | grows `· pass 3` only once something actually uses passes |
+| Saved with the project | format 10, and every older format loads straight |
+| One undo step each | chance, passes and the dice are all undoable |
+
+##### What a bounce had to learn
+
+A [bounce](#bouncing) renders the song **linearly** — start to end, once. It
+therefore never wraps, so when passes were counted only on a wrap, a bounce sat
+on pass 1 for ever and a sample set to *every 2nd pass* was **absent from the
+output file entirely**. You would build an arrangement, listen to it, bounce
+it, and part of it would be gone.
+
+The render now asks how long a full cycle is before it starts:
+`passes_needed` is the **lowest common multiple** of every audible triggered
+sample's `every_n`, capped at 8 passes, and the schedule is tiled across them.
+An 8-bar song with one *every 2nd pass* sample bounces 16 bars, and both halves
+differ. Nothing set to a pass cycle means one pass and the file is the length it
+always was.
+
+Muted samples are excluded from the calculation, the same way they are excluded
+from the mix — a muted *every 5th pass* sample cannot stretch your file to five
+times its length.
 
 ### Master playback mode
 

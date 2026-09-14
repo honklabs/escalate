@@ -12,6 +12,74 @@ plan.
 
 ## Unreleased
 
+### Bars that only sometimes play (`NH-10`)
+
+Hold **Shift** on a sample page. **Encoder 2** sets the selected bar's chance
+(5–100 % in 5 % steps), **encoder 3** makes the whole sample play only on
+**every Nth pass** of the loop (2–8), and **encoder 4** rerolls the project's
+**dice** (0–63). A 64-bar arrangement of certainties has shown you everything it
+will ever do after one pass; this is how it keeps moving without you drawing
+every variation by hand.
+
+An uncertain bar **flashes** green. The plan said pad brightness would show
+probability, but brightness on a sample page already means *recorded velocity* —
+a quiet hit at 100 % and a loud hit at 40 % would be the same pixel.
+
+#### The spec's own RNG could not keep the spec's promise
+
+The plan asked for "a per-pass seeded RNG so a pass is reproducible for bounce".
+A generator advanced once per trigger is reproducible **only if you always start
+from the same place**: drop in at bar 17 instead of playing from the top and
+every roll after it differs, so what you bounce is not what you heard. The
+dice are a pure function of position instead —
+
+```
+roll(seed, pass, bar, slot) -> a number in [0, 1)
+```
+
+— with no state to diverge. Bar 40 of pass 3 rolls the same number whether you
+arrived from the top, dropped in halfway, or rendered the file offline.
+Measured uniform at 24.3 % / 49.2 % / 74.7 % for p=25/50/75 over 8192 rolls.
+
+The dice are per **project**, not per sample: a kick that drops out and a snare
+that answers it have to agree about which pass this is.
+
+#### A test found the feature missing from its own bounce
+
+A bounce renders **linearly** — start to end, once — so it never loops, so a
+pass counter incremented on the loop wrap sat at **1 for ever**. A sample set to
+*every 2nd pass* was in the arrangement you heard and **absent from the output
+file entirely**. You would build it, listen to it, bounce it, and part of it
+would simply be gone.
+
+Two fixes. The pass is now derived from the *position* when there is no loop to
+wrap, and the render asks how long a full cycle is before it starts:
+`passes_needed` is the lowest common multiple of every audible triggered
+sample's `every_n`, capped at 8 passes, with the schedule tiled across it. An
+8-bar song with one *every 2nd pass* sample now bounces 16 bars and the two
+halves differ. Muted samples are excluded from that LCM — a muted *every 5th
+pass* sample must not quintuple your file length.
+
+There is now a test that plays the song, bounces it, and asserts the bars you
+heard are bar-for-bar the bars in the file.
+
+#### Smaller decisions
+
+- **`Shift`+encoder 2 asks for a bar rather than picking one.** "The selected
+  bar" had no referent on a page of 64 pads, so it means the bar you last
+  pressed — and with none pressed the page says so rather than silently editing
+  whichever bar happened to be first.
+- **The floor is 5 %, not 0 %.** A 0 % bar is a bar that does not play, which
+  the pad already says by being off; two different-looking ways to express one
+  state is worse than a floor.
+- **The status line shows nothing when nothing is uncertain.** `100% chance` on
+  every bar of every ordinary sample would be four lines of noise on a
+  four-line display. Likewise `· pass N` joins the transport readout only once
+  a sample actually cares which pass it is.
+
+Project format **10**; every older format still loads. 45 new tests
+(`tests/test_chance.py`), 1332 in total.
+
 ### How tight you played it (`IN-08`)
 
 Button 2 on the About page switches the grid to a **timing scatter**: each hit
