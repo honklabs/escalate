@@ -107,7 +107,7 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
-`convert`/`slice` `layout`/`about`/`info`
+`convert`/`slice` `layout`/`about`/`info` `automate`/`pattern`
 `clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
@@ -303,6 +303,13 @@ shift on
 b1               # send slot 1 to outputs 3/4 (needs --out-channels 4)
 shift off
 mix              # close
+
+# generate the bars instead of tapping them
+pattern          # a flashing preview; nothing stored yet
+k 5 -8           # a pattern 8 bars long, repeating
+k 1 -1           # three of every eight: the tresillo
+s                # read the shape line
+pattern          # keep it, as one undo step
 
 # ask what the take sounds like
 about            # a spectrogram, a role, a pitch, a tempo -- each with a confidence

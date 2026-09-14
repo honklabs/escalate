@@ -45,6 +45,7 @@ from ..project import FULL_VELOCITY, PAGE_BARS
 NUDGE_STEP_MS = 5.0
 from .base import Mode
 from .info import InfoMode
+from .pattern import PatternMode
 from .sample_edit import SampleEditMode
 from .slice import SliceMode
 from .tag import TagMode
@@ -240,6 +241,9 @@ class SampleMode(Mode):
         if cc == Btn.LAYOUT and sample is not None:
             self.app.push_mode(InfoMode(self.app, self.slot))
             return True
+        if cc == Btn.AUTOMATE and sample is not None:
+            self.app.push_mode(PatternMode(self.app, self.slot))
+            return True
         if cc == Btn.NEW and sample is not None:
             self._overdub(sample)
             return True
@@ -413,6 +417,7 @@ class SampleMode(Mode):
         buttons[Btn.SELECT] = BTN_DIM
         buttons[Btn.CONVERT] = BTN_ON if sample is not None else 0
         buttons[Btn.LAYOUT] = BTN_ON if sample is not None else 0
+        buttons[Btn.AUTOMATE] = BTN_ON if sample is not None else 0
         buttons[Btn.NEW] = (
             colors.RED.index if self._layering and self.app.blink else BTN_DIM
         )
@@ -464,7 +469,7 @@ class SampleMode(Mode):
             "pad: toggle   hold+pad: paint   double tap: fill 4 bars",
             "encoder 1: gain   encoder 2: lay it back behind the beat",
             "Record: re-record   New: layer   Mute: hear   Device: edit"
-            "   Convert: slice   Layout: about"
+            "   Convert: slice   Layout: about   Automate: pattern"
             + ("   (edited)" if not sample.edits.is_default else ""),
         ]
         if self.project.mismatched(sample):

@@ -68,6 +68,8 @@ BUTTONS = {
     "edit": Btn.DEVICE,
     "convert": Btn.CONVERT,
     "slice": Btn.CONVERT,
+    "automate": Btn.AUTOMATE,
+    "pattern": Btn.AUTOMATE,
     "layout": Btn.LAYOUT,
     "about": Btn.LAYOUT,
     "info": Btn.LAYOUT,

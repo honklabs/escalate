@@ -9,7 +9,8 @@ same material, read [Getting started](getting-started.md) instead.
 - [Modes](#modes) — [Library](#sample-library) · [Record](#record-mode) ·
   [Sample page](#sample-page) · [Master playback](#master-playback-mode) ·
   [Swap](#swapping-two-samples) · [Slice](#slice-page) ·
-  [About](#about-page) · [Editor](#sample-editor) ·
+  [About](#about-page) · [Pattern](#pattern-page) ·
+  [Editor](#sample-editor) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
   [Output routing](#output-routing) · [Browser](#project-browser) ·
   [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
@@ -526,6 +527,82 @@ loudest are kept **in time order**, because a kit built from the first 64 of
 The sensitivity encoder says so when it cannot do anything — it applies to
 transient slicing only, and a knob that turns silently in two of three modes
 would look broken.
+
+### Pattern page
+
+**Automate** from a sample page. Instead of tapping sixteen bars in, turn an
+encoder until the rhythm is right.
+
+The grid is a **live preview, flashing green**, so it never looks like bars
+that are actually stored — and bars this would *replace* show in dim red, so
+you can see what you are about to lose rather than discovering it afterwards.
+
+| Control | Action |
+| --- | --- |
+| Track encoder 1 | **Density** — how many bars of the pattern play |
+| Track encoder 2 | **Rotation** — the same shape, starting somewhere else |
+| Track encoder 3 | **Algorithm** — euclid / every n / random / mirror |
+| Track encoder 4 | **Seed** for `random`, or the **slot** to copy for `mirror` |
+| Track encoder 5 | **Length** — how long the pattern is before it repeats |
+| Button 1 below the display | Also cycles the algorithm |
+| **Automate** | Keep it, as one undo step |
+| **Session**, **Note**, **◀** | Discard it |
+
+| Algorithm | What it does |
+| --- | --- |
+| `euclid` | Spreads the hits as evenly as the arithmetic allows — [Bjorklund's algorithm](#euclidean-rhythms), which is where most traditional rhythms come from |
+| `every n` | A fixed interval. The plain answer, and often the right one |
+| `random` | A **seeded** choice, so a pattern you liked is findable again |
+| `mirror` | Copies another slot's bars, so a snare can answer a kick |
+
+A pattern is a **deterministic function of those five numbers.** The preview
+and the commit call the same function, so what you see is exactly what gets
+stored — there is no second code path to disagree with the first — and a
+pattern you liked is reproducible from five numbers rather than from luck.
+
+#### Length is the control that makes it musical
+
+Spread three bars evenly over a whole 64-bar page and you get one hit every
+twenty-one bars, which is not a rhythm. **A pattern is short and repeats**:
+three over eight, eight times, is the tresillo. So encoder 5 sets the pattern's
+length and it tiles across the page.
+
+```
+density 3, length 64   x....................x..........
+density 3, length 8    x..x..x.x..x..x.x..x..x.x..x..x.
+```
+
+Density and rotation are both counted *within* the length, so shortening it
+clamps them — a density of 12 inside a length of 4 would silently mean "every
+bar" and make the encoder look broken. `mirror` ignores the length entirely:
+tiling someone else's rhythm would be inventing a pattern rather than
+answering one.
+
+#### What committing does
+
+It **replaces** this sample's bars on the page you are looking at. Adding to
+them would make the preview a lie — you would see sixteen bars and get
+eighteen — and replacing is what makes the encoders explorable, because you
+can turn density back down and arrive where you started.
+
+It touches only **this page's 64 bars**: patterning page A must not rewrite
+page D. One **Undo** puts back everything it replaced, **including the
+velocities**, which a generated pattern has no opinion about. Density zero is
+a legitimate pattern: it clears the page, undoably.
+
+The pads do not edit here. A hand-made toggle inside a generated pattern would
+be wiped by the next encoder click, so pressing a pad says what the grid is
+for instead of silently losing the work.
+
+#### Euclidean rhythms
+
+`euclid` is Bjorklund's algorithm, and its outputs are checked against the
+table in Toussaint's *The Euclidean Algorithm Generates Traditional Musical
+Rhythms* — E(3,8) is the Cuban **tresillo**, E(5,8) the **cinquillo**, E(2,5) a
+Persian *khafif-e-ramal*. Beyond those twenty-one examples the tests assert the
+property they are examples *of*, for every length up to 64: the gaps between
+consecutive hits never differ by more than one step, there are exactly as many
+hits as asked for, and a pattern with any hits starts on one.
 
 ### About page
 
@@ -1657,13 +1734,15 @@ So you do not go looking:
   pitch, brightness and a name suggestion, each with a confidence — but a hint
   that proposes an arrangement waits for generative patterns, which needs the
   same propose-then-accept mechanic.
-- **No generative trigger patterns** yet: bars are still toggled, painted,
-  filled or played in by hand.
+- **No probability per trigger** — a bar either plays or it does not.
+  [Generated patterns](#pattern-page) did ship, and so did
+  [swing](#swing) and [groove](#groove--laying-a-sample-back-behind-the-beat),
+  but nothing here is stochastic at playback time.
 - **Aftertouch** is received and ignored; velocity is used.
 - **The colour display** shows text only: a mode banner, transport, levels and
   messages. No waveform drawing, no graphics — and it has never rendered on
   real hardware.
 
-`plans.md` in the project root tracks all of it: 53 of the 61 planned items are
-shipped — every release train up to `v1.5`, and two of the ten `v2.0` ideas.
+`plans.md` in the project root tracks all of it: 54 of the 61 planned items are
+shipped — every release train up to `v1.5`, and three of the ten `v2.0` ideas.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

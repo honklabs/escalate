@@ -579,9 +579,49 @@ will not name a pitch below about 60 Hz, because a short take has nothing to
 resolve down there. A chord reads as a `tone` with low confidence, which is
 correct: a chord is not one note.
 
+### Step 25: let it write the bars for you
+
+Tapping sixteen bars in is fine. Turning one encoder until the rhythm is right
+is better. On a sample page, **press Automate.**
+
+The grid starts flashing — that is a **preview**, and nothing is stored yet.
+Anything it would replace shows in dim red, so you can see what you are about
+to lose.
+
+Then turn the encoders above the display:
+
+1. **Encoder 5 — length.** Try 8. This is the one that matters: it sets how
+   long the pattern is before it repeats. A pattern spread over the whole
+   64-bar page is one hit every twenty-one bars, which is not a rhythm.
+2. **Encoder 1 — density.** Try 3. Three bars out of every eight, spread as
+   evenly as eight allows, repeating across the page — you have just made the
+   Cuban tresillo, which is where a great deal of music comes from.
+3. **Encoder 2 — rotation.** The same shape, starting somewhere else. Useful
+   when the rhythm is right but the downbeat is wrong.
+4. **Encoder 3 — algorithm.** `euclid` is the even spread. `every n` is the
+   plain answer. `random` uses a **seed** (encoder 4), so a pattern you liked
+   is findable again rather than gone. `mirror` copies another slot's bars, so
+   a snare can answer your kick.
+
+**Press Automate again** to keep it. One **Undo** puts back exactly what was
+there, velocities included. **Session** discards it instead.
+
+Two things that will save you a surprise:
+
+- It **replaces** this page's bars rather than adding to them, because
+  otherwise the preview would be a lie — you would see sixteen bars and get
+  eighteen. It also means you can turn density back down and arrive where you
+  started.
+- **The pads do not edit here.** A bar you toggled by hand would be wiped by
+  your next encoder turn, so the page tells you that instead of losing it.
+
+Try `mirror` on a second sample once you have a kick you like. Two slots
+playing the same bars is a pair; then rotate one by a bar or two and it becomes
+a conversation.
+
 <a id="settings"></a>
 
-### Step 25: the settings worth knowing
+### Step 26: the settings worth knowing
 
 **Press Setup.** The pads go dark — deliberately, so there is no chance of
 thinking this page edits your song. Each of the eight buttons *below* the display
@@ -616,7 +656,7 @@ The two that matter most early on:
 **Setup** again closes the page and writes the settings to
 `~/.config/push2sampler/settings.json`.
 
-### Step 26: tempo, click, loop
+### Step 27: tempo, click, loop
 
 - **Tempo encoder** (top left) changes BPM by 1 per click, or 10 with **Shift**
   held. A sweep of the encoder is one undo step, not forty.
@@ -652,7 +692,7 @@ Nothing was done behind your back — the audio is untouched. Press the first
 button below the display to pad or trim it to fit, which is undoable. (Stretching
 it in pitch-preserving fashion is not built yet.)
 
-### Step 27: shape a take
+### Step 28: shape a take
 
 **Press Device** on a sample page to open the editor.
 
@@ -682,7 +722,7 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 28: name it, colour it
+### Step 29: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -698,7 +738,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 29: keep two versions of the arrangement
+### Step 30: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -712,7 +752,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 30: start another song, without a terminal
+### Step 31: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -728,7 +768,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 31: undo
+### Step 32: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -750,7 +790,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 32: bounce it
+### Step 33: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It

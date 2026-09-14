@@ -127,6 +127,7 @@ to another page of 64.
 | **Device** | open the editor |
 | **Convert** | slice this take across the pads |
 | **Layout** | what this take sounds like, and a name for it |
+| **Automate** | generate this sample's bars instead of tapping them |
 | **Select** | name and colour this slot |
 | **Record** | re-record this slot |
 | **Delete** then a pad | clear every bar of this sample |
@@ -212,6 +213,36 @@ is the earliest moment the engine knows about.
 
 Recording is untouched: the nudge is applied on the way to the speakers, so it
 affects playback and bounces but never where a take was captured.
+
+---
+
+## Pattern — generate the bars (**Automate** on a sample page)
+
+The grid is a **flashing** preview; bars it would replace show dim red. Nothing
+is stored until you press **Automate** again.
+
+| Control | Does |
+| --- | --- |
+| **encoder 1** | density — how many bars of the pattern play |
+| **encoder 2** | rotation — same shape, different starting bar |
+| **encoder 3** | algorithm: `euclid` / `every n` / `random` / `mirror` |
+| **encoder 4** | seed (for `random`) or which slot to copy (for `mirror`) |
+| **encoder 5** | **length** — how long the pattern is before it repeats |
+| **button 1 below** | also cycles the algorithm |
+| **Automate** | keep it — one Undo |
+| **Session** | discard |
+
+**Length is the one that matters.** Three bars over 64 is one hit every 21
+bars; three over 8, repeating, is the tresillo:
+
+```
+density 3, length 64   x....................x..........
+density 3, length 8    x..x..x.x..x..x.x..x..x.x..x..x.
+```
+
+Committing **replaces** this page's 64 bars and leaves the other pages alone.
+Undo restores what was there, velocities included. Density 0 clears the page.
+Pads do not edit here — the next encoder click would wipe the edit.
 
 ---
 

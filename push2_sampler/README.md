@@ -378,6 +378,37 @@ at all**. Its octave ambiguity (90 BPM in eighths is 180 in quarters, and
 nothing in the timing distinguishes them) is resolved with the one thing a
 sampler knows and a general analyser does not: the session's own tempo.
 
+### 4d. Generated patterns
+
+`Automate` on a sample page. Instead of tapping sixteen bars in, turn an
+encoder until the rhythm is right: density, rotation, algorithm (`euclid` /
+`every n` / `random` / `mirror`), a seed, and a **length**. The grid previews it
+flashing -- so it never looks like bars that are stored -- with anything it
+would replace in dim red. `Automate` again keeps it as one undo step;
+`Session` discards.
+
+`patterns.py` is pure functions from those five numbers to a `set[int]`, which
+is what lets the preview and the commit call the *same* function: there is no
+second code path to disagree with the first, and a pattern is reproducible from
+five numbers rather than from luck.
+
+**The length control is not in the plan, and building the page without it
+showed why it has to be there.** Spread three bars evenly over a whole 64-bar
+page and you get one hit every twenty-one bars, which is not a rhythm -- it is
+a rounding error with a downbeat. A pattern is short and repeats: three over
+eight, eight times, is the tresillo, and that is what turning a density encoder
+is supposed to give you.
+
+`euclid` is Bjorklund's algorithm, checked against Toussaint's published table
+of traditional rhythms. Eighteen of its twenty-one entries matched immediately;
+the three that did not are all the single-rest case, where the grouping loop
+ends before it can interleave and the rest lands last rather than second.
+Fixing that then contradicted a twenty-first entry which had been written down
+from memory -- the memory was wrong, and two independent derivations agree
+against it. Beyond the published examples the tests assert the property those
+examples are *of*, exhaustively to length 64: the gaps between consecutive hits
+never differ by more than one step.
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -647,7 +678,7 @@ program is built to be corrected on.
 python -m pytest tests -q
 ```
 
-1106 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1245 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -667,7 +698,8 @@ scan, the MIDI clock PLL against a synthetic sender, importing from disk, play
 modes and choke groups, master playback, swapping two slots, per-slot output
 routing, swing and per-sample nudges measured in frames, onset detection against
 signals with chosen onset frames, pitch to within a semitone and tempo to
-within 2 BPM on material built at a known one, the slice page's refusals, the monitor page's
+within 2 BPM on material built at a known one, every Euclidean rhythm in
+Toussaint's table plus maximal evenness for every length up to 64, the slice page's refusals, the monitor page's
 refusals, every internal doc link, and every older project format still loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
@@ -676,13 +708,13 @@ No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 `plans.md` is the product plan: 61 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **53 are shipped: every train up to v1.5,
-and two of the v2.0 ideas**; each carries a status note saying what was built and
+several people work on it at once. **54 are shipped: every train up to v1.5,
+and three of the v2.0 ideas**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 
-`v2.0 — Instrument` is under way: slicing and the listening assistant have
-shipped; generative patterns, the other ideas in `plans.md` §8, and the two
+`v2.0 — Instrument` is under way: slicing, the listening assistant and
+generated patterns have shipped; the other ideas in `plans.md` §8 and the two
 remaining nice-to-haves have not. The one thing this
 project cannot do for itself is the human hardware pass — the display protocol
 and most of the button map are still taken from Ableton's document rather than

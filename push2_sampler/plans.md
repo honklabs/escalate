@@ -1,7 +1,7 @@
 # push2sampler — product plan
 
-Status: **53 of the 61 items below are shipped** — every train up to and
-including `v1.5`, and two of the ten `v2.0` ideas. Three of those shipped
+Status: **54 of the 61 items below are shipped** — every train up to and
+including `v1.5`, and three of the ten `v2.0` ideas. Three of those shipped
 in part or in a different shape, and each says so in its own note: `CC-13`
 shipped only the half that needs no unverified hardware, `NF-09` shipped MIDI
 clock and left Link a seam, and `NH-02` shipped as two features because the one
@@ -349,7 +349,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.3 — A whole song**~~ | bigger than 64 bars, and it leaves the box | **complete** — ~~`NF-05`~~ ~~`NH-05`~~ ~~`NF-01`~~ ~~`NF-06`~~ ~~`NF-07`~~ ~~`NF-11`~~ ~~`NH-03`~~ ~~`NH-06`~~ ~~`CC-08`~~ ~~`CC-13`~~† ~~`CC-17`~~ ~~`CC-18`~~ |
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
-| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† `IN-03` `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
+| **v2.0 — Instrument** ← in progress | the ideas nobody else has | ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ `IN-04` `IN-05` `IN-06` `IN-07` `IN-08` `NH-09` `NH-10` |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -2032,6 +2032,73 @@ output; rotation is a cyclic shift; the same seed reproduces the same pattern;
 commit is one undo step and preview mutates nothing.
 
 **Deps.** `F-04`.
+
+**Status: shipped, with a fifth encoder the spec did not ask for and the page
+is useless without.** `patterns.py` holds the pure functions (`bjorklund`,
+`euclidean`, `every_n`, `random_bars`, `rotate`, `tile`, `generate`);
+`modes/pattern.py` is the page; committing goes through the existing `SetBars`,
+which already snapshots what it replaces.
+
+**The missing control.** Built to spec, the density encoder spreads its hits
+over the whole 64-bar page — and three bars over 64 is one hit every twenty-one
+bars, which is not a rhythm, it is a rounding error with a downbeat. A pattern
+is **short and repeats**. Encoder 5 sets its length and `tile` fills the page
+with it, so three over eight becomes the tresillo eight times, which is what
+turning a density encoder is supposed to give you:
+
+```
+density 3, length 64   x....................x..........
+density 3, length 8    x..x..x.x..x..x.x..x..x.x..x..x.
+```
+
+Density and rotation are counted *within* the length and are clamped when it
+shrinks — a density of 12 inside a length of 4 would silently mean "every bar"
+and make the encoder look broken. `mirror` ignores the length: tiling someone
+else's rhythm would be inventing a pattern rather than answering one.
+
+**Getting the canonical table right was the interesting part, and the moral is
+about testing rather than about rhythm.** The plan's test says "matches the
+canonical Bjorklund output", which is only a test if the canonical output is
+written down — so twenty-one entries from Toussaint's *The Euclidean Algorithm
+Generates Traditional Musical Rhythms* went into the test file, the ones that
+name E(3,8) as the Cuban tresillo and E(5,8) as the cinquillo.
+
+Eighteen matched a plain Bjorklund implementation immediately. The three that
+did not — E(3,4), E(5,6), E(7,8) — are all the case of exactly **one rest**,
+where the grouping loop ends before it can interleave and the rest lands last
+rather than second. Both forms are the same maximally even set, rotated, but
+the table is the reference, so that case is explicit.
+
+Fixing it then contradicted a twenty-first entry: E(2,3), written down from
+memory as `xx.`. **That entry was the error, not the code.** The single-rest
+family puts its rest second throughout, and an independent derivation — a hit
+at step `i` iff `floor(i*k/n)` differs from `floor((i-1)*k/n)` — also gives
+`x.x`. Two derivations agreeing against one recollection is the right way
+round, and the lesson went into the tests as *properties* rather than more
+examples: for every length up to 64, the gaps between consecutive hits never
+differ by more than one step, the hit count is exact, and a pattern with hits
+starts on one. A published example is a spot check.
+
+Four decisions the spec left open:
+
+1. **Committing replaces rather than adds.** Adding would make the preview a
+   lie — you would see sixteen bars and get eighteen — and replacing is what
+   makes the encoders explorable, because you can turn density back down and
+   arrive where you started.
+2. **It touches only the page you are looking at.** Patterning page A must not
+   silently rewrite page D, and the preview only covers 64 bars anyway.
+3. **The pads do not edit.** A hand-made toggle inside a generated pattern
+   would be wiped by the next encoder click, so a press says what the grid is
+   for instead of losing the work quietly.
+4. **The preview flashes.** Steady green would be indistinguishable from bars
+   that are actually stored, and the entire point of the page is that nothing
+   is stored yet. Bars about to be cleared show dim red.
+
+**`IN-02`'s arrangement hint is now unblocked**, and this is the page it feeds:
+the preview-and-commit path, the flashing preview and the dim-red replacement
+warning are all here, so a hint becomes a fifth algorithm — "what the rest of
+the song leaves thin" — rather than a second mechanic. Left for its own item
+rather than bolted on here.
 
 ### IN-04 — Harmonic awareness `size: M`
 

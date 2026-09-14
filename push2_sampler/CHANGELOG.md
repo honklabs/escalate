@@ -12,6 +12,78 @@ plan.
 
 ## Unreleased
 
+### Generate the bars instead of tapping them (`IN-03`)
+
+`Automate` on a sample page. Five encoders — density, rotation, algorithm, a
+seed, and a **length** — with the grid previewing the result **flashing green**,
+so it never looks like bars that are stored, and anything it would replace in
+dim red so you can see what you are about to lose. `Automate` again keeps it as
+one undo step; `Session` discards.
+
+Four algorithms: `euclid` spreads the hits as evenly as the arithmetic allows,
+`every n` uses a fixed interval, `random` uses a **seed** so a pattern you
+liked is findable again, and `mirror` copies another slot's bars so a snare can
+answer a kick.
+
+A pattern is a deterministic function of those five numbers, which is what lets
+the preview and the commit call the *same* function — there is no second code
+path to disagree with the first.
+
+#### The fifth encoder is not in the plan, and the page is useless without it
+
+Built exactly to spec, the density encoder spreads its hits over the whole
+64-bar page. Three bars over 64 is **one hit every twenty-one bars**, which is
+not a rhythm — it is a rounding error with a downbeat. A pattern is short and
+repeats, so encoder 5 sets its length and it tiles across the page:
+
+```
+density 3, length 64   x....................x..........
+density 3, length 8    x..x..x.x..x..x.x..x..x.x..x..x.
+```
+
+The second one is the Cuban tresillo, eight times, which is what turning a
+density encoder is supposed to give you. Density and rotation are counted
+*within* the length and clamp when it shrinks; `mirror` ignores it, because
+tiling someone else's rhythm would be inventing a pattern rather than answering
+one.
+
+#### Getting the reference table right, and what it taught
+
+"Matches the canonical Bjorklund output" is only a test if the canonical output
+is written down, so twenty-one rhythms from Toussaint's *The Euclidean Algorithm
+Generates Traditional Musical Rhythms* went into the test file — the ones that
+name E(3,8) as the tresillo and E(5,8) as the cinquillo.
+
+Eighteen matched immediately. The three that did not — E(3,4), E(5,6), E(7,8) —
+are all the case of exactly one rest, where the grouping loop ends before it can
+interleave and the rest lands last rather than second.
+
+Fixing that then contradicted a twenty-first entry: E(2,3), written down from
+memory as `xx.`. **The memory was wrong, not the code.** The single-rest family
+puts its rest second throughout, and an independent derivation agrees on `x.x`.
+Two derivations against one recollection is the right way round — and the lesson
+went into the tests as *properties* rather than more examples: for every length
+up to 64, the gaps between consecutive hits never differ by more than one step,
+the hit count is exact, and a pattern with hits starts on one. A published
+example is a spot check.
+
+#### Four decisions the spec left open
+
+- **Committing replaces rather than adds.** Adding would make the preview a lie
+  — you would see sixteen bars and get eighteen — and replacing is what makes
+  the encoders explorable, because you can turn density down and arrive back
+  where you started.
+- **It touches only the page you are looking at.** Patterning page A must not
+  rewrite page D.
+- **The pads do not edit.** A hand-made toggle would be wiped by the next
+  encoder click, so a press says what the grid is for rather than losing the
+  work quietly.
+- **Undo restores the velocities**, which a generated pattern has no opinion
+  about. Density zero is a legitimate pattern: it clears the page, undoably.
+
+`IN-02`'s arrangement hint is now unblocked and this is the page it feeds — a
+hint becomes a fifth algorithm rather than a second mechanic.
+
 ### The instrument tells you what it heard (`IN-02`)
 
 `Layout` on a sample page opens an **About** page. The pads become a
