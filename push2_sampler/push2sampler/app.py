@@ -8,6 +8,7 @@ from pathlib import Path
 from . import colors, wavio
 from .audio import MONITOR_AUTO, MONITOR_OFF, MONITOR_ON
 from .clock import make_clock
+from .dsp import STRETCH_OFF, StretchJob
 from .constants import (
     BTN_BRIGHT,
     BTN_DIM,
@@ -16,6 +17,7 @@ from .constants import (
     DISPLAY_ROW_TOP,
     ENCODER_SWING,
     ENCODER_TEMPO,
+    BEAT_COLUMN,
     PAD_COUNT,
     SWING_MAX,
     Btn,
@@ -44,7 +46,14 @@ from .project import (
 )
 from .render import BounceJob, default_bounce_path
 from .settings import ENGINE_SETTINGS, Settings
-from .push2 import ButtonEvent, EncoderEvent, PadEvent, PushBase, SurfaceOffline
+from .push2 import (
+    ButtonEvent,
+    EncoderEvent,
+    PadEvent,
+    PushBase,
+    StripEvent,
+    SurfaceOffline,
+)
 
 #: Seconds between LED refreshes.  Only changed pads are actually sent.
 FRAME_INTERVAL = 1.0 / 30.0
@@ -75,6 +84,9 @@ TAP_OUTLIER = 0.35
 TEMPO_FINE_STEP = 0.1
 #: Swing per click of the swing encoder, as a fraction of the grid (NH-02).
 SWING_STEP = 0.02
+#: How much of a beat the ambient pulse is lit for (IN-07).  A third: enough to
+#: catch the eye, short enough to read as a pulse rather than a lit pad.
+BEAT_PULSE_PHASE = 0.35
 #: A second Stop this soon after the first is the "get me out of here" gesture.
 DOUBLE_STOP_S = 0.5
 #: How long `Delete` stays armed before disarming itself.  Every other armed
@@ -190,6 +202,9 @@ class App:
         self._clip_until = 0.0
         #: A render in progress, stepped a chunk at a time by tick().
         self.bounce: BounceJob | None = None
+        #: Tempo stretches still to compute (NH-09).  A stepped job, like the
+        #: bounce, so nothing about it goes near the audio thread.
+        self.stretching: StretchJob | None = None
         self._last_frame = 0.0
         self._last_display = 0.0
         self._last_monitor = 0.0
@@ -703,8 +718,13 @@ class App:
     # ------------------------------------------------------------------
     # bouncing
     # ------------------------------------------------------------------
-    def start_bounce(self) -> bool:
-        """Begin rendering the song to a file, without blocking the surface."""
+    def start_bounce(self, passes: int | None = None) -> bool:
+        """Begin rendering the song to a file, without blocking the surface.
+
+        ``passes`` is `IN-05`'s freeze asking for a specific number of times
+        round; left out, the render covers whatever a full cycle of the song's
+        own variation is.
+        """
         if self.bounce is not None:
             self.notify("already bouncing")
             return False
@@ -714,7 +734,7 @@ class App:
         if self.project_dir is None:
             self.notify("no project directory to bounce into")
             return False
-        self.bounce = BounceJob(self.project)
+        self.bounce = BounceJob(self.project, passes=passes)
         self.notify("bouncing...")
         return True
 
@@ -734,6 +754,34 @@ class App:
         seconds = job.result().shape[0] / max(1, self.project.samplerate)
         self.notify(f"bounced {seconds:.0f}s to {path.name}")
 
+    def start_stretch(self) -> bool:
+        """Compute any tempo stretches the current tempo now needs (NH-09).
+
+        Cheap to call and safe to call often: a job with nothing pending
+        finishes immediately, so every tempo change can simply ask.
+        """
+        if self.stretching is not None:
+            return False
+        job = StretchJob(self.project)
+        if job.done:
+            return False
+        self.stretching = job
+        self.notify(f"stretching {job.total} sample(s) to {self.project.bpm:.0f} BPM")
+        return True
+
+    def _step_stretch(self) -> None:
+        job = self.stretching
+        if job is None:
+            return
+        if job.step():
+            return
+        self.stretching = None
+        # Only now does the engine hear the new lengths: the schedule is
+        # rebuilt once, from finished arrays, rather than per slot as they
+        # land.
+        self.rebuild_schedule()
+        self.notify(f"stretched {job.total} sample(s)")
+
     def save_settings(self) -> bool:
         if not self.settings.dirty:
             return False
@@ -748,6 +796,12 @@ class App:
     # ------------------------------------------------------------------
     def rebuild_schedule(self) -> None:
         self.engine.set_schedule(self.project.build_schedule())
+        # Every path that can change what a stretch should be -- a tempo edit,
+        # an undo of one, opening a project, turning stretching on for a slot --
+        # ends here, so this is the one place that needs to ask (NH-09).  A job
+        # with nothing pending finishes immediately, so asking is nearly free.
+        if self.stretching is None:
+            self.start_stretch()
 
     def do(self, command: Command) -> None:
         """Apply an undoable edit and refresh everything that depends on it."""
@@ -844,6 +898,44 @@ class App:
         elif isinstance(event, EncoderEvent):
             if not self.mode.on_encoder(event.cc, event.delta):
                 self._global_encoder(event.cc, event.delta)
+        elif isinstance(event, StripEvent):
+            self._strip(event)
+
+    def _strip(self, event) -> None:
+        """The touch strip: scrub when stopped, pick a loop range with `Shift`.
+
+        **Scrubbing only while stopped**, which the plan asked for and which is
+        also the only safe reading: a finger brushing the strip mid-take, or
+        mid-phrase, must not move the playhead.  So a moving transport ignores
+        it and says why rather than appearing broken.
+
+        The strip is the one control in this program whose *existence* is still
+        unverified -- see `StripEvent` -- so nothing here is on the critical
+        path of anything, and a strip that turns out to send something else
+        simply never calls this.
+        """
+        if not event.touched:
+            return          # the spring-back to centre is not a request
+        bars = max(1, self.project.song_bars)
+        if self.shift:
+            # Loop from here to the end of the page the finger is on, so one
+            # gesture picks a musical range rather than an arbitrary one.
+            start = min(bars - 1, int(event.position * bars))
+            page_end = (start // PAGE_BARS + 1) * PAGE_BARS
+            self.loop_scope = LOOP_SONG
+            self.engine.loop = True
+            self.engine.loop_range = (start, min(bars, page_end))
+            self.engine.pass_bars = max(1, min(bars, page_end) - start)
+            self.notify(f"loop bars {start + 1}-{min(bars, page_end)}")
+            return
+        if self.engine.is_playing or self.engine.rec_state != "idle":
+            self.notify("strip scrubs when stopped")
+            return
+        bar = min(bars - 1, int(event.position * bars))
+        self.engine.seek(bar)
+        self.page = bar // PAGE_BARS
+        self.apply_loop_scope()
+        self.notify(f"bar {bar + 1}")
 
     def _global_button(self, cc: int, pressed: bool) -> None:
         if cc == Btn.TAP_TEMPO:
@@ -1039,6 +1131,7 @@ class App:
     def render(self) -> None:
         pads = [colors.OFF.index] * PAD_COUNT
         self.mode.render_pads(pads)
+        self._beat_pulse(pads)
         for i, value in enumerate(pads):
             self.push.set_pad(i, value)
 
@@ -1071,6 +1164,28 @@ class App:
         for cc in self._flashes:
             buttons[cc] = BTN_BRIGHT
         return set(self._flashes)
+
+    def _beat_pulse(self, pads: list) -> None:
+        """An ambient metronome up the rightmost column, in every mode (IN-07).
+
+        **The mode always wins.**  Only pads the mode left off are painted, so a
+        column that means something on this page -- the mixer's meters, a
+        sample's bars -- is never overwritten by the clock.  A metronome you can
+        see out of the corner of your eye is worth having; one that lies about
+        the arrangement is not.
+        """
+        if not self.engine.is_playing:
+            return
+        if self.engine.beat_phase > BEAT_PULSE_PHASE:
+            return              # a pulse, not a lit column
+        beat = self.engine.beat_in_bar
+        if not 0 <= beat < len(BEAT_COLUMN):
+            return
+        pad = BEAT_COLUMN[beat]
+        if pads[pad] != colors.OFF.index:
+            return              # the mode claimed it
+        # The downbeat is brighter, so "where in the bar" is readable too.
+        pads[pad] = colors.WHITE.index if beat == 0 else colors.WHITE_DIM.index
 
     def _global_buttons(self, buttons: dict[int, int]) -> None:
         buttons[Btn.PLAY] = BTN_BRIGHT if self.engine.is_playing else BTN_DIM
@@ -1278,6 +1393,7 @@ class App:
         self.mode.on_tick()
         self._poll_clock()
         self._step_bounce()
+        self._step_stretch()
         self._supervise_surface()
 
         now = time.monotonic()

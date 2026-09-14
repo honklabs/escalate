@@ -31,6 +31,11 @@ Harmony
     reference slot: green fits, amber is a neighbour, red clashes, white has no
     harmony to compare.  One button transposes a clashing loop into line.
 
+Living
+    One sample's bars plus a *variation*: extra bars it plays on only every Nth
+    pass, so a short arrangement stops repeating itself.  `Shift`+`Record`
+    freezes a chosen number of passes as audio.
+
 Song
     The whole arrangement as a heat map: every bar against every slot, with a
     zoom into any eight-by-eight cell where each pad is one bar of one slot.
@@ -51,6 +56,7 @@ from .base import COUNT_IN_BEATS, Mode
 from .browser import BrowserMode
 from .harmony import HarmonyMode
 from .library import LibraryMode
+from .living import LivingMode
 from .mixer import MixerMode
 from .perform import PerformMode
 from .record import RecordMode
@@ -68,6 +74,7 @@ __all__ = [
     "BrowserMode",
     "HarmonyMode",
     "LibraryMode",
+    "LivingMode",
     "MixerMode",
     "Mode",
     "PerformMode",

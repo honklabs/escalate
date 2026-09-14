@@ -244,3 +244,20 @@ def encoder_delta(value: int) -> int:
 def _check_index(index: int) -> None:
     if not 0 <= index < PAD_COUNT:
         raise ValueError(f"pad index out of range: {index}")
+
+
+#: The border of the grid, clockwise from the top-left pad (IN-07).
+#:
+#: Used as a count-in ring: a shape you can feel filling round the edge without
+#: reading a number, and one that leaves the middle of the grid alone.
+def _border_ring() -> tuple:
+    top = [xy_to_index(col, 0) for col in range(8)]
+    right = [xy_to_index(7, row) for row in range(1, 8)]
+    bottom = [xy_to_index(col, 7) for col in range(6, -1, -1)]
+    left = [xy_to_index(0, row) for row in range(6, 0, -1)]
+    return tuple(top + right + bottom + left)
+
+
+RING = _border_ring()
+#: The rightmost column, bottom to top: the ambient beat pulse (IN-07).
+BEAT_COLUMN = tuple(xy_to_index(7, row) for row in range(7, -1, -1))

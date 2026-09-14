@@ -207,20 +207,20 @@ BLURBS = {
         "Colours the library by which of your loops fit with the one you are on, "
         "and offers a transpose for one that does not.",
     "IN-05":
-        "A song that never plays the same way twice, and one button that freezes a "
-        "performance as audio.",
+        "Extra bars a part plays on only every Nth pass, and one button that "
+        "freezes however many passes you want as audio.",
     "IN-06":
         "Several recordings of one part on one pad: flip between them, or let the "
         "song cycle them as it goes.",
     "IN-07":
-        "The grid as a clock face and the touch strip as a scrubber through the "
-        "song.",
+        "The count-in fills a ring round the grid, the right-hand column pulses on "
+        "the beat, and the touch strip scrubs the song.",
     "IN-08":
         "Shows you where your timing actually sits, bar by bar, without telling you "
         "off about it.",
     "NH-09":
-        "Time-stretch a take to its bars instead of trimming it, when the audio "
-        "should keep its whole length.",
+        "Make an old take fit a new tempo without re-cutting it: stretch it and "
+        "keep the pitch, or resample it and let the pitch move.",
     "NH-10":
         "Per-bar chance and an every-Nth-pass rule, so a loop plays a little "
         "differently each time round.",
@@ -365,6 +365,40 @@ def _train_section(train: Train, items: list) -> str:
   </section>"""
 
 
+#: One legend row per pad colour, keyed by the state it marks.  Only the states
+#: actually on the grid are listed: with nothing left to ship, three rows
+#: explaining "being built" and "waiting its turn" describe no pad on the page.
+LEGEND_ROWS = {
+    "shipped": ("--shipped", "Shipped and in use.",
+                "Green is a filled slot on the real grid too."),
+    "now": ("--now", "Being built now.", "Amber means sounding right now."),
+    "next": ("--next", "Specified, waiting its turn.",
+             "Blue is another sample&#8217;s bar."),
+    "later": ("--later", "Later &#8212; the ideas nobody else has.", ""),
+}
+
+
+def _legend(states: set, blank: int) -> str:
+    rows = []
+    for state, (token, headline, note) in LEGEND_ROWS.items():
+        if state not in states:
+            continue
+        tail = f' <span class="note">{note}</span>' if note else ""
+        rows.append(
+            f'        <p class="legend-row">'
+            f'<span class="swatch" style="background:var({token})"></span>\n'
+            f"          <span><b>{headline}</b>{tail}</span></p>"
+        )
+    if blank > 0:
+        rows.append(
+            '        <p class="legend-row">'
+            '<span class="swatch" style="background:var(--pad-off)"></span>\n'
+            '          <span><b>Blank.</b> <span class="note">An empty slot, as '
+            "the library shows one.</span></span></p>"
+        )
+    return "\n".join(rows)
+
+
 def _words(number: int) -> str:
     names = {
         61: "Sixty-one", 62: "Sixty-two", 63: "Sixty-three", 64: "Sixty-four",
@@ -381,8 +415,16 @@ def build(tests: int, version: str) -> str:
         raise SystemExit(f"no blurb for: {', '.join(missing)} (add one in BLURBS)")
     shipped = sum(1 for item in items if item.shipped)
     blank = PADS - len(items)
-    latest = next((t.version for t in trains if not t.complete), trains[-1].version)
+    # "or will" is a promise, and with nothing left to ship it is a stale one.
+    latest = next((t.version for t in trains if not t.complete), "")
     complete = [t.version for t in trains if t.complete]
+    # Every release done is a state the page has to be able to say.  Without
+    # this it read "v2.0 complete, v2.0 in progress", which a test caught.
+    if latest:
+        progress = (f"<b>{complete[-1]}</b> complete, <b>{latest}</b> in progress"
+                    if complete else f"<b>{latest}</b> in progress")
+    else:
+        progress = f"<b>{complete[-1]}</b> complete" if complete else "in progress"
     payload = json.dumps([
         {
             "pad": item.pad, "code": item.code, "title": item.title,
@@ -396,14 +438,16 @@ def build(tests: int, version: str) -> str:
     newest = newest_code(items)
     sections = "\n".join(_train_section(train, items) for train in trains)
     return TEMPLATE.format(
-        headline=f"{_words(len(items))} things it does, or will",
+        headline=(f"{_words(len(items))} things it does"
+                  if shipped == len(items)
+                  else f"{_words(len(items))} things it does, or will"),
         shipped=shipped,
         planned=len(items) - shipped,
         tests=f"{tests:,}",
-        complete=complete[-1] if complete else latest,
-        latest=latest,
+        progress=progress,
         total=len(items),
         blank=blank,
+        legend=_legend({item.state for item in items}, blank),
         grid_label=f"{len(items)} features laid out on a {PADS}-pad grid",
         counts=f"{len(items)} features &#183; {PADS} pads &#183; {blank} blank",
         sections=sections,
@@ -629,7 +673,7 @@ TEMPLATE = """<title>push2sampler Feature Grid</title>
       <span><b>{shipped}</b> shipped</span>
       <span><b>{planned}</b> planned</span>
       <span><b>{tests}</b> tests passing</span>
-      <span><b>{complete}</b> complete, <b>{latest}</b> in progress</span>
+      <span>{progress}</span>
     </p>
   </header>
 
@@ -651,16 +695,7 @@ TEMPLATE = """<title>push2sampler Feature Grid</title>
 
       <div class="legend">
         <h2>Pad colours</h2>
-        <p class="legend-row"><span class="swatch" style="background:var(--shipped)"></span>
-          <span><b>Shipped and in use.</b> <span class="note">Green is a filled slot on the real grid too.</span></span></p>
-        <p class="legend-row"><span class="swatch" style="background:var(--now)"></span>
-          <span><b>Being built now.</b> <span class="note">Amber means sounding right now.</span></span></p>
-        <p class="legend-row"><span class="swatch" style="background:var(--next)"></span>
-          <span><b>Specified, waiting its turn.</b> <span class="note">Blue is another sample&#8217;s bar.</span></span></p>
-        <p class="legend-row"><span class="swatch" style="background:var(--later)"></span>
-          <span><b>Later &#8212; the ideas nobody else has.</b></span></p>
-        <p class="legend-row"><span class="swatch" style="background:var(--pad-off)"></span>
-          <span><b>Blank.</b> <span class="note">An empty slot, as the library shows one.</span></span></p>
+{legend}
       </div>
     </div>
   </section>

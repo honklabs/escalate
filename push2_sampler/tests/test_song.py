@@ -323,12 +323,12 @@ def test_a_slot_outside_the_library_is_dropped(tmp_path, rig):
 
 
 def test_the_format_version_tracks_what_a_slot_carries():
-    """7 play modes/chokes, 8 routing, 9 nudge, 10 probability, 11 takes.
+    """9 nudge, 10 probability, 11 takes, 12 tempo stretch, 13 variations.
 
     Every one is additive and every older format still loads -- see the loader
     tests.  The number is asserted here so bumping it is a deliberate act.
     """
-    assert FORMAT_VERSION == 11
+    assert FORMAT_VERSION == 13
 
 
 # ====================================================== NF-01: song overview

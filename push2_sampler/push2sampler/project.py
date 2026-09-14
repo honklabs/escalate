@@ -35,6 +35,15 @@ from .constants import (
     SWING_MAX,
     pair_first_channel,
 )
+from .dsp import (
+    RATE_EPSILON,
+    RATE_MAX,
+    RATE_MIN,
+    STRETCH_MODES,
+    STRETCH_OFF,
+    stretch,
+    stretch_rate,
+)
 from .edits import DEFAULT_EDITS, Edits, render_edits
 
 #: Bars on one song page, and slots in one library bank: both are one gridful.
@@ -61,7 +70,7 @@ FULL_VELOCITY = 127
 CERTAIN = 100
 PROJECT_FILE = "project.json"
 SAMPLES_DIR = "samples"
-FORMAT_VERSION = 11
+FORMAT_VERSION = 13
 #: How many scene snapshots a project keeps.
 SCENE_COUNT = 8
 #: User colours a slot can be tagged with, as palette indices; see colors.py.
@@ -79,6 +88,10 @@ TAKE_MODES = (TAKE_FIXED, TAKE_CYCLE, TAKE_RANDOM)
 #: Alternates per slot.  Eight is where the WAV files stop being free and where
 #: "which one was that?" stops being answerable by ear.
 MAX_TAKES = 8
+#: Largest pass divisor a variation rule may use (IN-05).  The same bound as
+#: `MAX_EVERY_N`, and for the same reason: past eight passes of a page you have
+#: waited minutes for a fill.
+MAX_VARIATION_EVERY = 8
 
 
 
@@ -154,6 +167,35 @@ def _load_every_n(value) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(MAX_EVERY_N, every))
+
+
+def _load_variation(value) -> set:
+    """Variation bars from a project file, dropping anything unusable."""
+    if not isinstance(value, (list, tuple, set)):
+        return set()
+    out = set()
+    for item in value:
+        try:
+            bar = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= bar < SONG_BARS:
+            out.add(bar)
+    return out
+
+
+def _load_variation_every(value) -> int:
+    """Variation pass divisor from a project file.  0 and 1 mean every pass."""
+    try:
+        every = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(MAX_VARIATION_EVERY, every))
+
+
+def _load_stretch_mode(value) -> str:
+    """Per-sample stretch behaviour from a project file (NH-09)."""
+    return value if value in STRETCH_MODES else STRETCH_OFF
 
 
 def _load_take_mode(value) -> str:
@@ -297,6 +339,25 @@ class Sample:
     active_take: int = 0
     #: How a trigger chooses among the alternates: see TAKE_MODES.
     take_mode: str = TAKE_FIXED
+    #: Extra bars this sample plays on, but only on some passes (IN-05).
+    #:
+    #: "Every 4th pass, double the hats" turned out to need no new engine
+    #: machinery at all: an extra trigger that fires only on every 4th pass *is*
+    #: a trigger with `NH-10`'s ``every_n`` of 4.  So a variation is a second set
+    #: of bars, scheduled with that divisor -- which means it is reproducible,
+    #: bounces correctly and shows on a grid for free, because all three were
+    #: already true of `every_n`.
+    #:
+    #: Kept as concrete bars rather than as a rule evaluated at playback, so you
+    #: can *look* at what the variation will do instead of trusting it.
+    variation_bars: set = field(default_factory=set)
+    #: Which passes the variation plays on.  0 and 1 both mean "every pass",
+    #: which makes the variation simply part of the arrangement.
+    variation_every: int = 0
+    #: What to do when the song's tempo is not the one this take was cut at
+    #: (NH-09).  ``off`` -- the default, and every project before format 12 --
+    #: leaves it its own length and lets the library flag it yellow.
+    stretch_mode: str = STRETCH_OFF
     #: True once this take's audio is on disk, so autosave can skip rewriting it.
     audio_saved: bool = False
 
@@ -307,6 +368,11 @@ class Sample:
         self._rendered_key: tuple | None = None
         self._takes_rendered: tuple | None = None
         self._takes_key: tuple | None = None
+        #: The stretched audio, and what it was stretched from.  Filled by a
+        #: `StretchJob` off the audio path -- never computed on demand, because
+        #: a 30-second take costs about 400 ms and the caller might be a frame.
+        self._stretched: np.ndarray | None = None
+        self._stretch_key: tuple | None = None
         if self.takes:
             # Trust the list, not the index: a loader or a copy can hand us an
             # index past the end, and every other method assumes it is valid.
@@ -387,6 +453,44 @@ class Sample:
         self.audio_saved = False
         self._rendered_key = None
         self._rendered = None
+
+    # -- tempo stretch (NH-09) ------------------------------------------
+    def stretch_key(self, samplerate: int, rate: float) -> tuple:
+        """What a cached stretch is a stretch *of*.
+
+        Keyed on the edited audio and the rate, so an edit, an undo, a
+        re-record or another tempo change all invalidate it by themselves.
+        """
+        audio = self.effective_audio(samplerate)
+        return (id(audio), audio.shape, self.stretch_mode, round(float(rate), 6))
+
+    def stretched_audio(self, samplerate: int, rate: float):
+        """The stretched audio if it is ready, else None.
+
+        Never computes: a 30-second take costs about 400 ms and the caller may
+        be a frame or, worse, the thing building a schedule for the callback.
+        `StretchJob` fills this in; until it does, callers play the take at its
+        own length, which is exactly what `off` does and what happened before
+        this feature existed.
+        """
+        if self.stretch_mode == STRETCH_OFF:
+            return None
+        if self._stretched is not None and self._stretch_key == self.stretch_key(
+            samplerate, rate
+        ):
+            return self._stretched
+        return None
+
+    def set_stretched(self, samplerate: int, rate: float, audio) -> None:
+        self._stretch_key = self.stretch_key(samplerate, rate)
+        self._stretched = audio
+
+    def compute_stretch(self, samplerate: int, rate: float):
+        """Do the work.  Only ever called from a job, never from a frame."""
+        audio = self.effective_audio(samplerate)
+        result = stretch(audio, rate, self.stretch_mode)
+        self.set_stretched(samplerate, rate, result)
+        return result
 
     # -- alternates (IN-06) ---------------------------------------------
     @property
@@ -585,6 +689,9 @@ class Sample:
             "takes": self.take_paths(),
             "active_take": int(self.active_take),
             "take_mode": self.take_mode,
+            "stretch_mode": self.stretch_mode,
+            "variation_bars": sorted(self.variation_bars),
+            "variation_every": int(self.variation_every),
             "slot": self.slot,
             "name": self.name,
             "bars": self.bars,
@@ -708,13 +815,55 @@ class Project:
             return 0.0
         return (sample.frames - expected) / expected
 
+    def stretch_rate_for(self, sample: Sample) -> float:
+        """How much longer this take must be to fit the current tempo (NH-09)."""
+        return stretch_rate(sample.source_bpm or self.bpm, self.bpm)
+
+    def playable_audio(self, sample: Sample):
+        """What actually reaches the engine: the edits, and the stretch if ready.
+
+        Falls back to the unstretched audio rather than blocking, so a tempo
+        change is audible immediately at the old length and settles to the right
+        one when the job catches up.  Playing something is better than playing
+        nothing while a worker runs.
+        """
+        if sample.stretch_mode != STRETCH_OFF:
+            ready = sample.stretched_audio(self.samplerate,
+                                           self.stretch_rate_for(sample))
+            if ready is not None:
+                return ready
+        return sample.effective_audio(self.samplerate)
+
+    def pending_stretches(self) -> list:
+        """Filled slots whose stretch is wanted and not yet computed."""
+        wanted = []
+        for sample in self.filled():
+            if sample.stretch_mode == STRETCH_OFF:
+                continue
+            rate = self.stretch_rate_for(sample)
+            if abs(rate - 1.0) < RATE_EPSILON or not RATE_MIN <= rate <= RATE_MAX:
+                continue
+            if sample.stretched_audio(self.samplerate, rate) is None:
+                wanted.append(sample)
+        return wanted
+
     def mismatched(self, sample: Sample, tolerance: float = LENGTH_TOLERANCE) -> bool:
         """True when this take no longer fills its bars at the current tempo.
 
         It happens when a project recorded at one tempo is opened at another, or
         when audio that was never bar-aligned is imported.  The take is kept as
         it is -- playback would drift, so the UI flags it and offers a repair.
+
+        A sample set to **stretch** (`NH-09`) is not flagged when the tempo
+        change is one it can absorb: the length is being handled, so the yellow
+        pad and the repair offer would both be telling you to fix something that
+        is already fixed.  A change outside what stretching can do is still
+        flagged, because then it genuinely is not handled.
         """
+        if sample.stretch_mode != STRETCH_OFF:
+            rate = self.stretch_rate_for(sample)
+            if RATE_MIN <= rate <= RATE_MAX:
+                return False
         return abs(self.length_error(sample)) > tolerance
 
     def mismatched_slots(self) -> list[int]:
@@ -844,6 +993,9 @@ class Project:
             takes=list(source.takes),
             active_take=source.active_take,
             take_mode=source.take_mode,
+            stretch_mode=source.stretch_mode,
+            variation_bars=set(source.variation_bars),
+            variation_every=source.variation_every,
         )
         self.slots[dst] = copy
         self.dirty = True
@@ -1033,13 +1185,24 @@ class Project:
         for sample in self.filled():
             if not self.audible(sample) or sample.frames == 0:
                 continue
-            audio = sample.effective_audio(self.samplerate)
+            audio = self.playable_audio(sample)
             # Only a slot that really has alternates carries them: the engine
             # then needs no check of its own beyond "is this tuple short".
             alternates = (
                 sample.effective_takes(self.samplerate) if sample.takes else ()
             )
-            for bar in sorted(sample.triggers):
+            # The variation's bars are scheduled beside the arrangement's, with
+            # the pass divisor doing the "only sometimes" (IN-05).  Bars in both
+            # are the arrangement's: a bar that already plays every pass cannot
+            # also play only on some.
+            entries = [(bar, sample.every_n, sample.probabilities.get(bar, CERTAIN))
+                       for bar in sorted(sample.triggers)]
+            if sample.variation_bars and (sample.variation_every or 1) > 1:
+                entries += [
+                    (bar, sample.variation_every, CERTAIN)
+                    for bar in sorted(sample.variation_bars - sample.triggers)
+                ]
+            for bar, every, chance in entries:
                 if 0 <= bar < self.song_bars:
                     schedule[bar].append(
                         ScheduledSample(
@@ -1050,8 +1213,8 @@ class Project:
                             choke_group=sample.choke_group,
                             channel=pair_first_channel(sample.output),
                             nudge=sample.nudge_ms / 1000.0 * self.samplerate,
-                            probability=sample.probabilities.get(bar, CERTAIN),
-                            every_n=sample.every_n,
+                            probability=chance,
+                            every_n=every,
                             alternates=alternates,
                             take_mode=sample.take_mode,
                         )
@@ -1219,6 +1382,12 @@ class Project:
                 takes=takes,
                 active_take=_load_active_take(entry.get("active_take"), len(takes)),
                 take_mode=_load_take_mode(entry.get("take_mode")),
+                stretch_mode=_load_stretch_mode(entry.get("stretch_mode")),
+                variation_bars={
+                    bar for bar in _load_variation(entry.get("variation_bars"))
+                    if bar < project.song_bars
+                },
+                variation_every=_load_variation_every(entry.get("variation_every")),
                 audio_saved=True,
             )
         notes = []

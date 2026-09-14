@@ -44,7 +44,8 @@ def passes_needed(project) -> int:
     when nothing uses the feature, which is every project that has not asked
     for it.
 
-    A slot **cycling** its alternates (IN-06) is a pass divisor too: three takes
+    A slot **cycling** its alternates (IN-06), and a slot with a **variation
+    rule** (IN-05), are pass divisors too: three takes
     on `cycle` mean the song does not repeat until pass three, and bouncing one
     pass would put take 1 in the file and silently discard the other two.  Same
     bug as `every_n`'s, arriving by a different door.  `random` is not a
@@ -61,6 +62,15 @@ def passes_needed(project) -> int:
         for sample in project.filled()
         if project.audible(sample) and sample.triggers
         and sample.take_mode == TAKE_CYCLE
+    }
+    # And so is a variation rule (IN-05): "every 4th pass, double the hats"
+    # means the song does not repeat until pass four, so a shorter bounce would
+    # not contain the fill at all.  Third door onto the same bug.
+    divisors |= {
+        max(1, int(sample.variation_every or 1))
+        for sample in project.filled()
+        if project.audible(sample) and sample.variation_bars
+        and (sample.variation_every or 1) > 1
     }
     total = 1
     for divisor in sorted(divisors):
@@ -88,13 +98,16 @@ class BounceJob:
     """One render, advanced by :meth:`step` until :attr:`done`."""
 
     def __init__(self, project, bars: int | None = None, tail: bool = True,
-                 only_slot: int | None = None) -> None:
+                 only_slot: int | None = None, passes: int | None = None) -> None:
         self.project = project
         # Render to the last bar in use, not to the nominal song length: four
         # pages are available and most songs use one.
         self.pass_bars = max(1, project.used_bars) if bars is None else max(1, bars)
-        #: Passes covered, so `every_n` is actually heard -- see `passes_needed`.
-        self.passes = passes_needed(project)
+        #: Passes covered.  Derived so `every_n` is actually heard (see
+        #: `passes_needed`), or asked for outright by `IN-05`'s freeze -- which
+        #: is a different question: `passes_needed` answers "how long before the
+        #: song repeats", and a freeze answers "give me four times round".
+        self.passes = passes_needed(project) if passes is None else max(1, int(passes))
         self.bars = self.pass_bars * self.passes
         self.tail = tail
         self.only_slot = only_slot

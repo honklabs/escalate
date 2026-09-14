@@ -535,6 +535,98 @@ more than a semitone wide down there and the note smears into classes it never
 played. At 90 nothing in-key reads red; the residue is that the bottom octave
 hedges towards "close", which is a hedge and not a warning.
 
+### 4g. Living song: a variation across passes
+
+`Shift`+`Clip` on a sample page adds a **variation** -- extra bars this sample
+plays on only every Nth pass. "Every fourth pass, double the hats" is what it is
+for: encoder 1 sets how often, encoder 2 how much, a pad adds one by hand, and
+`Shift`+`Record` freezes however many passes you ask for as a single file.
+
+**It needed no engine change at all,** which is the interesting part. An extra
+trigger that fires only on every 4th pass *is* a trigger with `NH-10`'s
+`every_n` of 4, so a variation is a second set of bars scheduled with that
+divisor -- and it inherited reproducibility, correct bouncing and a readable grid
+from work already done. `passes_needed` grew one clause and that was all of
+`render.py`.
+
+It is **bars, not a rule**: stored concretely so you can look at what pass 4 will
+do, edit one by hand, and see it on a grid, rather than trusting something
+evaluated at playback. And it is **arithmetic, not chance** -- "every 4th pass"
+is a divisor, so the project's dice deliberately cannot move it. The two compose:
+a chance on a variation bar is something that sometimes happens, on some passes.
+
+The grid flashes a variation bar on the pass *immediately before* it plays, not
+whenever it merely is not due -- otherwise "about to change" and "eventually"
+are the same pixel, and the display of what is about to change is the one thing
+the plan explicitly asked for. Project format 13.
+
+### 4h. Fitting a take to another tempo
+
+A take remembers the tempo it was cut at, so button 6 on a sample page decides
+what happens when the song's is different: `off` (the take keeps its length and
+goes yellow, as before), `resample` (faster or slower, **pitch moves with it**),
+or `stretch` (WSOLA: pitch held, length changed). The first press offers whatever
+the material wants, because `IN-02` already listened -- percussion gets
+`resample`, because a break played faster *is* pitched up and that is a sound
+records have been made of, and because measurement says percussion is precisely
+what WSOLA is worst at (0.78-0.83 spectral similarity against 0.96-1.00 for a
+chord).
+
+A stretching slot is **no longer flagged off-grid**: the length is being handled,
+so the yellow pad would be telling you to fix something already fixed. A change
+too large to absorb still is flagged, because then it genuinely is not.
+
+Five things the prototype found, each now a test. **Every stretch ended in a
+click** -- running out of input left the tail silent, so a 2-second tone at 1.5x
+finished with 615 frames of nothing and a 0.488 step into them against a source
+whose worst step is 0.063; the read position is clamped so running out reuses the
+final frames. **Normalised cross-correlation, the textbook similarity measure,
+was measured and rejected**: 4x slower and worse on a chord. **The search had to
+be vectorised**, not merely tidied -- as a Python loop a 30-second take took
+2.2 s, as one `np.correlate` call it takes 0.33 s, bit-for-bit identical. **The
+search runs on the channel sum** and the result is applied to both, because
+searching per channel picks different offsets left and right and smears the
+stereo image. And **the plan's own test assertion is only valid for one note**:
+"the dominant frequency is unchanged" says nothing about a chord, whose three
+near-equal partials make `argmax` pick whichever is momentarily loudest, so each
+partial is checked separately.
+
+There is **no worker thread**, which is how the plan's warning ("must not be
+started from the audio callback") is met: `StretchJob` is stepped from the frame
+loop exactly as `BounceJob` already was. Project format 12.
+
+### 4i. The strip, the ring and the pulse
+
+Three uses for hardware nothing else touches.
+
+The **count-in fills a ring round the border of the grid**, one pad per sixteenth,
+arriving at the top-left corner on the downbeat -- a shape you feel rather than a
+number you read. The next pad shows dim before it lands, and a pre-roll flashes
+the ring instead of filling it, because nothing is being counted during the
+run-up and a ring that started then would arrive a bar early.
+
+The **rightmost column pulses on the beat in every mode**, brighter on the
+downbeat, lit for about a third of a beat. It only ever paints pads the current
+page left dark, checked by looking for `OFF` rather than by tracking claims --
+which means every mode, including ones not yet written, wins the collision
+without knowing the overlay exists.
+
+The **touch strip scrubs while stopped** (bottom is bar 1, top is the last bar,
+and the grid follows to the page you land on) and picks a **loop range** with
+`Shift`, from your finger to the end of that page. It is refused while playing or
+recording and says so: a finger brushing the strip mid-phrase must not move the
+playhead.
+
+That needed a new engine verb, which a test found: scrubbing was written as
+`play(bar)` then `stop()` and every scrub landed on bar 1, because `stop` rewinds
+to the top *by design*. `Engine.seek` is a position change on a transport that
+stays stopped, refused while running or recording.
+
+**The strip has never been touched.** That it speaks pitch bend at all is
+Ableton's document's claim, not a measurement -- `--selftest` has a step for it
+and has never been completed here. Everything above is built so a strip that
+sends something else is simply inert; nothing else depends on it.
+
 ### 5. The sample editor
 
 `Device` on a sample page opens the editor. Each encoder above the display owns
@@ -824,7 +916,7 @@ lacks one.
 python -m pytest tests -q
 ```
 
-1484 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
+1644 tests cover the grid/MIDI mapping, the transport and mixer (bar-accurate
 triggering, overlap, looping, declicking envelopes, latency compensation, exact
 take lengths, command deferral, metering, monitoring, dropout reporting, stream
 restarts, quantised live triggering, velocity), the non-destructive edits
@@ -853,8 +945,13 @@ and every take of a cycling slot reaching the bounced file), harmonic
 compatibility against material built in known keys (including the seventh chord
 whose key name is measurably wrong, pinned rather than hidden, and the bass
 figure that a 60 Hz analysis floor called clashing with its own key), the feature
-page generator against the plan it reads, every internal doc link, and every
-older project format still loading.
+page generator against the plan it reads, WSOLA against tones and chords built at
+known frequencies (including the tail click, the vectorised search matching the
+looped one bit for bit, and the stereo image surviving), the touch strip's
+decoding against the document's claim, the count-in ring, the beat pulse losing
+every collision, and a variation arriving on the pass it says and reaching the
+bounced file, every internal doc link, and every older project format still
+loading.
 No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap

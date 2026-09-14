@@ -141,6 +141,8 @@ depends on the mode — on the settings and editor pages, one per column.
 
 | | |
 | --- | --- |
+| `strip 0.5` | touch the strip halfway up (0 is the bottom, 1 the top) |
+| `strip off` | take your finger off it -- not the same as touching the middle |
 | `wait 2.5` | let the transport run 2.5 seconds |
 | `g` / `s` | print the grid and status again |
 | `?` | print the command list |
@@ -351,6 +353,30 @@ shift off
 p 0              # highlight the first entry
 p 0              # and open it, or import it
 session
+
+# vary the part across passes, then freeze it
+p 0
+shift on
+clip             # the living song page
+shift off
+k 1 +3           # every 4 passes
+k 2 +2           # three extra bars, spread through the gaps
+k 3 -2           # Shift+Record will freeze 2 passes
+b8               # clear it again
+undo
+
+# at another tempo
+p 0
+b6               # off -> whatever this material wants -> the other -> off
+b6
+b6
+
+# the strip: scrub while stopped, pick a loop range with Shift
+strip 0.25
+strip off
+shift on
+strip 0.5
+shift off
 
 # which loops fit together (the verdicts need real audio: see the note below)
 p 0
