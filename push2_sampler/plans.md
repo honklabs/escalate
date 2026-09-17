@@ -338,9 +338,9 @@ to be wrong.
 
 ## 4. Release trains
 
-Every one of the 61 items below is scheduled here. Creature comforts are
-deliberately spread across all five trains: each release should contain
-something that makes the instrument nicer to touch, not only bigger.
+Every one of the 62 items below is scheduled here. Creature comforts are
+deliberately spread across the trains: each release should contain something
+that makes the instrument nicer to touch, not only bigger.
 
 | Release | Theme | Contents |
 | --- | --- | --- |
@@ -350,6 +350,7 @@ something that makes the instrument nicer to touch, not only bigger.
 | ~~**v1.4 — Plays with others**~~ | sync, import, and a verified surface | **complete** — ~~`F-08`~~ ~~`NF-02`~~ ~~`NF-08`~~ ~~`NF-09`~~ ~~`NH-02`~~† ~~`NH-11`~~ ~~`NH-12`~~ |
 | ~~**v1.5 — Watch it play**~~ | the song as a performance, not an edit | **complete** — ~~`NF-12`~~ ~~`CC-19`~~ ~~`CC-20`~~ |
 | ~~**v2.0 — Instrument**~~ | the ideas nobody else has | **complete** — ~~`IN-01`~~ ~~`IN-02`~~† ~~`IN-03`~~ ~~`IN-04`~~† ~~`IN-05`~~† ~~`IN-06`~~† ~~`IN-07`~~† ~~`IN-08`~~ ~~`NH-09`~~† ~~`NH-10`~~† |
+| ~~**v2.1 — Editing by ear**~~ | you decide with your ears, not with a number | **complete** — ~~`IN-09`~~ |
 
 A struck item is shipped. `F-08` is struck because the *tool* is shipped; the
 human pass with a real Push 2 in hand is the one open thing this project cannot
@@ -2622,6 +2623,136 @@ the middle row.
 `coach` is **off by default**, like the other post-take options: being told how
 tight you are is useful when you asked for it and discouraging when you did
 not.
+
+---
+
+### IN-09 — Trim by ear `size: M`
+
+**Problem.** `NF-03` gave trim to two encoders, in milliseconds, against a
+64-pad picture of the take. That is fine for *adjusting* a trim and hopeless
+for *finding* one. Finding the start of a loop means turning a knob, listening,
+turning it back, listening again — and between two listens the sound is gone, so
+you are comparing what you hear against a memory of what you heard. Nobody
+edits audio that way if a machine will loop it for them.
+
+**Idea.** Never stop the sound. The take plays; you **tap when you hear the
+point**; the program then loops a very short window around that point so the
+decision becomes a *comparison* rather than a recollection, and the knobs move
+the point while you keep listening. Accept it and the take plays on, so you can
+mark the end the same way.
+
+One button runs the whole thing, and it always means the same thing: **"that's
+it."** While you are hunting, that means *here is the point*. While you are
+tuning, it means *the point is right, move on*.
+
+**Spec.** `Select` on the sample editor opens it, and `Select` is the button
+that then drives all four stages:
+
+| stage | what you hear | a press does | a pad does | the knobs do |
+| --- | --- | --- | --- | --- |
+| 1 · hunting the start | the whole take, looping | marks the start **here** | marks the start **here** | — |
+| 2 · tuning the start | a short loop **from** the start | accepts it → 3 | — | move the point |
+| 3 · hunting the end | from the start onward, looping | marks the end **here** | marks the end **here** | — |
+| 4 · tuning the end | a short loop **up to** the end | accepts it → done | — | move the point |
+
+- **A pad marks the point as well as the button**, in both hunting stages. The
+  user asked for the pad and the pad is the better gesture: your hand is already
+  over the grid, and a pad is a percussion surface, so tapping in time with what
+  you hear is more accurate than reaching for a button at the edge. The button
+  does it too, so the whole flow can be driven one-handed from one key. In a
+  hunting stage *any* pad means "now" — the grid is a picture of the take at
+  that moment, not a set of 64 destinations, and a pad that meant "jump here"
+  in one stage and "now" in another would make the grid unreadable.
+- **The window is asymmetric, and that is the point of it.** For a start the
+  window runs *forward* from the point, so what you hear at the seam is the
+  attack. For an end it runs *back* to the point, so what you hear at the seam
+  is the cut. In each case the edge you are judging is the one the loop puts
+  under your ear.
+- **Fade the edge you are not judging.** A raw window looped in place clicks at
+  the seam. So a start window is faded at its *tail* and left sharp at the head;
+  an end window is faded at its *head* and left sharp at the tail. The seam is
+  then smooth at the far end and honest at the end you care about — and if a
+  start lands mid-sustain, the seam clicks, which is the truth and worth
+  hearing.
+- **Encoder 1 coarse (20 ms), encoder 2 fine (1 ms), encoder 3 the window
+  length** (40–1000 ms). Two knobs because one knob with a good step size for
+  hunting is a bad one for the last millisecond, and window length because
+  40 ms is right for a snare and 600 ms for a vocal entry.
+- **Button 1 under the display snaps to the nearest transient.** `IN-01` already
+  finds them for slicing, so this is a lookup, and it is the single biggest help
+  with the thing the stage exists for.
+- **The grid magnifies while tuning.** In a hunting stage the 64 pads are the
+  take with a playhead running across them. In a tuning stage they are a
+  *zoomed* view, about four windows wide, centred on the point — so the grid
+  answers "what am I about to cut" at the resolution the knobs are working at.
+- **It commits as `Edits`, in one undo step.** Nothing destructive: the result
+  is `trim_start_ms` and `trim_end_ms`, which is what the editor's own encoders
+  write, so the editor's picture and `Shift`+`Device` keep working unchanged.
+  `Delete` at any stage abandons the whole thing.
+
+**Code.** `audio.py` (an *audition* voice: a looping preview on a negative slot
+so the scheduler's gate and loop-renewal logic pass it by, plus its playback
+position published once a block the way `sounding` already is),
+`modes/trim.py` (the state machine), `history.py` (`SetTrim`, both trims as one
+step), `modes/sample_edit.py` (the `Select` binding), `waveform.py` (the
+envelope drawing `sample_edit` and `slice` had each copied).
+
+**Tests.** The four stages advance on the button and nowhere else; a pad marks
+the point in a hunting stage and is ignored in a tuning stage; the start window
+runs forward and the end window backward; the faded edge is the one *not* being
+judged and the judged edge is untouched; the point captured is the playhead the
+engine published, not a guess from wall-clock time; coarse and fine steps differ
+and both clamp inside the take; the end can never cross the start; the commit is
+one undo step and restores both trims together; `Delete` leaves the sample
+exactly as it was; the audition voice survives a bar line with the transport
+running, and is released on exit.
+
+**Shipped.** Four bugs are worth recording, because all four were in the same
+place — **the audition voice's lifetime and its position** — and none of them
+was visible to a test that drove the page on its own. They only appear when
+something *else* touches the engine, which is exactly the seam a new kind of
+voice introduces.
+
+1. **`Stop` silenced the page for good.** `Engine._stop_now` calls
+   `_release_all()` with no `samples_only`, so it takes negative slots too —
+   and nothing was putting the audition back. The page went quiet mid-decision
+   with its published playhead frozen, so the *next tap marked frame 0* and
+   wrote a wrong trim. Arming a take and voice stealing had the same effect.
+   The negative slot was the right call for the scheduler (a bar line must not
+   gate an audition) but it is not a general exemption, and treating it as one
+   was the mistake. The engine now publishes `auditioning`, and the page
+   re-posts when it stops being true — with a latch, so a freshly posted
+   audition that has not reached a callback yet is not mistaken for a stopped
+   one and re-posted every tick forever.
+2. **Four buttons could bury the page while it was still making sound.**
+   `Mix`, `Clip`, `Browse` and `Setup` reach `App._global_button`, which opens
+   their pages with `push_mode` — and **`push_mode` does not call `on_exit` on
+   the mode it covers**. Trim's `on_exit` was the only thing stopping the
+   audition, and its `on_tick` no longer ran, so the loop played on forever
+   under a mixer. An allowlist of those four would go stale the next time a
+   page is added, so the page now *claims* every button it does not use: while
+   it owns your ears it owns the surface, and says so.
+3. **Replacing an audition clicked when the outgoing loop was near the end of
+   its buffer.** `_mix`'s looping branch required `releasing is None`, so a
+   released loop took the linear path and was dropped the moment `pos` reached
+   the buffer end — truncating the 10 ms release to whatever level the ramp had
+   got to. With a 40 ms window that is about a quarter of every encoder tick.
+   A release now wraps like anything else. This was **not** an `IN-09` bug: any
+   looping sample released at a bar line had the same edge, and had had it
+   since `NF-02`.
+4. **The published playhead was a block ahead of the speaker.** `voice.pos` was
+   read *after* the block was mixed, so it named audio that had been rendered
+   and not yet heard. Every tap therefore landed late — **in the same direction
+   as human reaction time**, so two errors that should be independent added
+   instead. It is now the position at the *start* of the rendered block. The
+   device's own output buffer is still unaccounted for; correcting for that
+   wants the number `CC-09` measures, and is worth doing if anyone reports
+   tapping consistently late.
+
+The lesson that generalises: **a new kind of voice is a new lifetime, and the
+existing code is full of things that end voices without knowing yours exists.**
+Publishing "is it still running" and healing from the answer is cheaper and
+more honest than auditing every caller of `_release_all`.
 
 ---
 

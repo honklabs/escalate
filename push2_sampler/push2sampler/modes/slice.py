@@ -45,6 +45,7 @@ from ..constants import (
 )
 from ..history import SliceTake
 from ..project import Sample
+from ..waveform import envelope, wave_line
 from .base import Mode
 
 #: How to cut, in the order of the buttons below the display.
@@ -318,13 +319,13 @@ class SliceMode(Mode):
                 pads[i] = colors.OFF.index
             return
         audio = sample.effective_audio(self.project.samplerate)
-        envelope = _envelope(audio, PAD_COUNT)
+        levels = envelope(audio, PAD_COUNT)
         total = max(1, audio.shape[0])
         # The pad each slice point falls on, so a cut is visible as a mark
         # rather than having to be counted.
         marks = {int(point / total * PAD_COUNT) for point in self.points}
         for pad in range(PAD_COUNT):
-            level = envelope[pad]
+            level = levels[pad]
             if pad in marks:
                 # A cut is white against the take's green, and flashes on the
                 # slice you last auditioned so "which one did I just hear" has
@@ -360,7 +361,7 @@ class SliceMode(Mode):
         head = (f"SLICE slot {self.slot + 1} {sample.name}  "
                 f"by {MODE_LABELS[self.how]}  {count} slice"
                 f"{'s' if count != 1 else ''}")
-        lines = [head, _wave_line(sample, self.project)]
+        lines = [head, wave_line(sample, self.project)]
         if self.how == BY_TRANSIENTS:
             lines.append(
                 f"sensitivity {self.sensitivity:.2f} (encoder 1)"
@@ -380,23 +381,3 @@ class SliceMode(Mode):
         return lines
 
 
-def _envelope(audio: np.ndarray, buckets: int) -> list[float]:
-    """Peak amplitude per bucket, the same shape the editor draws."""
-    if audio.shape[0] == 0:
-        return [0.0] * buckets
-    mono = np.abs(audio).max(axis=1)
-    edges = np.linspace(0, mono.shape[0], buckets + 1).astype(int)
-    return [
-        float(mono[a:b].max()) if b > a else 0.0
-        for a, b in zip(edges[:-1], edges[1:])
-    ]
-
-
-def _wave_line(sample, project, width: int = 44) -> str:
-    ramp = " .:-=+*#"
-    envelope = _envelope(sample.effective_audio(project.samplerate), width)
-    body = "".join(
-        ramp[min(len(ramp) - 1, int(level * len(ramp)))] for level in envelope
-    )
-    seconds = sample.frames / max(1, project.samplerate)
-    return f"[{body}] {seconds:.2f}s"

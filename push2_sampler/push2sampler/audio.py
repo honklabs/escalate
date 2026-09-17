@@ -68,6 +68,16 @@ METER_DECAY = 0.85
 #: Sample slots the engine keeps a level meter for: the whole library, all banks.
 MAX_SLOTS = 256
 
+#: Slot carried by the *audition* voice -- the looping preview trim-by-ear
+#: listens to (`IN-09`).
+#:
+#: Negative on purpose.  `_end_voices` and `_release_all(samples_only=True)`
+#: both skip a negative slot, so an audition is not gated at a bar line, not
+#: renewed or released by the scheduler, and not cut when the transport starts.
+#: It belongs to the page that asked for it, and only that page ends it.  A
+#: distinct value rather than the click's -1 so it can be released on its own.
+AUDITION_SLOT = -2
+
 MONITOR_OFF = "off"
 MONITOR_ON = "on"
 #: Monitor only while a take is running, which is when a player needs to hear it.
@@ -414,6 +424,23 @@ class Engine:
         #: same single-writer arrangement as ``sounding``.
         self.fired: tuple[int, ...] = ()
         self._firing: set[int] = set()
+        #: Where the audition voice has reached, in frames into its own buffer
+        #: (`IN-09`).  Callback-written and UI-read, like ``sounding``.
+        #:
+        #: Published rather than inferred, because a page that marks a point
+        #: from a wall clock is wrong by however much the stream is buffered,
+        #: drifts on every xrun, and has no idea where a loop wrapped.  This is
+        #: the frame the speaker is playing, which is the only number a person
+        #: tapping along is actually aiming at.
+        self.audition_frame: int = 0
+        #: Whether an audition is actually sounding right now.
+        #:
+        #: Published because plenty of things release every voice without
+        #: knowing an audition exists -- `Stop`, arming a take, voice stealing
+        #: -- and a page that assumed its loop was still running would go
+        #: silent in the middle of a decision with no way to notice.  Separate
+        #: from ``audition_frame`` because frame 0 is a real position.
+        self.auditioning: bool = False
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -847,6 +874,20 @@ class Engine:
         """Play a one-shot outside the transport (auditioning a sample)."""
         self._post(("voice", Voice(buf, gain, slot=slot)))
 
+    def audition(self, buf: np.ndarray, gain: float = 1.0) -> None:
+        """Loop ``buf`` until it is replaced or stopped (`IN-09`).
+
+        Replaces any audition already running rather than stacking on it, so a
+        page can hand over a new window on every encoder tick and hear one
+        thing.  The replacement fades rather than cuts, which is why the seam
+        is a dip and not a click while a knob is moving.
+        """
+        self._post(("audition", Voice(buf, gain, slot=AUDITION_SLOT,
+                                      play_mode=LOOP)))
+
+    def stop_audition(self) -> None:
+        self._post(("audition_off",))
+
     def trigger(self, buf: np.ndarray, gain: float = 1.0, slot: int = -1,
                 quantize_beats: float = 0.0) -> None:
         """Play a sample now, or on the next grid line if quantised.
@@ -930,6 +971,13 @@ class Engine:
             self._reanchor()
         elif kind == "voice":
             self._add_voice(command[1])
+        elif kind == "audition":
+            # One audition at a time: release the old before adding the new, so
+            # turning a knob moves the window instead of piling windows up.
+            self._release_slot(AUDITION_SLOT)
+            self._add_voice(command[1])
+        elif kind == "audition_off":
+            self._release_slot(AUDITION_SLOT)
         elif kind == "trigger":
             grid, voice = command[1], command[2]
             start = self._grid_start(grid)
@@ -1295,11 +1343,18 @@ class Engine:
     def _mix(self, seg: np.ndarray, n: int) -> None:
         if not self._voices:
             self.sounding = ()
+            self.audition_frame = 0
+            self.auditioning = False
             self._decay_slot_peaks(())
             return
         keep: list[Voice] = []
         sounding: set[int] = set()
         peaks: dict[int, float] = {}
+        # Only a *live* audition publishes its position.  The one fading out
+        # behind a knob movement is still in the list, and its position is the
+        # answer to a question nobody asked any more.
+        audition_at = 0
+        auditioning = False
         # The main mix is the FIRST PAIR, not every channel the device has.
         # Broadcasting a mono take across all of them would put the whole mix
         # on every cue pair, which is the opposite of what routing is for.
@@ -1307,7 +1362,16 @@ class Engine:
         for voice in self._voices:
             buf = voice.buf
             total = buf.shape[0]
-            if voice.play_mode == LOOP and voice.releasing is None:
+            if voice.play_mode == LOOP:
+                if voice.slot == AUDITION_SLOT and voice.releasing is None:
+                    auditioning = True
+                    # BEFORE the block is mixed, not after.  After, `pos` is the
+                    # end of audio that has been *rendered* and not yet heard --
+                    # a blocksize ahead of the speaker, plus the device's own
+                    # buffer.  Publishing that made every tap land late, in the
+                    # same direction as human reaction time, so the two errors
+                    # added instead of being independent.
+                    audition_at = voice.pos
                 filled = self._mix_looping(seg, voice, n, total, sounding, peaks)
                 if filled or voice.releasing is None:
                     keep.append(voice)
@@ -1347,6 +1411,8 @@ class Engine:
                 keep.append(voice)
         self._voices = keep
         self.sounding = tuple(sorted(sounding))
+        self.audition_frame = audition_at
+        self.auditioning = auditioning
         self._decay_slot_peaks(peaks)
 
     def _mix_looping(self, seg, voice: Voice, n: int, total: int,
@@ -1371,6 +1437,15 @@ class Engine:
             if voice.pos >= total:
                 voice.pos = 0
             k = min(n - filled, total - voice.pos)
+            if voice.releasing is not None:
+                # A release has to keep wrapping too, or a voice released near
+                # the end of its buffer runs out of audio mid-fade and stops on
+                # whatever sample it had reached -- which is the click the fade
+                # exists to prevent.  It showed up as `IN-09` replacing an
+                # audition (a 40 ms window is released near its end a quarter
+                # of the time), but every looping sample released at a bar line
+                # had the same edge.
+                k = min(k, self._release_frames - voice.releasing)
             if k <= 0:
                 break
             chunk = voice.buf[voice.pos : voice.pos + k]
@@ -1396,6 +1471,8 @@ class Engine:
                     level = float(np.max(np.abs(chunk))) * abs(voice.gain)
                     peaks[voice.slot] = max(peaks.get(voice.slot, 0.0), level)
             voice.pos += k
+            if voice.releasing is not None:
+                voice.releasing += k
             filled += k
         return filled
 

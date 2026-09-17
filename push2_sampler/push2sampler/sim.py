@@ -92,6 +92,9 @@ BUTTONS = {
     "browse": Btn.BROWSE,
     "select": Btn.SELECT,
     "tag": Btn.SELECT,
+    # IN-09.  The same button all the way through, so the alias reads the same
+    # whether it is opening trim-by-ear or stepping it on.
+    "trim": Btn.SELECT,
     "velocity": Btn.ACCENT,
     "fixed": Btn.FIXED_LENGTH,
     # Contextual buttons under the display, claimed per mode.

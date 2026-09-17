@@ -648,6 +648,21 @@ applied on the way to the mixer, so you can change them for as long as you like,
 undo any of them, and still have the original take. `Shift`+`Device` folds them
 in for good when you are sure — and even that is one undo step.
 
+`Select` in the editor **trims it by ear instead, without ever stopping the
+sound.** The take plays round and round; you tap any pad the moment you hear
+where it should start; a very short loop of that spot then plays over and over
+while the knobs move it, so you are comparing two candidates rather than
+comparing one against a memory. `Select` accepts it, the take plays on, and you
+mark the end the same way. One button, and it always means the same thing:
+*that's it.*
+
+The two short loops are deliberately different shapes -- a start loop runs
+forward from the point so the seam is the attack, an end loop runs back to it so
+the seam is the cut -- and the anti-click fade goes on the edge you are *not*
+judging, because a start faded in sounds clean whether or not it clips the
+attack. A click at the seam therefore means something: your start has landed
+mid-note.
+
 A trimmed take is shorter than its bars, so it will show up as off-grid
 (yellow in the library). That is not a bug: the loop really is shorter now, and
 you either meant it or you repair it.
@@ -729,7 +744,7 @@ means resampling every take that is already loaded.
 | `Page ◀` / `Page ▶` | bank A-D · `Shift`+`Page` moves the song page instead |
 | `Clip` | the song overview -- again to zoom out, then to leave |
 | `Browse` | the project browser |
-| `Select` | Sample page: name and colour this slot |
+| `Select` | Sample page: name and colour this slot · Editor: trim it by ear |
 | buttons below the display | Library: the eight scenes (`Shift` stores) |
 | `▲` / `▼` | Sample page: jump to the previous / next filled slot |
 | `Tap Tempo` | four taps set the tempo · `Shift`+`Tap` discards them |
@@ -900,7 +915,7 @@ program is built to be corrected on.
 python tools/feature_page.py feature-grid.html
 ```
 
-Builds the public feature page -- all 61 items on a 64-pad grid, coloured with
+Builds the public feature page -- all 62 items on a 64-pad grid, coloured with
 the program's own pad meanings -- from `plans.md`. Every item's code, title,
 size, release and shipped state is read from the plan; the test count is read by
 collecting the suite; the item the page opens on is read from `CHANGELOG.md`,
@@ -960,11 +975,11 @@ No hardware, PortAudio or MIDI stack is needed — only `numpy`.
 
 ## Roadmap
 
-`plans.md` is the product plan: 61 items across foundations, new features,
+`plans.md` is the product plan: 62 items across foundations, new features,
 nice-to-haves, innovative bets and creature comforts, with the conventions
 (button allocation registry, file-contention map, definition of done) that let
-several people work on it at once. **55 are shipped: every train up to v1.5,
-and four of the v2.0 ideas**; each carries a status note saying what was built and
+several people work on it at once. **All 62 are shipped, every train
+through v2.1**; each carries a status note saying what was built and
 where it deviated from the plan. [`CHANGELOG.md`](CHANGELOG.md) is the release
 record.
 

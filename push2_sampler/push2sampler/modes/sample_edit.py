@@ -17,8 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from .. import colors
 from ..constants import (
     BTN_BRIGHT,
@@ -30,6 +28,7 @@ from ..constants import (
     Btn,
 )
 from ..history import ApplyEdits, SetEdit, SetGain
+from ..waveform import envelope, wave_line
 from .base import Mode
 
 
@@ -130,6 +129,13 @@ class SampleEditMode(Mode):
             if index < len(PARAMS):
                 self._reset_or_toggle(PARAMS[index])
             return True
+        if cc == Btn.SELECT and sample is not None:
+            # IN-09.  The button that opens it is the button that drives it, so
+            # the whole sequence is one key from start to finish.
+            from .trim import TrimMode
+
+            self.app.push_mode(TrimMode(self.app, self.slot))
+            return True
         if cc in (Btn.SESSION, Btn.NOTE, Btn.LEFT):
             self.app.pop_mode()
             return True
@@ -186,9 +192,9 @@ class SampleEditMode(Mode):
             for i in range(PAD_COUNT):
                 pads[i] = colors.OFF.index
             return
-        envelope = _envelope(sample.audio, PAD_COUNT)
+        levels = envelope(sample.audio, PAD_COUNT)
         kept = _kept_range(sample, self.project.samplerate)
-        for i, level in enumerate(envelope):
+        for i, level in enumerate(levels):
             if not kept[0] <= i < kept[1]:
                 pads[i] = colors.RED_DIM.index  # about to be trimmed away
             elif level >= LOUD:
@@ -204,6 +210,7 @@ class SampleEditMode(Mode):
         sample = self.sample
         buttons[Btn.DEVICE] = BTN_BRIGHT
         buttons[Btn.SESSION] = BTN_ON
+        buttons[Btn.SELECT] = BTN_ON if sample is not None else BTN_DIM
         for index, cc in enumerate(DISPLAY_ROW_BOTTOM):
             if index >= len(PARAMS):
                 buttons[cc] = BTN_DIM
@@ -219,7 +226,7 @@ class SampleEditMode(Mode):
         if sample is None:
             return ["EDIT"]
         pending = "" if sample.edits.is_default else "   Shift+Device applies"
-        lines = [f"EDIT slot {self.slot + 1}{pending}", _wave_line(sample, self.project)]
+        lines = [f"EDIT slot {self.slot + 1}{pending}", wave_line(sample, self.project)]
         row: list[str] = []
         for param in PARAMS:
             row.append(f"{param.label} {param.format(self._value(param))}")
@@ -228,19 +235,8 @@ class SampleEditMode(Mode):
                 row = []
         if row:
             lines.append("   ".join(row))
+        lines.append("Select: trim it by ear instead")
         return lines
-
-
-def _envelope(audio: np.ndarray, buckets: int) -> list[float]:
-    """Peak amplitude per slice of the take, for drawing it."""
-    if audio.shape[0] == 0:
-        return [0.0] * buckets
-    mono = np.abs(audio).max(axis=1)
-    edges = np.linspace(0, mono.shape[0], buckets + 1).astype(int)
-    return [
-        float(mono[a:b].max()) if b > a else 0.0
-        for a, b in zip(edges[:-1], edges[1:])
-    ]
 
 
 def _kept_range(sample, samplerate: int) -> tuple[float, float]:
@@ -251,12 +247,3 @@ def _kept_range(sample, samplerate: int) -> tuple[float, float]:
     start = sample.edits.trim_start_ms * samplerate / 1000.0
     end = total - sample.edits.trim_end_ms * samplerate / 1000.0
     return (start / total * PAD_COUNT, max(0.0, end) / total * PAD_COUNT)
-
-
-def _wave_line(sample, project, width: int = 44) -> str:
-    """The take as one line of text, so it reads with or without the screen."""
-    ramp = " .:-=+*#"
-    envelope = _envelope(sample.effective_audio(project.samplerate), width)
-    body = "".join(ramp[min(len(ramp) - 1, int(level * len(ramp)))] for level in envelope)
-    seconds = sample.frames / max(1, project.samplerate)
-    return f"[{body}] {seconds:.2f}s"

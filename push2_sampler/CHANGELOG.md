@@ -10,6 +10,129 @@ plan.
 
 ---
 
+## v2.1.0 — Editing by ear
+
+One item, `IN-09`: **trim a take without ever stopping the sound.**
+
+### Trim by ear (`IN-09`)
+
+`Select` in the editor. The take plays round and round; you **tap any pad** the
+moment you hear where it should start; a very short loop of that spot then plays
+over and over while the knobs move it. `Select` accepts it, the take plays on,
+and you mark the end the same way.
+
+One button drives all four stages, and it always means the same thing: **that's
+it.** While you are hunting, that means *here is the point*; while you are
+tuning, *the point is right, move on*. It is the button that opens the page as
+well, so the whole gesture is one key.
+
+**Why it exists.** `NF-03` already had trim on two encoders, in milliseconds,
+next to a 64-pad picture of the take — a good way to *adjust* a trim and a poor
+way to *find* one. Finding the start of a loop goes turn, listen, turn back,
+listen, and between two listens the sound is gone, so you end up comparing what
+you hear against a *memory* of what you heard. Looping a short window turns the
+same decision into a comparison, which is a different and much easier task.
+
+**The window is asymmetric, and that turned out to be the whole design.** A
+start window runs *forward* from the point, so the sound at the loop seam is the
+attack; an end window runs *back* to the point, so the sound at the seam is the
+cut. Whichever edge you are judging is the one the loop puts under your ear.
+
+**And the anti-click fade goes on the edge you are *not* judging.** This was the
+build's one real finding. The first version faded both ends of the window,
+which is the obvious thing to do — and it made every start sound clean whether
+or not it clipped the attack, which is precisely the question the page exists to
+answer. So a start window is faded at its tail and an end window at its head.
+The consequence is that a start landing mid-sustain now clicks at the seam, and
+that click is *information*: it is telling you where you are. There is a test
+asserting the judged edge is untouched, because this is the kind of thing a
+later tidy-up would "fix".
+
+Also: encoder 1 coarse at 20 ms and encoder 2 fine at 1 ms, because one step
+size cannot both cross a bar and settle the last millisecond; encoder 3 sets how
+much you hear, 40 ms for a snare and 600 ms for a vocal entry; button 1 snaps to
+the nearest attack, reusing the onset detection `IN-01` already had; the grid
+magnifies to a few window-lengths either side of the point while tuning, because
+a picture that cannot show what a knob does is a decoration. `Delete` abandons
+everything.
+
+It writes `trim_start_ms` and `trim_end_ms` — the editor's own fields — so
+nothing downstream needed to learn anything, and the result is **one** undo step
+covering both ends (`SetTrim`; two `SetEdit`s would have been two presses of
+`Undo`).
+
+### The audition voice
+
+New in the engine: a **looping preview on a negative slot**, plus its playback
+position published once a block.
+
+The negative slot is the load-bearing part. `_end_voices` and
+`_release_all(samples_only=True)` both skip a negative slot, so an audition is
+not gated at a bar line, not renewed or released by the scheduler, and not cut
+when the transport starts — it belongs to the page that asked for it and only
+that page ends it. Without that, the first bar line would silence the page
+mid-decision.
+
+The published position is the other half. A page that timed the audition from a
+wall clock would be wrong by however much the output stream is buffered, would
+drift on every dropout, and would have no idea where a loop had wrapped — so
+the frame a person tapping along is actually aiming at is the one the *callback*
+last played. `Engine.audition_frame` is callback-written and UI-read, the same
+single-writer arrangement `sounding` and `fired` already use.
+
+### Four bugs a review found, all in one place
+
+Every one was in the **audition voice's lifetime or its position**, and none
+was visible to a test that drove the page on its own — they only show up when
+something *else* touches the engine. That is the seam a new kind of voice
+introduces, and it is where to look next time.
+
+- **`Stop` silenced the page for good.** `_stop_now` releases every voice,
+  negative slots included, and nothing put the audition back. The page went
+  quiet mid-decision with its playhead frozen, so the *next tap marked frame 0*
+  and wrote a wrong trim. Arming a take and voice stealing did the same. The
+  negative slot was right for the scheduler and is not a general exemption;
+  treating it as one was the mistake. The engine now publishes `auditioning`
+  and the page heals from it.
+- **Four buttons could bury the page while it was still sounding.** `Mix`,
+  `Clip`, `Browse` and `Setup` open with `push_mode`, and **`push_mode` does
+  not call `on_exit` on the mode it covers** — so the loop played on forever
+  underneath a mixer, with no `on_tick` left to stop it. The page now claims
+  every button it does not use: while it owns your ears it owns the surface.
+- **Replacing an audition clicked** when the outgoing loop was within the 10 ms
+  release of its buffer end: `_mix`'s looping branch required
+  `releasing is None`, so a released loop took the linear path and was dropped
+  at the buffer end mid-fade. A release now wraps like anything else. **This
+  was not a new bug** — every looping sample released at a bar line has had
+  that edge since `NF-02`.
+- **The published playhead was a block ahead of the speaker**, because
+  `voice.pos` was read *after* the block was mixed. So every tap landed late,
+  in the same direction as reaction time, and two errors that should be
+  independent added instead. It is the position at the *start* of the rendered
+  block now. The device's own output buffer is still unaccounted for; that
+  wants `CC-09`'s measured number and is worth doing if anyone reports tapping
+  consistently late.
+
+### Also
+
+- `waveform.py`: `envelope` and `wave_line` had been copied into `sample_edit`
+  and `slice` independently, and this would have been the third copy. Two
+  copies of a function are a coincidence; three are a bug waiting to be fixed
+  in only two of them.
+- A bug the tests found: pressing straight through the stages with the
+  transport idle marks every point at frame 0, so "the end is here, at the
+  beginning" has to mean the shortest legal take rather than an empty one.
+  Both points are now kept at least 10 ms apart, and there is a test for it —
+  a sample of no length is something every later stage of the program would
+  otherwise need an opinion about.
+- Two tests written before the playhead fix had asserted the bug: they expected
+  the frame published after a block to be the *end* of it. Worth noting because
+  a test can pin a defect as firmly as it pins a feature.
+
+54 new tests; 1710 in total.
+
+---
+
 ## v2.0.1 — The display, seen
 
 **The colour display rendered on real hardware for the first time.** A

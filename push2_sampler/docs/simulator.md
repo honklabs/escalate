@@ -108,7 +108,7 @@ down: `hold tap` then `t +3` is the ±0.1 BPM nudge.
 Names: `play` `stop` `record`/`rec` `metronome`/`click` `repeat`/`loop` `mute`
 `delete` `duplicate`/`dup` `tap` `new`/`layer` `mix`/`mixer` `solo`
 `convert`/`slice` `layout`/`about`/`info` `automate`/`pattern`
-`clip`/`song` `browse` `select`/`tag` `pageleft`/`pl` `pageright`/`pr`
+`clip`/`song` `browse` `select`/`tag`/`trim` `pageleft`/`pl` `pageright`/`pr`
 `session`/`library`/`back` `left` `up` `down` `setup` `undo` `quantize`/`fixed`
 `scale`/`harmony`
 `accent`/`velocity` `device`/`edit` `repair`/`fit`.
@@ -330,6 +330,19 @@ device
 k 1 +10          # trim 50ms off the front
 k 4 +25          # 50ms fade out
 k 8 +1           # normalise on
+
+# or find the trim by ear instead (IN-09)
+trim             # Select: the take starts looping
+wait 0.3         # listen -- the point you tap is wherever it has got to
+p 0              # "the start is here" -- any pad will do
+b1               # snap to the nearest attack, if one is within 250ms
+k 2 -3           # fine: 3ms earlier
+trim             # that's it; it plays on from there
+wait 0.8         # listen again
+p 0              # "the end is here"
+k 1 -1           # coarse: 20ms earlier
+trim             # done -- one undo step, both ends
+
 device           # close the editor
 
 # velocity-sensitive, then perform it

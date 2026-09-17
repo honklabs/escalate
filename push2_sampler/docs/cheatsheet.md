@@ -128,7 +128,7 @@ to another page of 64.
 | **Shift**+**New** | remove the last overdubbed layer |
 | **Mute** | mute this sample (`MUTED` on the display) |
 | **Accent** | velocity sensitivity: `flat` ⇄ `velocity` |
-| **Device** | open the editor |
+| **Device** | open the editor (then **Select** trims it by ear) |
 | **Convert** | slice this take across the pads |
 | **Layout** | what this take sounds like, and a name for it |
 | **Scale** | which other loops fit with this one |
@@ -485,11 +485,55 @@ toggles:
 
 | Control | Does |
 | --- | --- |
+| **Select** | trim it by ear instead (below) |
 | **Device** | close the editor |
 | **Shift**+**Device** | apply the edits to the recording for good (undoable) |
 
 Nothing here touches the recording until you ask it to. Every turn is one undo
 step, and turns within 1½ seconds of each other merge into one.
+
+---
+
+## Trim by ear (**Select** in the editor)
+
+It never stops playing. **Select** does everything, and always means the same
+thing: **that's it.**
+
+```
+Select      the take starts looping
+tap a pad   "the start is here"
+turn        until the short loop sounds right
+Select      that's it -- it plays on
+tap a pad   "the end is here"
+turn        until it sounds right
+Select      done
+```
+
+| Stage | You hear | A pad | The knobs |
+| --- | --- | --- | --- |
+| 1 find the start | the whole take, looping | marks it **here** | — |
+| 2 tune the start | a short loop **from** the start | — | move it |
+| 3 find the end | from the start on, looping | marks it **here** | — |
+| 4 tune the end | a short loop **up to** the end | — | move it |
+
+| Control | Does |
+| --- | --- |
+| **Select** | mark the point, or accept it |
+| any pad | mark the point (hunting stages) |
+| encoder 1 / 2 | coarse 20 ms / fine 1 ms |
+| encoder 3 | how much you hear, 40–1000 ms |
+| **button 1** | snap to the nearest attack |
+| **button 8** | back to the take's edge |
+| **Delete** | give up; the take is untouched |
+
+Any pad, not the one under the playhead: you are tapping in time, not aiming.
+
+The start loop runs **forward** from the point and the end loop runs **back** to
+it, so the edge you are judging is the one at the loop seam. The anti-click fade
+goes on the *other* edge — so **a click at the seam means your start has landed
+mid-note**, which is worth hearing rather than smoothing away.
+
+Writes the editor's own `trim in`/`trim out`, as **one** undo step.
 
 ---
 

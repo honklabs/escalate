@@ -12,7 +12,7 @@ same material, read [Getting started](getting-started.md) instead.
   [Living song](#living-song-page) ·
   [Slice](#slice-page) ·
   [About](#about-page) · [Pattern](#pattern-page) ·
-  [Editor](#sample-editor) ·
+  [Editor](#sample-editor) · [Trim by ear](#trim-by-ear) ·
   [Perform](#perform-mode) · [Song](#song-page) · [Mixer](#mixer-page) ·
   [Output routing](#output-routing) · [Browser](#project-browser) ·
   [Import](#import-browser) · [Naming](#naming-and-colouring-a-slot) ·
@@ -1106,6 +1106,7 @@ a switch.
 
 | Control | Action |
 | --- | --- |
+| **Select** | Open [trim by ear](#trim-by-ear) — find the trim by listening instead |
 | **Device** | Close the editor |
 | **Shift**+**Device** | Apply the edits to the recording for good (undoable) |
 | **Session**, **Note**, **◀** | Close |
@@ -1118,6 +1119,67 @@ twice as fast and is half as long.
 
 Trimming makes a take shorter than its bars, so it will show as
 [off grid](#off-grid-takes). That is correct, not a fault.
+
+### Trim by ear
+
+**Select** from the editor. The encoders above are a good way to *adjust* a
+trim and a poor way to *find* one, because between two listens the sound is
+gone and you end up comparing what you hear against a memory of what you heard.
+This page never stops the sound.
+
+**Select** drives the whole thing, and it always means the same thing: **that's
+it.** While you are hunting, that means *here is the point*; while you are
+tuning, it means *the point is right, move on*.
+
+| Stage | What you hear | **Select** does | A pad does | The knobs do |
+| --- | --- | --- | --- | --- |
+| 1 · find the start | the whole take, looping | marks the start **here** | marks the start **here** | nothing |
+| 2 · tune the start | a short loop **from** the start | accepts it → 3 | nothing | move the point |
+| 3 · find the end | from the start onward, looping | marks the end **here** | marks the end **here** | nothing |
+| 4 · tune the end | a short loop **up to** the end | accepts it, and you are done | nothing | move the point |
+
+So the whole gesture is: listen, tap when you hear the start, turn the knob
+until it is right, **Select**, listen on, tap when you hear the end, turn,
+**Select**.
+
+**Any pad means "now".** Not the pad under the playhead — you are tapping in
+time with what you hear, not aiming — so any of the 64 will do. Use the pads
+rather than **Select** for the marking if you can: your hand is already over
+the grid and a pad is a percussion surface, so it is more accurate. **Select**
+does the same job for anyone who would rather drive it from one key.
+
+| Control | Action |
+| --- | --- |
+| **Select** | That's it — mark the point, or accept it |
+| Any pad | Mark the point (hunting stages only) |
+| Encoder 1 | Coarse, 20 ms a click (tuning stages) |
+| Encoder 2 | Fine, 1 ms a click (tuning stages) |
+| Encoder 3 | How much you hear: 40–1000 ms, 200 ms to start with |
+| Button 1 | Snap the point to the nearest attack |
+| Button 8 | Put the point back to the take's own edge |
+| **Delete** | Give up; the take is exactly as it was |
+| **Device**, **Session**, **Note**, **◀** | Also give up |
+
+The two short loops are deliberately **not** the same shape. A start loop runs
+*forward* from the point, so the sound at the loop seam is the **attack**; an
+end loop runs *back* to the point, so the sound at the seam is the **cut**.
+Whichever edge you are judging is the one put under your ear.
+
+The fade that stops the seam clicking goes on the **other** edge — the one you
+are not judging. That matters: a start faded in sounds clean whether or not it
+clips the attack, which is the one thing this page must never do. So if a start
+lands in the middle of a sustained note you will hear a click at the seam. That
+is the truth, and it is telling you where you are.
+
+While you are tuning, **the grid magnifies**: instead of the whole take it
+shows about four loop-lengths either side of the point, so the picture is at the
+resolution the knobs are working at.
+
+It writes the same `trim in` and `trim out` the editor's own encoders write, so
+nothing here is a separate kind of trim — the editor's picture, **Shift**+**Device**
+and everything downstream carry on unchanged. The result is **one** undo step
+covering both ends. Opening the page a second time picks up the trim already
+there rather than starting over.
 
 ### Perform mode
 
@@ -2165,6 +2227,6 @@ So you do not go looking:
   right-hand edge, both fixed. The one thing still unconfirmed is the BGR565
   channel order, which a black background cannot reveal.
 
-`plans.md` in the project root tracks all of it: 55 of the 61 planned items are
-shipped — every release train up to `v1.5`, and four of the ten `v2.0` ideas.
+`plans.md` in the project root tracks all of it: all 62 planned items are
+shipped, every release train through `v2.1`.
 [`CHANGELOG.md`](../CHANGELOG.md) is the release record.

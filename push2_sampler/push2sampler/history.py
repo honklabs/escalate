@@ -1080,6 +1080,46 @@ class SetEdit(Command):
 
 
 @dataclass
+class SetTrim(Command):
+    """Both trims at once, as one step (IN-09).
+
+    Trim-by-ear settles the start and the end in one sitting, and taking that
+    back should be one press of `Undo` rather than two -- a person who abandons
+    the result wants the take they had before they started, not the half-trimmed
+    thing they had in the middle.  `SetEdit` cannot express that: it is one
+    field, and two of them are two steps however close together they land.
+    """
+
+    slot: int
+    start_ms: float
+    end_ms: float
+    previous_start_ms: float
+    previous_end_ms: float
+
+    @property
+    def label(self) -> str:
+        if not self.start_ms and not self.end_ms:
+            return f"slot {self.slot + 1}: trim cleared"
+        return (f"slot {self.slot + 1}: trim {self.start_ms:.0f}ms in, "
+                f"{self.end_ms:.0f}ms off the end")
+
+    def _write(self, project, start, end) -> None:
+        sample = project[self.slot]
+        if sample is None:
+            return
+        sample.set_edits(sample.edits
+                         .with_value("trim_start_ms", float(start))
+                         .with_value("trim_end_ms", float(end)))
+        project.dirty = True
+
+    def apply(self, project) -> None:
+        self._write(project, self.start_ms, self.end_ms)
+
+    def revert(self, project) -> None:
+        self._write(project, self.previous_start_ms, self.previous_end_ms)
+
+
+@dataclass
 class ApplyEdits(Command):
     """Fold a sample's edits into its recording, keeping the original for undo."""
 

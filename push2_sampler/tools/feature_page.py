@@ -218,6 +218,9 @@ BLURBS = {
     "IN-08":
         "Shows you where your timing actually sits, bar by bar, without telling you "
         "off about it.",
+    "IN-09":
+        "Trim a take without stopping it: tap when you hear the point, then home in "
+        "on it with the knobs while a short loop plays it back to you.",
     "NH-09":
         "Make an old take fit a new tempo without re-cutting it: stretch it and "
         "keep the pitch, or resample it and let the pitch move.",

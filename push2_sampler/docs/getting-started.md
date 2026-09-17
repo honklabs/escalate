@@ -964,7 +964,61 @@ recording for good — and even that is one undo step.
 Note that trimming makes the take shorter than its bars, so it may go yellow per
 step 13. That is correct: the loop really is shorter now.
 
-### Step 35: name it, colour it
+### Step 35: trim it by ear instead
+
+The encoders are fine for *adjusting* a trim and poor for *finding* one. Turn,
+listen, turn back, listen — and between two listens the sound is gone, so you
+are comparing what you hear against a memory of what you heard.
+
+**Press Select** in the editor. Now it never stops.
+
+The take starts playing, round and round. **Tap any pad the moment you hear
+where the loop should start.** Any pad — you are tapping in time with what you
+hear, not aiming at a target.
+
+The moment you tap, a **short loop** of that spot starts playing over and over,
+so instead of remembering you are comparing. **Encoder 1** moves the point
+20 ms a click, **encoder 2** by 1 ms, and **button 1 snaps it to the nearest
+attack**, which is usually the whole job done. **Encoder 3** changes how much
+you hear — 40 ms for a snare, 600 ms for a vocal entry. The grid magnifies while
+you do this, showing a few loop-lengths either side of the point instead of the
+whole take.
+
+When it is right, **press Select** — that's it. The take plays on from there,
+and you do the same thing again for the end: **tap when you hear the end**, tune
+it, **Select**.
+
+So the whole gesture is:
+
+    Select        the take starts playing
+    tap a pad     "the start is here"
+    turn, turn    until the short loop sounds right
+    Select        that's it — it plays on
+    tap a pad     "the end is here"
+    turn, turn    until it sounds right
+    Select        done
+
+One button, and it always means the same thing: **that's it.** While you are
+hunting it means *here is the point*; while you are tuning it means *the point
+is right, move on*.
+
+Two details worth knowing, because they are what makes it work:
+
+**The short loop is a different shape at each end.** At the start it runs
+*forward* from the point, so what you hear at the loop seam is the **attack**.
+At the end it runs *back* to the point, so what you hear is the **cut**.
+Whichever edge you are deciding about is the one put under your ear.
+
+**A click at the seam is information.** The tiny fade that stops the loop
+clicking is put on the edge you are *not* judging, because a start faded in
+sounds clean whether or not it clips the attack. So if you hear a click, your
+start has landed in the middle of a sustained note. Move it.
+
+**Delete** gives up and leaves the take exactly as it was. Otherwise it writes
+the same `trim in` and `trim out` the encoders write, as **one** undo step, and
+you are back in the editor with your trim in place.
+
+### Step 36: name it, colour it
 
 Twenty takes called `S01` to `S20` are unfindable. There is no keyboard, and you
 do not need one.
@@ -980,7 +1034,7 @@ one again to clear it. Muted and sounding still look the way they always did.
 
 Both are one **Undo** each, and both are saved with the song.
 
-### Step 36: keep two versions of the arrangement
+### Step 37: keep two versions of the arrangement
 
 The eight buttons **below the display** in the library are scenes.
 
@@ -994,7 +1048,7 @@ audio, the gain or your edits — those belong to the take, not the arrangement.
 Recalling is one **Undo** step, so an A/B never costs you anything, and a recall
 while the song is playing lands on the next bar rather than chopping a note.
 
-### Step 37: start another song, without a terminal
+### Step 38: start another song, without a terminal
 
 **Press Browse.** The pads are the songs on disk: green has samples in it, dim
 white is empty, and dim amber is the one you have open.
@@ -1010,7 +1064,7 @@ white is empty, and dim amber is the one you have open.
 Opening a song saves the one you were in first, and swaps it in without
 restarting the audio, so there is no gap or click.
 
-### Step 38: undo
+### Step 39: undo
 
 **Undo** takes back the last 64 edits. **Shift**+**Undo** puts them back.
 
@@ -1032,7 +1086,7 @@ Two destructive gestures worth knowing, both undoable:
 If you ever lose track of what is armed, press **Stop** twice: it stops and
 disarms everything.
 
-### Step 39: bounce it
+### Step 40: bounce it
 
 **Hold Shift and press Record** in the library. The whole grid becomes one
 progress bar filling up in amber, and the display counts the percentage. It
